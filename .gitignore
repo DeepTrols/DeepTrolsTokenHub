@@ -1,0 +1,43 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test coverage
+coverage.out
+coverage.html
+coverage_*.out
+
+# Environment
+.env
+.env.local
+
+# Dependencies
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+web/node_modules/
+web/dist/
+web/coverage/
+
+# Temp
+tmp/
+
+# Vite temp
+web/vite.config.ts.timestamp-*
+
+# Vite temp
+web/vite.config.ts.timestamp-*

@@ -1,0 +1,116 @@
+# ============================================================
+# DeepTrols Docker Compose 模板
+#
+# 生产部署：
+#   cp .env.example .env
+#   # 在 .env 中设置强随机密钥：
+#   #   JWT_SECRET         openssl rand -hex 32
+#   #   ENCRYPTION_KEY     openssl rand -hex 16
+#   #   ADMIN_PASSWORD     强密码
+#   #   POSTGRES_PASSWORD  强密码
+#   #   LITELLM_MASTER_KEY 强密钥
+#   #   ENABLE_FAKE_PAYMENT=false（必须）
+#   docker compose up -d --build
+#
+# 安全兜底：即使 .env 未设置，下方默认值均为 DEV-ONLY 弱值；API 进程在
+# ENABLE_FAKE_PAYMENT=false（生产）时检测到弱密钥会拒绝启动（fail-fast）。
+# 本地开发：
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+# ============================================================
+
+x-api-env: &api-env
+  DATABASE_URL: ${DATABASE_URL:-postgresql://deeptrols:deeptrols_dev@postgres:5432/deeptrols?sslmode=disable}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  LITELLM_BASE_URL: ${LITELLM_BASE_URL:-http://litellm:4000}
+  LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-master-dev}
+  API_PORT: "8080"
+  API_HOST: 0.0.0.0
+  JWT_SECRET: ${JWT_SECRET:-change-me-in-production-jwt-secret}
+  JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-abcdefghijklmnopqrstuvwxyz123456}
+  TOTP_ISSUER: ${TOTP_ISSUER:-DeepTrols}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-deeptrols@admin.com}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-deeptrols@2026}
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+  # 资金安全：生产必须保持 false（false 时 API 拒绝弱密钥 + 关闭造币口）
+  ENABLE_FAKE_PAYMENT: ${ENABLE_FAKE_PAYMENT:-false}
+  # 平台内部主机名（docker 服务名），免除租户解析；未知 Host 一律 403
+  PLATFORM_HOSTS: ${PLATFORM_HOSTS:-api,web,worker}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-deeptrols}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deeptrols_dev}
+      POSTGRES_DB: deeptrols
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deeptrols}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    ports:
+      - "4000:4000"
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-master-dev}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-deeptrols}:${POSTGRES_PASSWORD:-deeptrols_dev}@postgres:5432/litellm
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Background workers: billing committer / health checker / reconciler.
+  # Same image as api; entrypoint overridden to ./worker.
+  worker:
+    build: .
+    # Dockerfile ENTRYPOINT 是 ./server，这里必须用 entrypoint 覆盖，
+    # 否则实际执行的命令是 `./server ./worker`（跑的是 API server 而非 worker）。
+    entrypoint: ["./worker"]
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build: ./web
+    ports:
+      - "3000:3000"
+    environment:
+      PROXY_TARGET: http://api:8080
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

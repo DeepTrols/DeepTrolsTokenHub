@@ -1,0 +1,62 @@
+# Dev override — use together with docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#
+# Frontend: Vite HMR via volume mounts  → no restart needed
+# Backend:  Air hot-reload via volume mounts → no restart needed
+# Worker:   runs the built worker binary alongside the dev api
+#
+# NOTE: this override provides weak dev credentials on purpose. Never use
+# docker-compose.dev.yml in production.
+
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: deeptrols_dev
+
+  litellm:
+    environment:
+      LITELLM_MASTER_KEY: sk-litellm-master-dev
+
+  api:
+    build:
+      dockerfile: Dockerfile.dev
+    environment:
+      DATABASE_URL: postgresql://deeptrols:deeptrols_dev@postgres:5432/deeptrols?sslmode=disable
+      # 容器内必须指向 redis 服务名（.env 的 localhost 只用于宿主机 go run）
+      REDIS_URL: redis://redis:6379/0
+      LITELLM_MASTER_KEY: sk-litellm-master-dev
+      JWT_SECRET: change-me-in-production-jwt-secret
+      ENCRYPTION_KEY: abcdefghijklmnopqrstuvwxyz123456
+      ADMIN_PASSWORD: deeptrols@2026
+      COOKIE_SECURE: "false"
+      CORS_ORIGIN: http://localhost:3000
+      # Demo money faucet: fake topup / redeem codes / signup bonus. Dev-only.
+      ENABLE_FAKE_PAYMENT: "true"
+    volumes:
+      - ./.air.toml:/app/.air.toml
+      - ./cmd:/app/cmd
+      - ./internal:/app/internal
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - go-mod-cache:/go/pkg/mod
+
+  worker:
+    build: .
+    entrypoint: ["./worker"]
+    environment:
+      DATABASE_URL: postgresql://deeptrols:deeptrols_dev@postgres:5432/deeptrols?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: sk-litellm-master-dev
+      JWT_SECRET: change-me-in-production-jwt-secret
+      ENCRYPTION_KEY: abcdefghijklmnopqrstuvwxyz123456
+      ADMIN_PASSWORD: deeptrols@2026
+      ENABLE_FAKE_PAYMENT: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  go-mod-cache:
