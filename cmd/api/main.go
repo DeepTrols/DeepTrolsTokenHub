@@ -81,6 +81,25 @@ func main() {
 			r.Get("/me", console.HandleMe(application))
 			r.Put("/me/profile", console.HandleUpdateProfile(application))
 			r.Put("/me/password", console.HandleChangePassword(application))
+			r.Get("/profile", console.HandleGetProfile(application))
+			r.Get("/enterprise", console.HandleGetEnterprise(application))
+			r.Put("/enterprise", console.HandleUpdateEnterprise(application))
+			r.Put("/enterprise/brand", console.HandleUpdateEnterpriseBrand(application))
+
+			// Team management: rate-limited so an authenticated user cannot
+			// spam invites, status toggles, or ownership transfers.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.TeamRateLimit(application.RateLimiter, 30, 1*time.Minute))
+				r.Get("/team", console.HandleListTeamMembers(application))
+				r.Post("/team/invite", console.HandleInviteMember(application))
+				r.Delete("/team/{userId}", console.HandleRemoveMember(application))
+				r.Put("/team/{userId}/role", console.HandleChangeMemberRole(application))
+				r.Put("/team/{userId}/status", console.HandleSuspendMember(application))
+				r.Get("/team/invitations", console.HandleListPendingInvitations(application))
+				r.Delete("/team/invitations/{id}", console.HandleCancelInvitation(application))
+				r.Post("/team/transfer-ownership", console.HandleTransferOwnership(application))
+			})
+
 			r.Post("/auth/totp/setup", console.HandleTOTPSetup(application))
 			r.Post("/auth/totp/verify", console.HandleTOTPVerify(application))
 			r.Get("/api-keys", console.HandleListAPIKeys(application))
@@ -141,6 +160,10 @@ func main() {
 		r.Delete("/tenants/{id}", console.HandleDeleteTenant(application))
 		r.Post("/tenants/{id}/domains", console.HandleAddTenantDomain(application))
 		r.Delete("/tenants/{id}/domains/{domainId}", console.HandleRemoveTenantDomain(application))
+		r.Get("/tenants/{id}/members", console.HandleAdminListTenantMembers(application))
+		r.Post("/tenants/{id}/members", console.HandleAdminAddTenantMember(application))
+		r.Delete("/tenants/{id}/members/{userId}", console.HandleAdminRemoveTenantMember(application))
+		r.Put("/tenants/{id}/members/{userId}/role", console.HandleAdminChangeTenantMemberRole(application))
 
 		r.Get("/quotas", console.HandleListQuotaPools(application))
 		r.Post("/quotas", console.HandleCreateQuotaPool(application))

@@ -143,6 +143,8 @@ func HandleUpdateProfile(a *app.App) http.HandlerFunc {
 		}
 		var req struct {
 			DisplayName string `json:"display_name"`
+			Phone       string `json:"phone,omitempty"`
+			AvatarURL   string `json:"avatar_url,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -152,7 +154,7 @@ func HandleUpdateProfile(a *app.App) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "display_name is required"})
 			return
 		}
-		if err := a.Users.UpdateProfile(r.Context(), userID, req.DisplayName); err != nil {
+		if err := a.Users.UpdateProfile(r.Context(), userID, req.DisplayName, req.Phone, req.AvatarURL); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update profile"})
 			return
 		}

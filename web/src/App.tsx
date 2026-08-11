@@ -15,6 +15,7 @@ import ModelManagement from "./pages/ModelManagement";
 import Playground from "./pages/Playground";
 import Security from "./pages/Security";
 import Tenants from "./pages/Tenants";
+import TenantMembers from "./pages/TenantMembers";
 import Policies from "./pages/Policies";
 import Channels from "./pages/Channels";
 import QuotaManagement from "./pages/QuotaManagement";
@@ -22,6 +23,9 @@ import Reconciliation from "./pages/Reconciliation";
 import AuditLogs from "./pages/AuditLogs";
 import Users from "./pages/Users";
 import Costs from "./pages/Costs";
+import Profile from "./pages/Profile";
+import TeamManagement from "./pages/TeamManagement";
+import EnterpriseSettings from "./pages/EnterpriseSettings";
 import Docs from "./pages/Docs";
 
 export default function App() {
@@ -48,6 +52,17 @@ export default function App() {
         <Route path="wallet" element={<Wallet />} />
         <Route path="models" element={<ModelMarket />} />
         <Route path="playground" element={<Playground />} />
+        <Route path="profile" element={<Profile />} />
+        <Route path="team" element={
+          <RequireAuth tenantAdminOnly>
+            <TeamManagement />
+          </RequireAuth>
+        } />
+        <Route path="enterprise" element={
+          <RequireAuth tenantAdminOnly>
+            <EnterpriseSettings />
+          </RequireAuth>
+        } />
         <Route path="security" element={<Security />} />
         <Route path="docs" element={<Docs />} />
       </Route>
@@ -65,6 +80,7 @@ export default function App() {
         <Route path="models" element={<ModelManagement />} />
         <Route path="channels" element={<Channels />} />
         <Route path="tenants" element={<Tenants />} />
+        <Route path="tenants/:id/members" element={<TenantMembers />} />
         <Route path="policies" element={<Policies />} />
         <Route path="providers" element={<Navigate to="/admin/channels" replace />} />
         <Route path="quotas" element={<QuotaManagement />} />

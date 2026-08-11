@@ -51,12 +51,19 @@ type meResponse struct {
 	Role        string `json:"role"`
 	Status      string `json:"status"`
 	TOTPEnabled bool   `json:"totp_enabled"`
+	UserType    string `json:"user_type"`
+	Phone       string `json:"phone,omitempty"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	TenantName  string `json:"tenant_name,omitempty"`
+	TenantRole  string `json:"tenant_role,omitempty"`
 }
 
 type registerRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
-	Name     string `json:"name"`
+	Name           string `json:"name"`
+	InvitationToken string `json:"invitation_token,omitempty"`
 }
 
 type registerResponse struct {
@@ -277,10 +284,26 @@ func HandleMe(a *app.App) http.HandlerFunc {
 			}
 			return
 		}
+		tenantID := ""
+		tenantName := ""
+		tenantRole := ""
+		if m, err := a.Memberships.FindByUserID(r.Context(), dbUser.ID); err == nil && m != nil && m.Status == domain.MembershipStatusActive {
+			tenantID = m.TenantID.String()
+			tenantRole = string(m.Role)
+			if t, err := a.Tenants.FindByID(r.Context(), m.TenantID); err == nil && t != nil {
+				tenantName = t.Name
+			}
+		}
 		writeJSON(w, http.StatusOK, meResponse{
 			ID: dbUser.ID.String(), Email: dbUser.Email, Name: dbUser.DisplayName,
 			Role: dbUser.Role, Status: string(dbUser.Status),
 			TOTPEnabled: dbUser.TOTPEnabled,
+			UserType:   string(dbUser.UserType),
+			Phone:      dbUser.Phone,
+			AvatarURL:  dbUser.AvatarURL,
+			TenantID:   tenantID,
+			TenantName: tenantName,
+			TenantRole: tenantRole,
 		})
 	}
 }
@@ -322,14 +345,52 @@ func HandleRegister(a *app.App) http.HandlerFunc {
 		}
 
 		now := time.Now().UTC()
+		userType := domain.UserTypePersonal
 		u := &domain.User{
 			ID: uuid.New(), Email: req.Email, PasswordHash: string(hash),
 			DisplayName: req.Name, Role: "user", Status: domain.UserStatusActive,
-			CreatedAt: now, UpdatedAt: now,
+			UserType: userType, CreatedAt: now, UpdatedAt: now,
 		}
+
+		// Handle invitation token: validate and join tenant.
+		if req.InvitationToken != "" {
+			inv, err := a.Invitations.FindByToken(ctx, req.InvitationToken)
+			if err != nil || inv == nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid or expired invitation"})
+				return
+			}
+			if inv.Status != domain.InvitationStatusPending {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invitation is no longer valid"})
+				return
+			}
+			if time.Now().UTC().After(inv.ExpiresAt) {
+				_ = a.Invitations.UpdateStatus(ctx, inv.ID, domain.InvitationStatusExpired)
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invitation has expired"})
+				return
+			}
+			u.UserType = domain.UserTypeEnterprise
+		}
+
 		if err := a.Users.Create(ctx, u); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create user"})
 			return
+		}
+
+		// Create membership if joining via invitation.
+		if req.InvitationToken != "" && u.UserType == domain.UserTypeEnterprise {
+			inv, _ := a.Invitations.FindByToken(ctx, req.InvitationToken)
+			if inv != nil {
+				membership := &domain.TenantMembership{
+					ID:       uuid.New(),
+					TenantID: inv.TenantID,
+					UserID:   u.ID,
+					Role:     inv.Role,
+					Status:   domain.MembershipStatusActive,
+					JoinedAt: now,
+				}
+				_ = a.Memberships.Create(ctx, membership)
+				_ = a.Invitations.UpdateStatus(ctx, inv.ID, domain.InvitationStatusAccepted)
+			}
 		}
 
 		// Create wallet. Bonus balance is granted only when the demo money
@@ -410,7 +471,14 @@ func parseSameSite(val string) http.SameSite {
 }
 
 func generateLoginJWT(a *app.App, u *domain.User) (string, string, error) {
-	tok, err := jwtutil.GenerateToken(u.ID, u.Email, u.DisplayName, u.Role, a.Config.JWT.Secret, a.Config.JWT.ExpiryHours)
+	userType := string(u.UserType)
+	tenantID := ""
+	tenantRole := ""
+	if m, err := a.Memberships.FindByUserID(context.Background(), u.ID); err == nil && m != nil && m.Status == domain.MembershipStatusActive {
+		tenantID = m.TenantID.String()
+		tenantRole = string(m.Role)
+	}
+	tok, err := jwtutil.GenerateToken(u.ID, u.Email, u.DisplayName, u.Role, userType, tenantID, tenantRole, a.Config.JWT.Secret, a.Config.JWT.ExpiryHours)
 	return tok, fmt.Sprintf("%d", a.Config.JWT.ExpiryHours), err
 }
 
@@ -422,7 +490,7 @@ func ensureBootstrapAdmin(ctx context.Context, a *app.App) uuid.UUID {
 		return adminID
 	}
 	a.Pool.Exec(ctx,
-		`INSERT INTO users (id, email, password_hash, display_name, role, status, created_at, updated_at)
+		`INSERT INTO users (id, email, password_hash, display_name, role, status, user_type, created_at, updated_at)
 		 VALUES ($1, $2, $3, 'Administrator', 'admin', 'active', NOW(), NOW())
 		 ON CONFLICT (id) DO UPDATE SET email=$2, password_hash=$3, role='admin', status='active'`,
 		adminID, a.Config.Bootstrap.AdminEmail, string(hash),
@@ -432,7 +500,7 @@ func ensureBootstrapAdmin(ctx context.Context, a *app.App) uuid.UUID {
 
 func generateBootstrapJWT(a *app.App) (token, expiry string, err error) {
 	expiryTime := fmt.Sprintf("%d", a.Config.JWT.ExpiryHours)
-	tok, err := jwtutil.GenerateToken(uuid.Nil, a.Config.Bootstrap.AdminEmail, "Administrator", "admin", a.Config.JWT.Secret, a.Config.JWT.ExpiryHours)
+	tok, err := jwtutil.GenerateToken(uuid.Nil, a.Config.Bootstrap.AdminEmail, "Administrator", "admin", string(domain.UserTypePersonal), "", "", a.Config.JWT.Secret, a.Config.JWT.ExpiryHours)
 	if err != nil {
 		return "", "", fmt.Errorf("generateBootstrapJWT: %w", err)
 	}

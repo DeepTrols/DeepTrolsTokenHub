@@ -33,6 +33,10 @@ func (r *PostgresRepository) FindByDomain(ctx context.Context, domain string) (*
 			COALESCE(t.runtime_config::text, '{}'),
 			COALESCE(t.settlement_config::text, '{}'),
 			COALESCE(t.status_reason, ''),
+			COALESCE(t.credit_code, ''),
+			COALESCE(t.contact_email, ''),
+			COALESCE(t.contact_phone, ''),
+			COALESCE(t.business_license, ''),
 			t.created_at, t.updated_at
 		FROM tenants t
 		JOIN tenant_domains d ON d.tenant_id = t.id
@@ -71,18 +75,24 @@ func (r *PostgresRepository) Create(ctx context.Context, t *domain.Tenant) error
 		INSERT INTO tenants (
 			id, code, name, status, owner_id,
 			brand_config, runtime_config, settlement_config,
-			status_reason, created_at, updated_at
+			status_reason,
+			credit_code, contact_email, contact_phone, business_license,
+			created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8,
-			$9, $10, $11
+			$9,
+			$10, $11, $12, $13,
+			$14, $15
 		)
 	`
 
 	_, err := r.pool.Exec(ctx, query,
 		t.ID, t.Code, t.Name, t.Status, t.OwnerID,
 		brandConfig, runtimeConfig, settlementConfig,
-		t.StatusReason, t.CreatedAt, t.UpdatedAt,
+		t.StatusReason,
+		t.CreditCode, t.ContactEmail, t.ContactPhone, t.BusinessLicense,
+		t.CreatedAt, t.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("tenant create: %w", err)
@@ -100,14 +110,18 @@ func (r *PostgresRepository) Update(ctx context.Context, t *domain.Tenant) error
 		UPDATE tenants SET
 			name = $1, status = $2,
 			brand_config = $3, runtime_config = $4, settlement_config = $5,
-			status_reason = $6, updated_at = $7
-		WHERE id = $8
+			status_reason = $6,
+			credit_code = $7, contact_email = $8, contact_phone = $9, business_license = $10,
+			updated_at = $11
+		WHERE id = $12
 	`
 
 	_, err := r.pool.Exec(ctx, query,
 		t.Name, t.Status,
 		brandConfig, runtimeConfig, settlementConfig,
-		t.StatusReason, t.UpdatedAt,
+		t.StatusReason,
+		t.CreditCode, t.ContactEmail, t.ContactPhone, t.BusinessLicense,
+		t.UpdatedAt,
 		t.ID,
 	)
 	if err != nil {
@@ -145,6 +159,10 @@ const tenantSelectClause = `
 	COALESCE(runtime_config::text, '{}'),
 	COALESCE(settlement_config::text, '{}'),
 	COALESCE(status_reason, ''),
+	COALESCE(credit_code, ''),
+	COALESCE(contact_email, ''),
+	COALESCE(contact_phone, ''),
+	COALESCE(business_license, ''),
 	created_at, updated_at
 `
 
@@ -155,7 +173,9 @@ func scanTenant(row pgx.Row) (*domain.Tenant, error) {
 	err := row.Scan(
 		&t.ID, &t.Code, &t.Name, &t.Status, &t.OwnerID,
 		&brandJSON, &runtimeJSON, &settlementJSON,
-		&t.StatusReason, &t.CreatedAt, &t.UpdatedAt,
+		&t.StatusReason,
+		&t.CreditCode, &t.ContactEmail, &t.ContactPhone, &t.BusinessLicense,
+		&t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("tenant scan: %w", err)

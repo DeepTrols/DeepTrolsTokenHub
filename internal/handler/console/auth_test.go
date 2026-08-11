@@ -13,6 +13,7 @@ import (
 	"github.com/deeptrols/api/internal/config"
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
+	"github.com/deeptrols/api/internal/repository/membership"
 	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/user"
 	"github.com/google/uuid"
@@ -41,10 +42,11 @@ func appForConsoleTest(t *testing.T) *app.App {
 	}
 
 	return &app.App{
-		Pool:    pool,
-		Config:  cfg,
-		Users:   user.NewPostgresRepository(pool),
-		Healthy: true,
+		Pool:        pool,
+		Config:      cfg,
+		Users:       user.NewPostgresRepository(pool),
+		Memberships: membership.NewPostgresRepository(pool),
+		Healthy:     true,
 	}
 }
 
@@ -62,6 +64,7 @@ func seedUserForConsoleTest(t *testing.T, a *app.App, email, password, displayNa
 		PasswordHash: string(hash),
 		DisplayName:  displayName,
 		Role:         "user",
+		UserType:     domain.UserTypePersonal,
 		Status:       domain.UserStatusActive,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -415,6 +418,7 @@ func TestHandleLogin_BannedUser(t *testing.T) {
 		PasswordHash: string(hash),
 		DisplayName:  "Banned User",
 		Role:         "user",
+		UserType:     domain.UserTypePersonal,
 		Status:       domain.UserStatusBanned,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -1002,10 +1006,11 @@ func appForConsoleCookieTest(t *testing.T) *app.App {
 	}
 
 	return &app.App{
-		Pool:    pool,
-		Config:  cfg,
-		Users:   user.NewPostgresRepository(pool),
-		Healthy: true,
+		Pool:        pool,
+		Config:      cfg,
+		Users:       user.NewPostgresRepository(pool),
+		Memberships: membership.NewPostgresRepository(pool),
+		Healthy:     true,
 	}
 }
 

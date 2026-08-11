@@ -12,6 +12,10 @@ type Tenant struct {
 	Name             string
 	Status           TenantStatus
 	OwnerID          *uuid.UUID
+	CreditCode       string
+	ContactEmail     string
+	ContactPhone     string
+	BusinessLicense  string
 	BrandConfig      map[string]any
 	RuntimeConfig    map[string]any
 	SettlementConfig map[string]any

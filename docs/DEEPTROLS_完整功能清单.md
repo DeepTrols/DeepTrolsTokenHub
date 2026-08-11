@@ -197,7 +197,7 @@
 | 级别 | 状态 |
 |------|------|
 | L0：usage_logs vs charge_lines | ✅ |
-| L1：provider_evidence 匹配 | ❌ |
+| L1：provider_evidence 匹配 | ✅ |
 | L2：L0 ↔ L1 内部对账 | ❌ |
 | L3：L1 ↔ 上游账单 | ❌ |
 | Usage 归一化（OpenAI/Anthropic/Gemini） | ✅ |

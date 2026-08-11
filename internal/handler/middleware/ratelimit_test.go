@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -220,6 +221,90 @@ func TestLoginRateLimit_ReturnsFuncHandler(t *testing.T) {
 	var fn interface{} = LoginRateLimit(ratelimit.NewMemoryRateLimiter(), 5, 1*time.Minute)
 	if _, ok := fn.(func(http.Handler) http.Handler); !ok {
 		t.Error("LoginRateLimit should return func(http.Handler) http.Handler")
+	}
+}
+
+// TestTeamRateLimit_UsesUserIDForKey verifies TeamRateLimit keys on the console
+// user ID from context, so two users sharing an IP are not rate-limited together.
+func TestTeamRateLimit_UsesUserIDForKey(t *testing.T) {
+	// Arrange
+	limit := 5
+	window := 1 * time.Minute
+	limiter := ratelimit.NewMemoryRateLimiter()
+	mw := TeamRateLimit(limiter, limit, window)
+
+	callCount := 0
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := mw(nextHandler)
+
+	ip := "192.168.1.99:12345"
+	userID := "user-123"
+
+	// Exhaust the limit for user-123
+	for i := 0; i < limit; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/team/invite", nil)
+		req.RemoteAddr = ip
+		req = req.WithContext(context.WithValue(req.Context(), CtxUserID, userID))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want %d", i+1, w.Code, http.StatusOK)
+		}
+	}
+
+	// user-123 is now blocked
+	req := httptest.NewRequest(http.MethodPost, "/team/invite", nil)
+	req.RemoteAddr = ip
+	req = req.WithContext(context.WithValue(req.Context(), CtxUserID, userID))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("blocked user request: status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+
+	// A different user on the same IP still passes
+	req2 := httptest.NewRequest(http.MethodPost, "/team/invite", nil)
+	req2.RemoteAddr = ip
+	req2 = req2.WithContext(context.WithValue(req2.Context(), CtxUserID, "user-456"))
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Errorf("different user request: status = %d, want %d", w2.Code, http.StatusOK)
+	}
+}
+
+// TestTeamRateLimit_FallsBackToIP verifies that TeamRateLimit uses the IP when
+// no user ID is present in the request context.
+func TestTeamRateLimit_FallsBackToIP(t *testing.T) {
+	// Arrange
+	limit := 2
+	window := 1 * time.Minute
+	limiter := ratelimit.NewMemoryRateLimiter()
+	mw := TeamRateLimit(limiter, limit, window)
+
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := mw(nextHandler)
+
+	ip := "203.0.113.7:12345"
+	req := httptest.NewRequest(http.MethodPost, "/team/invite", nil)
+	req.RemoteAddr = ip
+
+	// Exhaust the limit (no user ID in context -> IP key)
+	for i := 0; i < limit; i++ {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+	}
+
+	// Next should be blocked
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("IP-fallback request: status = %d, want %d", w.Code, http.StatusTooManyRequests)
 	}
 }
 

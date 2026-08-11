@@ -1,6 +1,6 @@
 import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Box, Wallet, BarChart3, LogOut, Shield, ScrollText, UserCog, DollarSign } from "lucide-react";
+import { Box, Wallet, BarChart3, LogOut, Shield, ScrollText, UserCog, DollarSign, Building2, Route } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
 
@@ -10,6 +10,8 @@ const navItems = [
   { to: "/admin/quotas", icon: Wallet, label: "配额管理" },
   { to: "/admin/reconciliation", icon: BarChart3, label: "对账管理" },
   { to: "/admin/audit", icon: ScrollText, label: "审计日志" },
+  { to: "/admin/tenants", icon: Building2, label: "租户管理" },
+  { to: "/admin/policies", icon: Route, label: "策略管理" },
   { to: "/admin/users", icon: UserCog, label: "用户管理" },
   { to: "/admin/costs", icon: DollarSign, label: "成本核算" },
 ];

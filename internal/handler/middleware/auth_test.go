@@ -32,7 +32,7 @@ func configWithJWTSecret(secret string) *config.Config {
 // helper to generate a valid JWT token for testing.
 func generateTestJWT(t *testing.T, userID uuid.UUID, email, name, secret string) string {
 	t.Helper()
-	token, err := jwtutil.GenerateToken(userID, email, name, "", secret, 1)
+	token, err := jwtutil.GenerateToken(userID, email, name, "", "personal", "", "", secret, 1)
 	if err != nil {
 		t.Fatalf("generateTestJWT: %v", err)
 	}
@@ -62,7 +62,7 @@ func (m *mockUserRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status do
 	return nil
 }
 func (m *mockUserRepo) UpdateRole(ctx context.Context, id uuid.UUID, role string) error { return nil }
-func (m *mockUserRepo) UpdateProfile(ctx context.Context, id uuid.UUID, displayName string) error {
+func (m *mockUserRepo) UpdateProfile(ctx context.Context, id uuid.UUID, displayName, phone, avatarURL string) error {
 	return nil
 }
 func (m *mockUserRepo) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
@@ -255,7 +255,7 @@ func TestConsoleAuth_WrongSecret(t *testing.T) {
 func TestConsoleAuth_ExpiredJWT(t *testing.T) {
 	// Arrange
 	secret := "expired-test-secret-key-32-bytes!"
-	token, err := jwtutil.GenerateToken(uuid.New(), "exp@test.com", "Exp", "", secret, -1)
+	token, err := jwtutil.GenerateToken(uuid.New(), "exp@test.com", "Exp", "", "personal", "", "", secret, -1)
 	if err != nil {
 		t.Fatalf("generate expired token: %v", err)
 	}
@@ -1178,7 +1178,7 @@ func TestConsoleAuth_RoleFromDBOverridesToken(t *testing.T) {
 	secret := "test-jwt-role-secret-32-byte!!"
 	cfg := configWithJWTSecret(secret)
 	userID := uuid.New()
-	token, _ := jwtutil.GenerateToken(userID, "demoted@test.com", "Demoted", "admin", secret, 1)
+	token, _ := jwtutil.GenerateToken(userID, "demoted@test.com", "Demoted", "admin", "personal", "", "", secret, 1)
 
 	var gotRole string
 	middleware := ConsoleAuth(consoleTestApp(cfg, &domain.User{ID: userID, Email: "demoted@test.com", DisplayName: "Demoted", Role: "user", Status: domain.UserStatusActive}))

@@ -25,11 +25,18 @@ const (
 // Re-export jwtutil context keys for convenience.
 // Values stored at these keys in ConsoleAuth can be extracted
 // via jwtutil.UserIDFromContext / jwtutil.EmailFromContext.
+//
+// Note: CtxTenantID (gateway domain-based tenant) is intentionally NOT
+// aliased to jwtutil.CtxTenantIDKey — the gateway chain and console chain
+// use the same string key "tenant_id" but store different kinds of tenant
+// identifiers (gateway: domain-mapped; console: enterprise membership).
 var (
-	CtxUserID   = jwtutil.CtxUserIDKey
-	CtxEmail    = jwtutil.CtxEmailKey
-	CtxUserName = jwtutil.CtxUserNameKey
-	CtxRoleKey  = jwtutil.CtxRoleKey
+	CtxUserID     = jwtutil.CtxUserIDKey
+	CtxEmail      = jwtutil.CtxEmailKey
+	CtxUserName   = jwtutil.CtxUserNameKey
+	CtxRoleKey    = jwtutil.CtxRoleKey
+	CtxUserType   = jwtutil.CtxUserTypeKey
+	CtxTenantRole = jwtutil.CtxTenantRoleKey
 )
 
 // GatewayAuth validates API Key for OpenAI-compatible endpoints.
@@ -153,6 +160,18 @@ func ConsoleAuth(application *app.App) func(http.Handler) http.Handler {
 			ctx = context.WithValue(ctx, CtxUserName, dbUser.DisplayName)
 			// Role always comes from the DB (live), never from the token.
 			ctx = context.WithValue(ctx, CtxRoleKey, dbUser.Role)
+			// User type from the DB.
+			ctx = context.WithValue(ctx, CtxUserType, string(dbUser.UserType))
+
+			// Look up enterprise membership (personal users won't have one).
+			// Gracefully skip when Memberships is nil (e.g. in tests that use a partial App).
+			if application.Memberships != nil {
+				membership, err := application.Memberships.FindByUserID(ctx, dbUser.ID)
+				if err == nil && membership != nil && membership.Status == domain.MembershipStatusActive {
+					ctx = context.WithValue(ctx, jwtutil.CtxTenantIDKey, membership.TenantID.String())
+					ctx = context.WithValue(ctx, CtxTenantRole, string(membership.Role))
+				}
+			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

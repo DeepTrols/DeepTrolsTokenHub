@@ -19,7 +19,7 @@ type Repository interface {
 	List(ctx context.Context, limit, offset int) ([]domain.User, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error
 	UpdateRole(ctx context.Context, id uuid.UUID, role string) error
-	UpdateProfile(ctx context.Context, id uuid.UUID, displayName string) error
+	UpdateProfile(ctx context.Context, id uuid.UUID, displayName, phone, avatarURL string) error
 	UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
 	Count(ctx context.Context) (int, error)
 }

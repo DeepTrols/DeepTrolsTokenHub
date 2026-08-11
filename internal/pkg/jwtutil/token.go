@@ -12,9 +12,12 @@ import (
 // Claims represents the JWT claims used by the console API.
 type Claims struct {
 	jwt.RegisteredClaims
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role,omitempty"`
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	Role       string `json:"role,omitempty"`
+	UserType   string `json:"user_type,omitempty"`
+	TenantID   string `json:"tenant_id,omitempty"`
+	TenantRole string `json:"tenant_role,omitempty"`
 }
 
 // ContextKey is used for context value keys to avoid collisions.
@@ -29,11 +32,17 @@ const (
 	CtxUserNameKey ContextKey = "user_name"
 	// CtxRoleKey is the context key for the user role.
 	CtxRoleKey ContextKey = "user_role"
+	// CtxUserTypeKey is the context key for the user type (personal/enterprise).
+	CtxUserTypeKey ContextKey = "user_type"
+	// CtxTenantIDKey is the context key for the enterprise tenant ID.
+	CtxTenantIDKey ContextKey = "tenant_id"
+	// CtxTenantRoleKey is the context key for the tenant-level role.
+	CtxTenantRoleKey ContextKey = "tenant_role"
 )
 
 // GenerateToken creates a signed JWT token string using HS256.
 // userID is stored in the Subject claim. email, name, and role are stored in custom claims.
-func GenerateToken(userID uuid.UUID, email, name, role, secret string, expiryHours int) (string, error) {
+func GenerateToken(userID uuid.UUID, email, name, role, userType, tenantID, tenantRole, secret string, expiryHours int) (string, error) {
 	now := time.Now()
 	expiry := now.Add(time.Duration(expiryHours) * time.Hour)
 
@@ -43,9 +52,12 @@ func GenerateToken(userID uuid.UUID, email, name, role, secret string, expiryHou
 			ExpiresAt: jwt.NewNumericDate(expiry),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
-		Email: email,
-		Name:  name,
-		Role:  role,
+		Email:      email,
+		Name:       name,
+		Role:       role,
+		UserType:   userType,
+		TenantID:   tenantID,
+		TenantRole: tenantRole,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -131,6 +143,64 @@ func RoleFromContext(ctx context.Context) (string, error) {
 	role, ok := val.(string)
 	if !ok {
 		return "", fmt.Errorf("jwtutil: role in context is not a string")
+	}
+	return role, nil
+}
+
+// UserTypeFromContext extracts the user type from context.
+// Returns "personal" if not found.
+func UserTypeFromContext(ctx context.Context) (string, error) {
+	if ctx == nil {
+		return "", fmt.Errorf("jwtutil: context is nil")
+	}
+	val := ctx.Value(CtxUserTypeKey)
+	if val == nil {
+		return "", fmt.Errorf("jwtutil: user_type not found in context")
+	}
+	userType, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("jwtutil: user_type in context is not a string")
+	}
+	return userType, nil
+}
+
+// TenantIDFromContext extracts the tenant UUID from context.
+// Returns an empty UUID if the user is not in a tenant.
+func TenantIDFromContext(ctx context.Context) (uuid.UUID, error) {
+	if ctx == nil {
+		return uuid.Nil, fmt.Errorf("jwtutil: context is nil")
+	}
+	val := ctx.Value(CtxTenantIDKey)
+	if val == nil {
+		return uuid.Nil, fmt.Errorf("jwtutil: tenant_id not found in context")
+	}
+	valStr, ok := val.(string)
+	if !ok {
+		return uuid.Nil, fmt.Errorf("jwtutil: tenant_id in context is not a string")
+	}
+	if valStr == "" {
+		return uuid.Nil, nil
+	}
+	id, err := uuid.Parse(valStr)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("jwtutil: failed to parse tenant_id as UUID: %w", err)
+	}
+	return id, nil
+}
+
+// TenantRoleFromContext extracts the tenant role from context.
+// Returns an empty string if the user has no tenant role.
+func TenantRoleFromContext(ctx context.Context) (string, error) {
+	if ctx == nil {
+		return "", fmt.Errorf("jwtutil: context is nil")
+	}
+	val := ctx.Value(CtxTenantRoleKey)
+	if val == nil {
+		return "", fmt.Errorf("jwtutil: tenant_role not found in context")
+	}
+	role, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("jwtutil: tenant_role in context is not a string")
 	}
 	return role, nil
 }

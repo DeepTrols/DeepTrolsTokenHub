@@ -56,6 +56,7 @@ func seedUserForTenantsTest(t *testing.T, a *app.App, email, password, displayNa
 		PasswordHash: string(hash),
 		DisplayName:  displayName,
 		Role:         "user",
+		UserType:     domain.UserTypePersonal,
 		Status:       domain.UserStatusActive,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -82,6 +83,20 @@ func seedTenantForTest(t *testing.T, a *app.App, code, name string, status domai
 		t.Fatalf("seedTenantForTest: %v", err)
 	}
 	return tn
+}
+
+// seedMembershipForTenantsTest inserts a membership row for the given user+tenant.
+func seedMembershipForTenantsTest(t *testing.T, a *app.App, tenantID, userID uuid.UUID, role domain.MembershipRole, status domain.MembershipStatus) {
+	t.Helper()
+	now := time.Now().UTC()
+	_, err := a.Pool.Exec(context.Background(),
+		`INSERT INTO tenant_memberships (id, tenant_id, user_id, role, status, joined_at, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		uuid.New(), tenantID, userID, string(role), string(status), now, now, now,
+	)
+	if err != nil {
+		t.Fatalf("seedMembershipForTenantsTest: %v", err)
+	}
 }
 
 // seedTenantDomainForTest inserts a domain for the given tenant.
@@ -212,6 +227,53 @@ func TestHandleListTenants_ReturnsTenants(t *testing.T) {
 	}
 	if resp.Total != 2 {
 		t.Errorf("total = %d, want 2", resp.Total)
+	}
+}
+
+func TestHandleListTenants_IncludesMemberCount(t *testing.T) {
+	a := appForTenantsTest(t)
+	admin := seedUserForTenantsTest(t, a, "admin-count@tens.com", "pass", "Admin Count")
+
+	tA := seedTenantForTest(t, a, "count-a", "Count A", domain.TenantStatusActive)
+	tB := seedTenantForTest(t, a, "count-b", "Count B", domain.TenantStatusActive)
+
+	// Tenant A: 2 active members + 1 suspended member. Tenant B: no members.
+	m1 := seedUserForTenantsTest(t, a, "m1@tens.com", "pass", "M1")
+	m2 := seedUserForTenantsTest(t, a, "m2@tens.com", "pass", "M2")
+	m3 := seedUserForTenantsTest(t, a, "m3@tens.com", "pass", "M3")
+	seedMembershipForTenantsTest(t, a, tA.ID, m1.ID, domain.MembershipRoleMember, domain.MembershipStatusActive)
+	seedMembershipForTenantsTest(t, a, tA.ID, m2.ID, domain.MembershipRoleMember, domain.MembershipStatusActive)
+	seedMembershipForTenantsTest(t, a, tA.ID, m3.ID, domain.MembershipRoleMember, domain.MembershipStatusSuspended)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/tenants", nil)
+	req = setAdminCtxForTenants(req, admin.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleListTenants(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp struct {
+		Data []struct {
+			ID          string `json:"id"`
+			MemberCount int    `json:"member_count"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	counts := map[string]int{}
+	for _, d := range resp.Data {
+		counts[d.ID] = d.MemberCount
+	}
+	if counts[tA.ID.String()] != 2 {
+		t.Errorf("tenant A member_count = %d, want 2 (suspended member must be excluded)", counts[tA.ID.String()])
+	}
+	if counts[tB.ID.String()] != 0 {
+		t.Errorf("tenant B member_count = %d, want 0", counts[tB.ID.String()])
 	}
 }
 

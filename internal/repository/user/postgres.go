@@ -25,10 +25,13 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 var _ Repository = (*PostgresRepository)(nil)
 
 // scanUser scans a users row into a domain.User.
-// Column order: id, email, password_hash, display_name, role, status, totp_secret, totp_enabled, created_at, updated_at
+// Column order: id, email, password_hash, display_name, role, status, totp_secret, totp_enabled,
+//
+//	user_type, phone, avatar_url, created_at, updated_at
 func scanUser(row pgx.Row) (*domain.User, error) {
 	var u domain.User
-	var role *string
+	var role, phone, avatarURL *string
+	var userType string
 	err := row.Scan(
 		&u.ID,
 		&u.Email,
@@ -38,6 +41,9 @@ func scanUser(row pgx.Row) (*domain.User, error) {
 		&u.Status,
 		&u.TOTPSecret,
 		&u.TOTPEnabled,
+		&userType,
+		&phone,
+		&avatarURL,
 		&u.CreatedAt,
 		&u.UpdatedAt,
 	)
@@ -47,6 +53,13 @@ func scanUser(row pgx.Row) (*domain.User, error) {
 	if role != nil {
 		u.Role = *role
 	}
+	u.UserType = domain.UserType(userType)
+	if phone != nil {
+		u.Phone = *phone
+	}
+	if avatarURL != nil {
+		u.AvatarURL = *avatarURL
+	}
 	return &u, nil
 }
 
@@ -55,7 +68,9 @@ func scanUser(row pgx.Row) (*domain.User, error) {
 func (r *PostgresRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	const query = `
 		SELECT id, email, password_hash, display_name, role, status,
-		       totp_secret, totp_enabled, created_at, updated_at
+		       totp_secret, totp_enabled,
+		       user_type, phone, avatar_url,
+		       created_at, updated_at
 		FROM users WHERE email = $1
 	`
 	u, err := scanUser(r.pool.QueryRow(ctx, query, email))
@@ -73,7 +88,9 @@ func (r *PostgresRepository) FindByEmail(ctx context.Context, email string) (*do
 func (r *PostgresRepository) FindByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	const query = `
 		SELECT id, email, password_hash, display_name, role, status,
-		       totp_secret, totp_enabled, created_at, updated_at
+		       totp_secret, totp_enabled,
+		       user_type, phone, avatar_url,
+		       created_at, updated_at
 		FROM users WHERE id = $1
 	`
 	u, err := scanUser(r.pool.QueryRow(ctx, query, id))
@@ -88,14 +105,26 @@ func (r *PostgresRepository) FindByID(ctx context.Context, id uuid.UUID) (*domai
 
 // Create inserts a new user row.
 func (r *PostgresRepository) Create(ctx context.Context, user *domain.User) error {
+	// Normalize to the platform default when the caller did not specify a type,
+	// so an explicit "" never violates the users_user_type_check constraint.
+	// The normalized value is used only for the INSERT below; the caller's
+	// struct is left untouched (immutability).
+	userType := user.UserType
+	if userType == "" {
+		userType = domain.UserTypePersonal
+	}
+
 	const query = `
 		INSERT INTO users (id, email, password_hash, display_name, role, status,
-		                   totp_secret, totp_enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		                   totp_secret, totp_enabled,
+		                   user_type, phone, avatar_url,
+		                   created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	_, err := r.pool.Exec(ctx, query,
 		user.ID, user.Email, user.PasswordHash, user.DisplayName, user.Role,
 		user.Status, user.TOTPSecret, user.TOTPEnabled,
+		string(userType), user.Phone, user.AvatarURL,
 		user.CreatedAt, user.UpdatedAt,
 	)
 	if err != nil {
@@ -111,7 +140,9 @@ func (r *PostgresRepository) List(ctx context.Context, limit, offset int) ([]dom
 	}
 	const query = `
 		SELECT id, email, password_hash, display_name, role, status,
-		       totp_secret, totp_enabled, created_at, updated_at
+		       totp_secret, totp_enabled,
+		       user_type, phone, avatar_url,
+		       created_at, updated_at
 		FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.pool.Query(ctx, query, limit, offset)
@@ -159,11 +190,11 @@ func (r *PostgresRepository) UpdateRole(ctx context.Context, id uuid.UUID, role 
 	return nil
 }
 
-// UpdateProfile updates the user's display name.
-func (r *PostgresRepository) UpdateProfile(ctx context.Context, id uuid.UUID, displayName string) error {
+// UpdateProfile updates the user's display name, phone, and avatar URL.
+func (r *PostgresRepository) UpdateProfile(ctx context.Context, id uuid.UUID, displayName, phone, avatarURL string) error {
 	tag, err := r.pool.Exec(ctx,
-		`UPDATE users SET display_name = $1, updated_at = NOW() WHERE id = $2`,
-		displayName, id)
+		`UPDATE users SET display_name = $1, phone = $2, avatar_url = $3, updated_at = NOW() WHERE id = $4`,
+		displayName, phone, avatarURL, id)
 	if err != nil {
 		return fmt.Errorf("user update profile: %w", err)
 	}

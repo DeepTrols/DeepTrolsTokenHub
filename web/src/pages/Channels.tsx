@@ -53,9 +53,9 @@ export default function Channels() {
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; ms: number }>>({});
 
-  const createMut = useAdminMutation<unknown, Record<string, unknown>>("post", "/channels");
-  const updateMut = useAdminMutation<unknown, { id: string } & Record<string, unknown>>("put", (v) => `/channels/${v.id}`, "/channels");
-  const deleteMut = useAdminMutation<unknown, { id: string }>("delete", (v) => `/channels/${v.id}`, "/channels");
+  const createMut = useAdminMutation<unknown, Record<string, unknown>>("post", "/providers");
+  const updateMut = useAdminMutation<unknown, { id: string } & Record<string, unknown>>("put", (v) => `/providers/${v.id}`, "/providers");
+  const deleteMut = useAdminMutation<unknown, { id: string }>("delete", (v) => `/providers/${v.id}`, "/providers");
 
   const handleTestCredential = async (cred: CredentialData) => {
     setTestingId(cred.id);

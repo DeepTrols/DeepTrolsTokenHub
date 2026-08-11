@@ -7,6 +7,12 @@ export interface AuthUser {
   role: string;
   status: string;
   totp_enabled: boolean;
+  user_type: string;
+  phone: string;
+  avatar_url: string;
+  tenant_id: string;
+  tenant_name: string;
+  tenant_role: string;
 }
 
 /** Result of a login attempt. When mfaRequired is true the caller should

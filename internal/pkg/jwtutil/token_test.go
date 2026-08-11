@@ -18,7 +18,7 @@ func TestGenerateAndParseToken_Roundtrip(t *testing.T) {
 	expiryHours := 24
 
 	// Act
-	token, err := GenerateToken(userID, email, name, "", secret, expiryHours)
+	token, err := GenerateToken(userID, email, name, "", "personal", "", "", secret, expiryHours)
 	if err != nil {
 		t.Fatalf("GenerateToken: unexpected error: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestGenerateToken_UserIDStoredInSubject(t *testing.T) {
 	expiryHours := 1
 
 	// Act
-	token, err := GenerateToken(userID, "u@test.com", "U", "", secret, expiryHours)
+	token, err := GenerateToken(userID, "u@test.com", "U", "", "personal", "", "", secret, expiryHours)
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestParseToken_ExpiredToken(t *testing.T) {
 	userID := uuid.New()
 	secret := "expired-token-test-secret-key-plz"
 	// Generate a token with 0 expiry hours (already expired or about to)
-	token, err := GenerateToken(userID, "exp@test.com", "Exp", "", secret, 0)
+	token, err := GenerateToken(userID, "exp@test.com", "Exp", "", "personal", "", "", secret, 0)
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestParseToken_ExpiredToken(t *testing.T) {
 func TestParseToken_WrongSecret(t *testing.T) {
 	// Arrange
 	userID := uuid.New()
-	token, err := GenerateToken(userID, "w@test.com", "W", "", "correct-secret-key-at-least-32!!!", 24)
+	token, err := GenerateToken(userID, "w@test.com", "W", "", "personal", "", "", "correct-secret-key-at-least-32!!!", 24)
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestParseToken_TamperedToken(t *testing.T) {
 	// Arrange
 	userID := uuid.New()
 	secret := "tamper-test-secret-key-enough-len"
-	token, err := GenerateToken(userID, "t@test.com", "T", "", secret, 24)
+	token, err := GenerateToken(userID, "t@test.com", "T", "", "personal", "", "", secret, 24)
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestGenerateToken_EmptySecret(t *testing.T) {
 	userID := uuid.New()
 
 	// Act
-	token, err := GenerateToken(userID, "e@test.com", "E", "", "", 24)
+	token, err := GenerateToken(userID, "e@test.com", "E", "", "personal", "", "", "", 24)
 
 	// Assert: GenerateToken itself should not error (signing happens),
 	// but we should be able to parse it back with the same empty secret
@@ -195,7 +195,7 @@ func TestGenerateToken_SpecialCharactersInName(t *testing.T) {
 	name := "用户 Admin 🚀"
 
 	// Act
-	token, err := GenerateToken(userID, "special@test.com", name, "", secret, 24)
+	token, err := GenerateToken(userID, "special@test.com", name, "", "personal", "", "", secret, 24)
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestGenerateToken_NegativeExpiry(t *testing.T) {
 	secret := "negative-expiry-key-32-bytes!!!!!"
 
 	// Act: Generate with negative expiry
-	token, err := GenerateToken(userID, "neg@test.com", "Neg", "", secret, -1)
+	token, err := GenerateToken(userID, "neg@test.com", "Neg", "", "personal", "", "", secret, -1)
 	if err != nil {
 		t.Fatalf("GenerateToken with negative expiry: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestGenerateToken_LongExpiry(t *testing.T) {
 	expiryHours := 720 // 30 days
 
 	// Act
-	token, err := GenerateToken(userID, "long@test.com", "Long Expiry", "", secret, expiryHours)
+	token, err := GenerateToken(userID, "long@test.com", "Long Expiry", "", "personal", "", "", secret, expiryHours)
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestGenerateToken_WithRole(t *testing.T) {
 	expiryHours := 24
 
 	// Act
-	token, err := GenerateToken(userID, email, name, role, secret, expiryHours)
+	token, err := GenerateToken(userID, email, name, role, "personal", "", "", secret, expiryHours)
 	if err != nil {
 		t.Fatalf("GenerateToken with role: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestGenerateToken_EmptyRole(t *testing.T) {
 	secret := "empty-role-test-key-32-bytes!!!"
 
 	// Act
-	token, err := GenerateToken(userID, "user@test.com", "User", "", secret, 24)
+	token, err := GenerateToken(userID, "user@test.com", "User", "", "personal", "", "", secret, 24)
 	if err != nil {
 		t.Fatalf("GenerateToken with empty role: %v", err)
 	}
@@ -440,7 +440,7 @@ func TestGenerateToken_RoleUser(t *testing.T) {
 	secret := "user-role-test-key-min-32-byte!!"
 
 	// Act
-	token, err := GenerateToken(userID, "normal@user.com", "Normal User", role, secret, 24)
+	token, err := GenerateToken(userID, "normal@user.com", "Normal User", role, "personal", "", "", secret, 24)
 	if err != nil {
 		t.Fatalf("GenerateToken with user role: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestGenerateToken_RolePersistsAcrossExpiry(t *testing.T) {
 	role := "admin"
 
 	// Act
-	token, err := GenerateToken(userID, "admin@test.com", "Admin", role, secret, 720)
+	token, err := GenerateToken(userID, "admin@test.com", "Admin", role, "personal", "", "", secret, 720)
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}

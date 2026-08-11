@@ -10,8 +10,9 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-interface UserRow { id: string; email: string; display_name: string; role: string; status: string; balance: string; total_spend: string; }
+interface UserRow { id: string; email: string; display_name: string; user_type: string; tenant_id: string; tenant_name: string; role: string; status: string; balance: string; total_spend: string; }
 function sb(s: string): "success" | "destructive" | "secondary" { if (s === "active") return "success"; if (s === "banned") return "destructive"; return "secondary"; }
 function sl(s: string): string { if (s === "active") return "正常"; if (s === "banned") return "已封禁"; return s; }
 
@@ -20,7 +21,13 @@ export default function Users() {
   const all = ud?.data ?? []; const t = ud?.total ?? 0;
   const le = isError ? (error instanceof Error ? error.message : String(error)) : "";
   const [q, setQ] = useState("");
-  const users = useMemo(() => { if (!q.trim()) return all; const lq = q.toLowerCase(); return all.filter(u => u.email.toLowerCase().includes(lq) || (u.display_name || "").toLowerCase().includes(lq)); }, [all, q]);
+  const [ut, setUt] = useState("all");
+  const users = useMemo(() => {
+    let list = all;
+    if (ut !== "all") list = list.filter(u => u.user_type === ut);
+    if (q.trim()) { const lq = q.toLowerCase(); list = list.filter(u => u.email.toLowerCase().includes(lq) || (u.display_name || "").toLowerCase().includes(lq) || (u.tenant_name || "").toLowerCase().includes(lq)); }
+    return list;
+  }, [all, q, ut]);
 
   // Edit dialog
   const [ed, setEd] = useState<UserRow | null>(null); const [er, setEr] = useState(""); const [es, setEs] = useState("");
@@ -53,11 +60,14 @@ export default function Users() {
       </SectionPageLayout.Header>
 
       <SectionPageLayout.Content>
-        <div className="mb-4 relative max-w-sm"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input value={q} onChange={e => setQ(e.target.value)} placeholder="搜索..." className="pl-9 h-9 text-sm" />{q && <Button variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setQ("")}><X size={14} /></Button>}</div>
+        <div className="mb-4 flex items-center gap-2">
+          <div className="relative max-w-sm flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><Input value={q} onChange={e => setQ(e.target.value)} placeholder="搜索..." className="pl-9 h-9 text-sm" />{q && <Button variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setQ("")}><X size={14} /></Button>}</div>
+          <Select value={ut} onValueChange={setUt}><SelectTrigger className="w-32 h-9 text-sm"><SelectValue placeholder="类型" /></SelectTrigger><SelectContent><SelectItem value="all">全部类型</SelectItem><SelectItem value="personal">个人</SelectItem><SelectItem value="enterprise">企业</SelectItem></SelectContent></Select>
+        </div>
         {le && <ErrorState onRetry={() => refetch()} />}
-        <Card className="overflow-hidden"><Table><TableHeader><TableRow><TableHead>用户</TableHead><TableHead>角色</TableHead><TableHead className="text-right">余额</TableHead><TableHead className="text-right">消费</TableHead><TableHead>状态</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader>
-          <TableBody>{users.length === 0 && <TableRow><TableCell colSpan={6}><EmptyState icon={UsersIcon} title={q ? "未找到" : "暂无用户"} /></TableCell></TableRow>}
-            {users.map(u => <TableRow key={u.id}><TableCell><p className="font-medium text-sm">{u.email}</p></TableCell><TableCell><Badge variant={u.role === "admin" ? "default" : "secondary"}>{u.role === "admin" ? "管理员" : "用户"}</Badge></TableCell><TableCell className="text-right font-mono text-sm">{parseFloat(u.balance || "0").toFixed(2)}</TableCell><TableCell className="text-right font-mono text-sm text-orange-500">{parseFloat(u.total_spend || "0").toFixed(2)}</TableCell><TableCell><Badge variant={sb(u.status)}>{sl(u.status)}</Badge></TableCell><TableCell className="text-right"><div className="flex gap-1 justify-end"><Button variant="outline" size="sm" onClick={() => oe(u)}><Edit size={12} className="mr-1" />编辑</Button><Button variant="outline" size="sm" className="hover:text-destructive" onClick={() => hd(u)}><Trash2 size={12} /></Button></div></TableCell></TableRow>)}
+        <Card className="overflow-hidden"><Table><TableHeader><TableRow><TableHead>用户</TableHead><TableHead>类型</TableHead><TableHead>所属企业</TableHead><TableHead>角色</TableHead><TableHead className="text-right">余额</TableHead><TableHead className="text-right">消费</TableHead><TableHead>状态</TableHead><TableHead className="text-right">操作</TableHead></TableRow></TableHeader>
+          <TableBody>{users.length === 0 && <TableRow><TableCell colSpan={8}><EmptyState icon={UsersIcon} title={q || ut !== "all" ? "未找到" : "暂无用户"} /></TableCell></TableRow>}
+            {users.map(u => <TableRow key={u.id}><TableCell><p className="font-medium text-sm">{u.email}</p></TableCell><TableCell><Badge variant={u.user_type === "enterprise" ? "default" : "secondary"}>{u.user_type === "enterprise" ? "企业" : "个人"}</Badge></TableCell><TableCell className="text-sm text-muted-foreground">{u.tenant_name || "—"}</TableCell><TableCell><Badge variant={u.role === "admin" ? "default" : "secondary"}>{u.role === "admin" ? "管理员" : "用户"}</Badge></TableCell><TableCell className="text-right font-mono text-sm">{parseFloat(u.balance || "0").toFixed(2)}</TableCell><TableCell className="text-right font-mono text-sm text-orange-500">{parseFloat(u.total_spend || "0").toFixed(2)}</TableCell><TableCell><Badge variant={sb(u.status)}>{sl(u.status)}</Badge></TableCell><TableCell className="text-right"><div className="flex gap-1 justify-end"><Button variant="outline" size="sm" onClick={() => oe(u)}><Edit size={12} className="mr-1" />编辑</Button><Button variant="outline" size="sm" className="hover:text-destructive" onClick={() => hd(u)}><Trash2 size={12} /></Button></div></TableCell></TableRow>)}
           </TableBody></Table></Card>
 
         {/* Edit Dialog */}

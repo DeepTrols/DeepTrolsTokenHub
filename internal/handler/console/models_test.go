@@ -313,6 +313,7 @@ func seedUserForLoginHistory(t *testing.T, a *app.App, email, password, displayN
 		PasswordHash: string(hash),
 		DisplayName:  displayName,
 		Role:         "user",
+		UserType:     domain.UserTypePersonal,
 		Status:       domain.UserStatusActive,
 		CreatedAt:    now,
 		UpdatedAt:    now,

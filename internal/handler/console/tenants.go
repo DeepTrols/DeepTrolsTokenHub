@@ -23,6 +23,7 @@ type tenantListResponse struct {
 	Status       string  `json:"status"`
 	OwnerID      *string `json:"owner_id,omitempty"`
 	StatusReason string  `json:"status_reason,omitempty"`
+	MemberCount  int     `json:"member_count"`
 	CreatedAt    string  `json:"created_at"`
 }
 
@@ -84,6 +85,30 @@ func HandleListTenants(a *app.App) http.HandlerFunc {
 			return
 		}
 
+		// Count active members per tenant with a single aggregate query so the
+		// list can show member counts without N+1 lookups. Only active members
+		// are counted, matching the member_count returned by GET /enterprise.
+		memberCounts := make(map[uuid.UUID]int, len(tenants))
+		rows, err := a.Pool.Query(r.Context(),
+			`SELECT tenant_id, COUNT(*) FROM tenant_memberships WHERE status = 'active' GROUP BY tenant_id`)
+		if err != nil {
+			log.Printf("HandleListTenants: member count query: %v", err)
+		} else {
+			for rows.Next() {
+				var tenantID uuid.UUID
+				var n int
+				if err := rows.Scan(&tenantID, &n); err != nil {
+					log.Printf("HandleListTenants: member count scan: %v", err)
+					continue
+				}
+				memberCounts[tenantID] = n
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				log.Printf("HandleListTenants: member count rows: %v", err)
+			}
+		}
+
 		response := make([]tenantListResponse, 0, len(tenants))
 		for _, t := range tenants {
 			item := tenantListResponse{
@@ -92,6 +117,7 @@ func HandleListTenants(a *app.App) http.HandlerFunc {
 				Name:         t.Name,
 				Status:       string(t.Status),
 				StatusReason: t.StatusReason,
+				MemberCount:  memberCounts[t.ID],
 				CreatedAt:    t.CreatedAt.Format(time.RFC3339),
 			}
 			if t.OwnerID != nil {

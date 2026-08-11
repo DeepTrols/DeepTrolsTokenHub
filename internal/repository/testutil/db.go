@@ -51,6 +51,8 @@ func TruncateTables(t *testing.T, pool *pgxpool.Pool, tables ...string) {
 func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	TruncateTables(t, pool,
+		"tenant_invitations",
+		"tenant_memberships",
 		"reconciliation_diffs",
 		"reconciliation_runs",
 		"audit_logs",

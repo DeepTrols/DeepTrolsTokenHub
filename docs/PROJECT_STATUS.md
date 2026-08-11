@@ -191,3 +191,92 @@
 - `go build ./...` 通过；health_checker / tenant / middleware 测试全绿；Playground 15 个组件测试通过。
 - 38 个渠道修复后保持 healthy（health_checker 跑完一轮仍健康）。
 - 浏览器端到端：模型列表加载 → deepseek-v4-flash → 返回真实响应。
+
+
+## 七、2026-08-10 修复记录
+
+> 前端「渠道管理」页面 API 端点修正 + 开发环境配置补全。用户在前端界面添加 URL 和 API Key 后，系统自动发现该 Provider 的模型列表。
+
+### 修复内容
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 4 | 前端渠道管理「添加渠道」提交后无模型自动发现 | `Channels.tsx` 的 CRUD mutation 全部指向 `/channels` 端点，该端点要求前端先选择已存在的 `model_id`，没有自动发现链路 | `web/src/pages/Channels.tsx`：3 个 mutation 端点从 `/channels` 改为 `/providers`（`POST /api/admin/providers` 会先调上游 `/v1/models` 自动发现模型，再创建 models + channels + channel_instances） |
+| 5 | 本地启动 Go API 进程拒绝启动 | production 模式下检测到弱 JWT secret 硬退出 | `.env` 添加 `ENABLE_FAKE_PAYMENT=true`，开发模式允许弱密钥（生产必须为 false） |
+| 6 | Vite 前端 dev server 请求被 CORS 拦截 | `.env` 中 `CORS_ORIGIN` 只含 `localhost:3000`（Docker web 容器端口），不含 Vite 默认端口 | `.env` 的 `CORS_ORIGIN` 追加 `http://localhost:5173` |
+
+### 技术说明
+
+**Provider vs Channel 端点区别：**
+
+| 端点 | 用途 | 自动发现模型 |
+|------|------|-------------|
+| `POST /api/admin/providers` | 创建 Provider 凭证（name + provider type + api_key + base_url） | ✅ 调用上游 `/v1/models` 自动发现，创建 models + channels + instances |
+| `POST /api/admin/channels` | 为已存在的模型创建渠道 | ❌ 需要 `model_id`，模型必须已存在数据库中 |
+
+前端「渠道管理」页面的交互意图是：用户选择服务商类型 → 填入 API Key 和 Base URL → 提交 → 系统自动拉取该服务商的模型列表。这匹配 `/providers` 端点的语义。`/channels` 端点是底层渠道创建 API，不面向此交互场景。
+
+### 已知限制
+
+- **LiteLLM 无上游 API Key**：`litellm-config.yaml` 中引用了 `${OPENAI_API_KEY}` 和 `${ANTHROPIC_API_KEY}`，但未在 docker-compose 或 `.env` 中设置。LiteLLM 容器可启动但模型列表为空。直连 Provider 的模型发现不受影响（Go API 直接调用上游 `/v1/models`，不经过 LiteLLM）。
+
+
+## 八、2026-08-10 四用户类型 Phase 2 完成记录
+
+> 四类用户（系统管理员 / 企业管理员 / 企业成员 / 个人用户）前后端完整落地。个人用户与企业成员共享控制台基础能力；企业管理员额外获得企业设置 + 团队管理；系统管理员拥有全局管理后台。
+
+### 后端新增/扩展
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | Admin 租户成员管理 API（列表/添加/移除/改角色） | `internal/handler/console/admin_memberships.go` |
+| 2 | User Ledger 响应扩展（user_type / tenant_id / tenant_name） | `internal/handler/console/ledger.go` |
+| 3 | 企业设置 API（GET/PUT `/enterprise` + PUT `/enterprise/brand`） | `internal/handler/console/enterprise.go` |
+| 4 | Team 端点扩展（成员状态、待处理邀请、取消邀请、转让所有权） | `internal/handler/console/team.go` |
+| 5 | 新路由注册（`/team/invitations`、`/team/transfer-ownership` 等） | `cmd/api/main.go` |
+
+### 前端
+
+| 页面 | 说明 |
+|------|------|
+| `Users.tsx` | 新增 user_type / 所属企业列与筛选 |
+| `Tenants.tsx` | 新增成员数量 + 成员管理入口 |
+| `TenantMembers.tsx` | 新增管理员视角企业成员管理页（`/admin/tenants/:id/members`） |
+| `EnterpriseSettings.tsx` | 新增企业设置页（`/enterprise`，owner/admin 分级权限） |
+| `TeamManagement.tsx` | 扩展：待处理邀请、取消邀请、转让所有权、成员停用/启用；修复 `/team` 响应结构读取 bug（`{members}` 而非 `{data}`） |
+| `AdminLayout.tsx` | 侧边栏新增「租户管理」「策略管理」 |
+| `ConsoleLayout.tsx` | 企业管理员可见「企业设置」「团队管理」 |
+
+### 验证（全绿）
+
+- `go build ./...` ✅ · `go vet ./...` ✅
+- `go test -p 1 -count=1 ./...` ✅ 全部通过
+- `npx tsc --noEmit` ✅ · `npm run build`（tsc -b + vite build）✅
+
+### 测试修复
+
+| 文件 | 修复 |
+|------|------|
+| `internal/repository/user/postgres.go` | `Create` 归一化空 `user_type` → `personal`，避免显式 `''` 违反 `users_user_type_check` |
+| `internal/repository/membership/repository_test.go` | `seedTenant` 补充唯一 `code`（`tenants.code NOT NULL UNIQUE`） |
+| `internal/repository/invitation/repository_test.go` | `seedTenantForInvitation` 补充唯一 `code` |
+
+### 已知限制
+
+- **Go 测试套件需 `-p 1` 串行运行**：多个 repository 测试包共享同一 Postgres 库并并发 TRUNCATE 相同表（users 等），默认并行下会触发 `40P01 deadlock detected`。`go test -p 1 ./...` 可避免。彻底解决需每包独立 schema，属后续优化。
+
+### 安全评审修正（2026-08-10）
+
+Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型结论为「权限矩阵正确、租户隔离健壮、无 CRITICAL/HIGH」。按评审修正以下 MEDIUM/LOW 项：
+
+| 严重级 | 发现 | 修复 |
+|--------|------|------|
+| MEDIUM | `user/postgres.go` Create 内 `user.UserType = userType` 就地修改调用方结构，违反不可变性原则 | 改为仅本地变量归一化，插入用局部值，不再写回调用方指针 |
+| MEDIUM | `HandleChangeMemberRole` 未校验目标成员状态，可修改停用/已离开成员角色 | 新增 `m.Status != active` 拦截（400） |
+| MEDIUM | 团队管理端点无限流，可刷邀请/状态切换/转让 | 新增 `middleware.TeamRateLimit`（按 ConsoleAuth 用户 ID 限流，IP 兜底），应用于 `/team` 路由子组（30 次/分钟），含单元测试 |
+| LOW | 邀请邮箱仅用 `strings.Contains("@")` 校验 | 改用 `mail.ParseAddress` 严格校验，与注册端一致 |
+| LOW | 前端直接渲染后端错误消息，可能泄露角色层级 | 保留：错误均为受控字符串，且对管理员有诊断价值；未做通用化映射 |
+
+**未采纳项（记录）：**
+- `M-4`：建议把租户鉴权从「每 handler 显式调用」上移到路由级中间件。当前各 handler 均已独立正确调用 `isTenantAdmin/isTenantOwner`，且既有审计已确认无越权；统一中间件属防御性重构，列为后续优化。
+- `L-3`：`HandleRemoveMember` 未校验目标状态——删除已离开成员的陈旧记录本身幂等无害，保留现状。

@@ -1,24 +1,30 @@
 import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Key, BarChart3, Wallet, Box, Play, Shield, LogOut, LayoutDashboard, FileText, Book, Settings } from "lucide-react";
+import { Key, BarChart3, Wallet, Box, Play, Shield, LogOut, LayoutDashboard, FileText, Book, Settings, UserCircle, Users, Building2 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
-
-const navItems = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "数据看板" },
-  { to: "/api-keys", icon: Key, label: "API 密钥" },
-  { to: "/models", icon: Box, label: "模型广场" },
-  { to: "/playground", icon: Play, label: "在线体验" },
-  { to: "/logs", icon: FileText, label: "调用记录" },
-  { to: "/wallet", icon: Wallet, label: "钱包管理" },
-  { to: "/security", icon: Shield, label: "安全设置" },
-  { to: "/docs", icon: Book, label: "开发文档" },
-];
 
 export default function ConsoleLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const isAdmin = user?.role === "admin";
+  const isEnterpriseAdmin = user?.tenant_role === "owner" || user?.tenant_role === "admin";
+
+  const navItems = [
+    { to: "/dashboard", icon: LayoutDashboard, label: "数据看板" },
+    { to: "/api-keys", icon: Key, label: "API 密钥" },
+    { to: "/models", icon: Box, label: "模型广场" },
+    { to: "/playground", icon: Play, label: "在线体验" },
+    { to: "/logs", icon: FileText, label: "调用记录" },
+    { to: "/wallet", icon: Wallet, label: "钱包管理" },
+    { to: "/profile", icon: UserCircle, label: "个人设置" },
+    ...(isEnterpriseAdmin ? [
+      { to: "/enterprise", icon: Building2, label: "企业设置" },
+      { to: "/team", icon: Users, label: "团队管理" },
+    ] : []),
+    { to: "/security", icon: Shield, label: "安全设置" },
+    { to: "/docs", icon: Book, label: "开发文档" },
+  ];
 
   const handleLogout = async () => {
     await logout();

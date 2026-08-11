@@ -6,17 +6,32 @@ import (
 	"github.com/google/uuid"
 )
 
+type UserType string
+
+const (
+	UserTypePersonal   UserType = "personal"
+	UserTypeEnterprise UserType = "enterprise"
+)
+
 type User struct {
 	ID           uuid.UUID
 	Email        string
 	PasswordHash string
 	DisplayName  string
 	Role         string
+	UserType     UserType
 	Status       UserStatus
+	Phone        string
+	AvatarURL    string
 	TOTPSecret   string
 	TOTPEnabled  bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+// IsEnterprise returns true when the user belongs to an enterprise tenant.
+func (u User) IsEnterprise() bool {
+	return u.UserType == UserTypeEnterprise
 }
 
 type UserStatus string
@@ -38,6 +53,7 @@ func NewUser(email, passwordHash, displayName string) User {
 		Email:        email,
 		PasswordHash: passwordHash,
 		DisplayName:  displayName,
+		UserType:     UserTypePersonal,
 		Status:       UserStatusActive,
 		CreatedAt:    now,
 		UpdatedAt:    now,
