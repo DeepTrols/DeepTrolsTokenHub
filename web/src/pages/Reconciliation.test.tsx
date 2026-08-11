@@ -59,7 +59,7 @@ describe("Reconciliation", () => {
 
     renderWithProviders(<Reconciliation />);
 
-    expect(await screen.findByText("L0 - 原始用量")).toBeInTheDocument();
+    expect(await screen.findByText("L0 · 原始用量")).toBeInTheDocument();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
   });
 

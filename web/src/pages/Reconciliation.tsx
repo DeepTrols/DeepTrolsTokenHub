@@ -28,7 +28,7 @@ export default function Reconciliation() {
   return (
     <div>
       <div className="mb-6"><h2 className="text-2xl font-bold">对账管理</h2><p className="text-sm text-muted-foreground mt-1">查看最近的对账运行情况与差异统计</p></div>
-      {loadError && <Card className="mb-4 border-destructive/20"><CardContent className="p-4 text-destructive text-sm"><p className="font-medium">加载失败</p><Button variant="destructive" size="sm" className="mt-2" onClick={()=>refetch()}>重试</Button></CardContent></Card>}
+      {loadError && <Card className="mb-4 border-destructive/20"><CardContent className="p-4 text-destructive text-sm"><p className="font-medium">加载失败</p><p className="mt-1 text-xs break-all">{loadError}</p><Button variant="destructive" size="sm" className="mt-2" onClick={()=>refetch()}>重试</Button></CardContent></Card>}
       <div className="grid grid-cols-3 gap-4 mb-6">{[{l:"对账总数",v:tr},{l:"已完成",v:cr},{l:"累计差异",v:td}].map(c=><Card key={c.l}><CardContent className="p-5"><p className="text-sm text-muted-foreground">{c.l}</p><p className="text-2xl font-bold mt-1">{String(c.v)}</p></CardContent></Card>)}</div>
       <Card className="overflow-hidden"><Table>
         <TableHeader><TableRow><TableHead>级别</TableHead><TableHead>状态</TableHead><TableHead>时间段</TableHead><TableHead>开始</TableHead><TableHead>完成</TableHead><TableHead className="text-right">记录</TableHead><TableHead className="text-right">匹配</TableHead><TableHead className="text-right">差异</TableHead><TableHead className="text-right">率</TableHead></TableRow></TableHeader>

@@ -36,7 +36,7 @@ describe("Register", () => {
     expect(screen.getByText("AI 模型聚合平台 · 创建账号")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("请输入昵称")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("请输入邮箱")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("请输入密码（至少8位）")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("至少8位")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /注 册/i })).toBeInTheDocument();
   });
 
@@ -51,7 +51,7 @@ describe("Register", () => {
     renderRegister();
     await user.type(screen.getByPlaceholderText("请输入昵称"), "Test User");
     await user.type(screen.getByPlaceholderText("请输入邮箱"), "test@example.com");
-    await user.type(screen.getByPlaceholderText("请输入密码（至少8位）"), "password123");
+    await user.type(screen.getByPlaceholderText("至少8位"), "password123");
     await user.click(screen.getByRole("button", { name: /注 册/i }));
 
     await waitFor(() => {
@@ -69,7 +69,7 @@ describe("Register", () => {
     renderRegister();
     await user.type(screen.getByPlaceholderText("请输入昵称"), "Test User");
     await user.type(screen.getByPlaceholderText("请输入邮箱"), "existing@example.com");
-    await user.type(screen.getByPlaceholderText("请输入密码（至少8位）"), "password123");
+    await user.type(screen.getByPlaceholderText("至少8位"), "password123");
     await user.click(screen.getByRole("button", { name: /注 册/i }));
 
     await waitFor(() => {
@@ -88,7 +88,7 @@ describe("Register", () => {
     renderRegister();
     await user.type(screen.getByPlaceholderText("请输入昵称"), "Test User");
     await user.type(screen.getByPlaceholderText("请输入邮箱"), "test@example.com");
-    await user.type(screen.getByPlaceholderText("请输入密码（至少8位）"), "password123");
+    await user.type(screen.getByPlaceholderText("至少8位"), "password123");
     await user.click(screen.getByRole("button", { name: /注 册/i }));
 
     await waitFor(() => {

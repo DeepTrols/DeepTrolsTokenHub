@@ -68,7 +68,7 @@ describe("Providers", () => {
     mockGet.mockResolvedValue({ data: [], total: 0 });
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText("暂无 Provider 凭证")).toBeInTheDocument();
+      expect(screen.getByText("暂无凭证")).toBeInTheDocument();
     });
   });
 
@@ -125,7 +125,7 @@ describe("Providers", () => {
 
     expect(screen.getByRole("heading", { name: "添加凭证" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("例如: OpenAI Production")).toBeInTheDocument();
-    expect(screen.getByText("确认创建")).toBeInTheDocument();
+    expect(screen.getByText("创建")).toBeInTheDocument();
   });
 
   it("fills and submits the create provider form", async () => {
@@ -141,13 +141,13 @@ describe("Providers", () => {
 
     // Fill form
     await userEvent.type(screen.getByPlaceholderText("例如: OpenAI Production"), "My Provider");
-    // Select provider from dropdown
-    const select = screen.getByRole("combobox");
-    await userEvent.selectOptions(select, "deepseek");
+    // Select provider from dropdown（Radix Select：点击触发后选择选项）
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByText("DeepSeek"));
     await userEvent.type(screen.getByPlaceholderText("sk-..."), "sk-test-key");
 
     // Submit
-    await userEvent.click(screen.getByText("确认创建"));
+    await userEvent.click(screen.getByText("创建"));
 
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith("/providers", {
@@ -168,10 +168,10 @@ describe("Providers", () => {
     await userEvent.type(screen.getByPlaceholderText("例如: OpenAI Production"), "My Provider");
 
     // Submit without API key
-    await userEvent.click(screen.getByText("确认创建"));
+    await userEvent.click(screen.getByText("创建"));
 
     await waitFor(() => {
-      expect(screen.getByText("API Key 为必填项")).toBeInTheDocument();
+      expect(screen.getByText("API Key 必填")).toBeInTheDocument();
     });
   });
 
@@ -256,14 +256,14 @@ describe("Providers", () => {
     await userEvent.click(screen.getByRole("button", { name: /添加凭证/ }));
 
     // Form should be visible
-    expect(screen.getByText("确认创建")).toBeInTheDocument();
+    expect(screen.getByText("创建")).toBeInTheDocument();
 
     // Click cancel
     await userEvent.click(screen.getByText("取消"));
 
     // Form should be hidden
     await waitFor(() => {
-      expect(screen.queryByText("确认创建")).not.toBeInTheDocument();
+      expect(screen.queryByText("创建")).not.toBeInTheDocument();
     });
   });
 });

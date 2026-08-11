@@ -42,7 +42,8 @@ describe("UsageStats", () => {
     renderWithProviders(<UsageStats />);
 
     expect(screen.getByText("用量统计")).toBeInTheDocument();
-    expect(screen.getByText(/Token 消耗趋势/)).toBeInTheDocument();
+    // 加载态只显示标题与骨架屏，副标题在数据加载完成后才出现
+    expect(screen.queryByText(/Token 消耗趋势/)).not.toBeInTheDocument();
   });
 
   it("renders model breakdown and daily trend when data loads", async () => {

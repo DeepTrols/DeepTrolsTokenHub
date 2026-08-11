@@ -44,7 +44,7 @@ describe("Dashboard", () => {
 
     renderWithProviders(<Dashboard />);
 
-    expect(screen.getByText("工作台")).toBeInTheDocument();
+    expect(screen.getByText("数据看板")).toBeInTheDocument();
     expect(await screen.findByText("可用余额")).toBeInTheDocument();
     expect(screen.getByText("今日请求")).toBeInTheDocument();
     expect(screen.getByText("今日费用")).toBeInTheDocument();
@@ -56,7 +56,7 @@ describe("Dashboard", () => {
 
     renderWithProviders(<Dashboard />);
 
-    expect(screen.getByText("加载工作台数据...")).toBeInTheDocument();
+    expect(screen.getByText("加载...")).toBeInTheDocument();
   });
 
   it("displays wallet balance and usage logs when loaded", async () => {
