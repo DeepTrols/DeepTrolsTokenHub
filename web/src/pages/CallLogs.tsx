@@ -3,6 +3,7 @@ import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { Fragment, useState, useMemo } from "react";
 import { UsageLog } from "../lib/api";
 import { useConsoleQuery } from "../lib/hooks/use-api";
+import { formatAmount } from "../lib/format";
 import { Search, FilterX, ChevronDown, ChevronRight, BarChart3 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Input } from "@/components/ui/input";
@@ -58,9 +59,9 @@ export default function CallLogs() {
         <Card><CardHeader className="pb-3"><CardTitle className="text-sm">统计概览</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-3 gap-3 mb-4">
-              {[["总请求", stats.totalRequests], ["总费用", stats.totalCost.toFixed(3) + " CNY"], ["模型数", stats.models.length]].map(([l, v]) => <div key={l as string} className="text-center p-3 bg-muted rounded-xl"><p className="text-xs text-muted-foreground">{l as string}</p><p className="text-lg font-bold mt-1">{(l as string) === "总费用" ? <span className="text-primary">{v as string}</span> : (v as React.ReactNode)}</p></div>)}
+              {[["总请求", stats.totalRequests], ["总费用", formatAmount(stats.totalCost) + " CNY"], ["模型数", stats.models.length]].map(([l, v]) => <div key={l as string} className="text-center p-3 bg-muted rounded-xl"><p className="text-xs text-muted-foreground">{l as string}</p><p className="text-lg font-bold mt-1">{(l as string) === "总费用" ? <span className="text-primary">{v as string}</span> : (v as React.ReactNode)}</p></div>)}
             </div>
-            <div className="space-y-2">{stats.models.slice(0, 6).map(m => <div key={m.fullName} className="flex items-center justify-between text-xs"><span className="text-muted-foreground truncate max-w-[160px]">{m.fullName}</span><span className="text-muted-foreground/60">{m.count}次 · {m.cost.toFixed(3)} CNY</span></div>)}</div>
+            <div className="space-y-2">{stats.models.slice(0, 6).map(m => <div key={m.fullName} className="flex items-center justify-between text-xs"><span className="text-muted-foreground truncate max-w-[160px]">{m.fullName}</span><span className="text-muted-foreground/60">{m.count}次 · {formatAmount(m.cost)} CNY</span></div>)}</div>
           </CardContent></Card>
       </div>}
 
@@ -87,12 +88,12 @@ export default function CallLogs() {
                   <TableCell className="font-mono text-xs text-muted-foreground truncate max-w-[130px]">{log.request_id}</TableCell>
                   <TableCell className="text-xs">{(log.input_tokens || 0) + (log.output_tokens || 0)}</TableCell>
                   <TableCell><Badge variant={log.status === "completed" ? "success" : "destructive"}>{log.status === "completed" ? "成功" : "失败"}</Badge></TableCell>
-                  <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => toggleExpand(log.id)} className="font-mono text-xs h-auto py-0">{isExpanded ? <ChevronDown size={13} className="mr-1" /> : <ChevronRight size={13} className="mr-1" />}{log.cost} CNY</Button></TableCell>
+                  <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => toggleExpand(log.id)} className="font-mono text-xs h-auto py-0">{isExpanded ? <ChevronDown size={13} className="mr-1" /> : <ChevronRight size={13} className="mr-1" />}{formatAmount(log.cost)} CNY</Button></TableCell>
                   <TableCell className="text-right text-xs text-muted-foreground">{new Date(log.created_at).toLocaleString("zh-CN")}</TableCell>
                 </TableRow>
                 {isExpanded && <TableRow className="bg-muted/50"><TableCell colSpan={6} className="px-8 py-4">
                   {chargesLoading && !charges ? <p className="text-sm text-muted-foreground">加载费用明细...</p>
-                  : charges && charges.length > 0 ? <table className="w-full max-w-lg text-xs"><thead><tr className="border-b"><th className="text-left py-1.5 font-medium">计费维度</th><th className="text-right py-1.5 font-medium">数量</th><th className="text-right py-1.5 font-medium">单价</th><th className="text-right py-1.5 font-medium">小计</th></tr></thead><tbody>{charges.map((c, i) => <tr key={i} className="border-b last:border-b-0"><td className="py-1.5 font-medium">{c.dimension}</td><td className="py-1.5 text-right">{c.quantity.toLocaleString()} {c.unit_name}</td><td className="py-1.5 text-right font-mono">{c.unit_price}</td><td className="py-1.5 text-right font-mono text-emerald-600">{c.line_cost} CNY</td></tr>)}</tbody></table>
+                  : charges && charges.length > 0 ? <table className="w-full max-w-lg text-xs"><thead><tr className="border-b"><th className="text-left py-1.5 font-medium">计费维度</th><th className="text-right py-1.5 font-medium">数量</th><th className="text-right py-1.5 font-medium">单价</th><th className="text-right py-1.5 font-medium">小计</th></tr></thead><tbody>{charges.map((c, i) => <tr key={i} className="border-b last:border-b-0"><td className="py-1.5 font-medium">{c.dimension}</td><td className="py-1.5 text-right">{c.quantity.toLocaleString()} {c.unit_name}</td><td className="py-1.5 text-right font-mono">{c.unit_price}</td><td className="py-1.5 text-right font-mono text-emerald-600">{formatAmount(c.line_cost)} CNY</td></tr>)}</tbody></table>
                   : <p className="text-sm text-muted-foreground">暂无费用明细</p>}
                 </TableCell></TableRow>}
               </Fragment>;

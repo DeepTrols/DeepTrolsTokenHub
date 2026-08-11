@@ -2,6 +2,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
 import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { useState, useMemo } from "react";
 import { useAdminQuery } from "../lib/hooks/use-api";
+import { formatAmount } from "../lib/format";
 import { Search, FilterX, BarChart3 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -54,9 +55,9 @@ export default function AuditLogs() {
       {loadError && <Card className="mb-4 border-destructive/20"><CardContent className="p-4 text-destructive text-sm"><p className="font-medium">加载失败</p><p className="mt-1">{loadError}</p><Button variant="destructive" size="sm" className="mt-2" onClick={() => refetch()}>重试</Button></CardContent></Card>}
 
       {stats.users.length > 0 && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-        {[{ label: "总调用次数", v: filtered.length }, { label: "总费用", v: stats.totalCost.toFixed(3) + " CNY" }, { label: "用户数", v: stats.users.length }].map(c => <Card key={c.label}><CardContent className="p-4 text-center"><p className="text-xs text-muted-foreground">{c.label}</p><p className="text-xl font-bold mt-1">{String(c.v)}</p></CardContent></Card>)}
+        {[{ label: "总调用次数", v: filtered.length }, { label: "总费用", v: formatAmount(stats.totalCost) + " CNY" }, { label: "用户数", v: stats.users.length }].map(c => <Card key={c.label}><CardContent className="p-4 text-center"><p className="text-xs text-muted-foreground">{c.label}</p><p className="text-xl font-bold mt-1">{String(c.v)}</p></CardContent></Card>)}
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-2">各用户消费</p>
-          {stats.users.slice(0, 5).map(([email, u]) => <div key={email} className="flex justify-between text-xs mb-1"><span className="text-muted-foreground truncate max-w-[140px]">{email}</span><span className="font-mono">{u.cost.toFixed(2)}</span></div>)}</CardContent></Card>
+          {stats.users.slice(0, 5).map(([email, u]) => <div key={email} className="flex justify-between text-xs mb-1"><span className="text-muted-foreground truncate max-w-[140px]">{email}</span><span className="font-mono">{formatAmount(u.cost)} CNY</span></div>)}</CardContent></Card>
       </div>}
 
       <div className="flex gap-2 mb-4 flex-wrap">
@@ -82,7 +83,7 @@ export default function AuditLogs() {
               <TableCell className="font-mono text-xs text-muted-foreground truncate max-w-[120px]">{l.request_id}</TableCell>
               <TableCell className="text-right text-xs">{l.input_tokens + l.output_tokens}</TableCell>
               <TableCell><Badge variant={l.status === "completed" ? "success" : "destructive"}>{l.status === "completed" ? "成功" : "失败"}</Badge></TableCell>
-              <TableCell className="text-right font-mono text-xs">{l.cost}</TableCell>
+              <TableCell className="text-right font-mono text-xs">{formatAmount(l.cost)} CNY</TableCell>
               <TableCell className="text-right text-xs text-muted-foreground">{new Date(l.created_at).toLocaleString("zh-CN")}</TableCell>
             </TableRow>)}
           </TableBody>

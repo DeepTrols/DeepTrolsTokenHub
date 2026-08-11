@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { useState, useMemo } from "react";
 import { APIKeyData, UsageLog } from "../lib/api";
 import { useConsoleMutation, useConsoleQuery } from "../lib/hooks/use-api";
+import { formatAmount } from "../lib/format";
 import { setKeySecret } from "../lib/keyMemory";
 import { Plus, Copy, Trash2, EyeOff, Key, Shield, AlertTriangle, Clock, ChevronDown, ChevronRight, Ban, Play, Zap, BarChart3, ExternalLink } from "lucide-react";
 
@@ -390,7 +391,7 @@ export default function APIKeys() {
                       <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
                         <span className="flex items-center gap-1"><Zap size={10} />{u.calls} 次调用</span>
                         <span className="flex items-center gap-1"><BarChart3 size={10} />{u.tokens.toLocaleString()} tokens</span>
-                        <span className="font-mono text-indigo-600">{u.cost.toFixed(3)} CNY</span>
+                        <span className="font-mono text-indigo-600">{formatAmount(u.cost)} CNY</span>
                       </div>); })()}
 
                     {/* Boundary indicators row */}

@@ -3,6 +3,7 @@ import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { useMemo } from "react";
 import { BarChart3, TrendingUp } from "lucide-react";
 import { useConsoleQuery } from "../lib/hooks/use-api";
+import { formatAmount } from "../lib/format";
 import { type UsageLog } from "../lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,8 +33,8 @@ export default function UsageStats() {
     <div>
       <div className="mb-6"><h2 className="text-2xl font-bold">用量统计</h2><p className="text-sm text-muted-foreground mt-1">Token 消耗趋势与模型费用分布</p></div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card><CardContent className="p-5"><div className="flex items-center gap-2 mb-4"><BarChart3 size={18} className="text-primary"/><h3 className="font-semibold">各模型 Token 用量</h3></div><div className="space-y-4">{models.map(m=><div key={m.model}><div className="flex items-center justify-between mb-1"><span className="text-sm font-medium">{m.model}</span><span className="text-xs text-muted-foreground">{m.tokens.toLocaleString()} tokens · {m.cost.toFixed(2)} CNY</span></div><div className="w-full bg-muted rounded-full h-2"><div className="bg-primary h-2 rounded-full" style={{width:m.pct+'%'}}/></div></div>)}</div></CardContent></Card>
-        <Card><CardContent className="p-5"><div className="flex items-center gap-2 mb-4"><TrendingUp size={18} className="text-primary"/><h3 className="font-semibold">费用趋势（近7日）</h3></div><div className="space-y-3">{trends.map(d=><div key={d.date} className="flex items-center justify-between py-1"><span className="text-sm text-muted-foreground">{d.date}</span><span className="text-sm font-mono font-medium">{d.cost.toFixed(2)} CNY</span></div>)}</div>{totalCost>0 && <div className="mt-4 pt-4 border-t flex items-center justify-between"><span className="text-sm text-muted-foreground">{trends.length} 日合计</span><span className="text-lg font-bold text-primary">{totalCost.toFixed(2)} CNY</span></div>}</CardContent></Card>
+        <Card><CardContent className="p-5"><div className="flex items-center gap-2 mb-4"><BarChart3 size={18} className="text-primary"/><h3 className="font-semibold">各模型 Token 用量</h3></div><div className="space-y-4">{models.map(m=><div key={m.model}><div className="flex items-center justify-between mb-1"><span className="text-sm font-medium">{m.model}</span><span className="text-xs text-muted-foreground">{m.tokens.toLocaleString()} tokens · {formatAmount(m.cost)} CNY</span></div><div className="w-full bg-muted rounded-full h-2"><div className="bg-primary h-2 rounded-full" style={{width:m.pct+'%'}}/></div></div>)}</div></CardContent></Card>
+        <Card><CardContent className="p-5"><div className="flex items-center gap-2 mb-4"><TrendingUp size={18} className="text-primary"/><h3 className="font-semibold">费用趋势（近7日）</h3></div><div className="space-y-3">{trends.map(d=><div key={d.date} className="flex items-center justify-between py-1"><span className="text-sm text-muted-foreground">{d.date}</span><span className="text-sm font-mono font-medium">{formatAmount(d.cost)} CNY</span></div>)}</div>{totalCost>0 && <div className="mt-4 pt-4 border-t flex items-center justify-between"><span className="text-sm text-muted-foreground">{trends.length} 日合计</span><span className="text-lg font-bold text-primary">{formatAmount(totalCost)} CNY</span></div>}</CardContent></Card>
       </div>
     </div>
   );
