@@ -13,7 +13,6 @@ import Wallet from "./pages/Wallet";
 import ModelMarket from "./pages/ModelMarket";
 import ModelManagement from "./pages/ModelManagement";
 import Playground from "./pages/Playground";
-import Security from "./pages/Security";
 import Tenants from "./pages/Tenants";
 import Finance from "./pages/Finance";
 import Policies from "./pages/Policies";
@@ -56,7 +55,6 @@ export default function App() {
             <TeamManagement />
           </RequireAuth>
         } />
-        <Route path="security" element={<Security />} />
         <Route path="docs" element={<Docs />} />
       </Route>
 

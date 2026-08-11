@@ -1,15 +1,13 @@
 import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
 import { SectionPageLayout } from "@/components/SectionPageLayout";
 import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Book, Code, Box, Coins, Loader2, AlertCircle } from "lucide-react";
+import { Book, Code, Coins } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
-type TabKey = "quickstart" | "api" | "models" | "billing";
-interface ModelInfo { id: string; object: string; created: number; owned_by: string; }
+type TabKey = "quickstart" | "api" | "billing";
 
 function QuickstartSection() {
   return <div className="space-y-8">
@@ -36,18 +34,6 @@ function ApiReferenceSection() {
   </div>;
 }
 
-function ModelsSection() {
-  const { data: modelsData, isLoading, isError, error } = useQuery<ModelInfo[]>({ queryKey: ["gateway", "models", "demo"], queryFn: async () => { const res = await fetch("/v1/models", { headers: { "Content-Type": "application/json", Authorization: "Bearer demo" } }); if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err as { error?: { message?: string } }).error?.message || "Failed to fetch models"); } const d = await res.json() as { data?: ModelInfo[] }; return d.data || []; } });
-  const models = modelsData ?? [];
-  return <div className="space-y-4">
-    <h3 className="text-lg font-semibold mb-3">可用模型</h3><p className="text-sm text-muted-foreground">以下模型通过 GET /v1/models 接口获取。</p>
-    {isLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center"><Loader2 size={18} className="animate-spin" />加载中...</div>}
-    {isError && <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg"><div className="flex items-start gap-2"><AlertCircle size={16} className="text-destructive mt-0.5" /><div><p className="text-sm font-medium text-destructive">加载模型列表失败</p><p className="text-xs mt-1">{error instanceof Error ? error.message : String(error)}</p></div></div></div>}
-    {!isLoading && !isError && models.length === 0 && <div className="text-center py-12 text-muted-foreground"><Box size={40} className="mx-auto mb-3 opacity-30" /><p>暂无可用模型</p></div>}
-    {!isLoading && !isError && models.length > 0 && <Table><TableHeader><TableRow><TableHead>模型 ID</TableHead><TableHead>提供商</TableHead></TableRow></TableHeader><TableBody>{models.map(m => <TableRow key={m.id}><TableCell className="font-mono text-sm">{m.id}</TableCell><TableCell>{m.owned_by}</TableCell></TableRow>)}</TableBody></Table>}
-  </div>;
-}
-
 function BillingSection() {
   return <div className="space-y-8">
     <div><h3 className="text-lg font-semibold mb-3">计费维度</h3><p className="text-sm text-muted-foreground mb-4">DeepTrols 按多种维度精确计费：</p>
@@ -58,7 +44,7 @@ function BillingSection() {
   </div>;
 }
 
-const tabs = [{ key: "quickstart" as TabKey, label: "快速开始", icon: Book }, { key: "api", label: "API 参考", icon: Code }, { key: "models", label: "模型列表", icon: Box }, { key: "billing", label: "计费说明", icon: Coins }];
+const tabs = [{ key: "quickstart" as TabKey, label: "快速开始", icon: Book }, { key: "api", label: "API 参考", icon: Code }, { key: "billing", label: "计费说明", icon: Coins }];
 
 export default function Docs() {
   return (
@@ -69,7 +55,6 @@ export default function Docs() {
         <Card><CardContent className="p-6">
           <TabsContent value="quickstart"><QuickstartSection /></TabsContent>
           <TabsContent value="api"><ApiReferenceSection /></TabsContent>
-          <TabsContent value="models"><ModelsSection /></TabsContent>
           <TabsContent value="billing"><BillingSection /></TabsContent>
         </CardContent></Card>
       </Tabs>

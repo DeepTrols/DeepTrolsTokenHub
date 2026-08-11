@@ -28,18 +28,8 @@ import { api } from "../lib/api";
 
 const mockApiGet = api.get as ReturnType<typeof vi.fn>;
 
-// Stub global fetch for gateway calls (/v1/*)
-const originalFetch = globalThis.fetch;
-
 describe("Docs", () => {
-  let mockFetch: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
-    mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ object: "list", data: [] }),
-    });
-    globalThis.fetch = mockFetch as unknown as typeof fetch;
     vi.clearAllMocks();
 
     // Default: no API keys
@@ -47,7 +37,6 @@ describe("Docs", () => {
   });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
   });
 
@@ -67,7 +56,7 @@ describe("Docs", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders all 4 tab navigation items", () => {
+  it("renders all 3 tab navigation items", () => {
     // Arrange
     // Act
     renderWithProviders(<Docs />);
@@ -75,7 +64,6 @@ describe("Docs", () => {
     // Assert
     expect(screen.getByRole("tab", { name: "快速开始" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "API 参考" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "模型列表" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "计费说明" })).toBeInTheDocument();
   });
 
@@ -108,20 +96,6 @@ describe("Docs", () => {
     // POST badge and endpoint path are in separate elements, verify both exist
     expect(screen.getByText("POST")).toBeInTheDocument();
     expect(screen.getByText("/v1/chat/completions")).toBeInTheDocument();
-  });
-
-  it("navigates to Models tab when clicked", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText("可用模型")).toBeInTheDocument();
-    });
   });
 
   it("navigates to Billing tab when clicked", async () => {
@@ -285,193 +259,6 @@ describe("Docs", () => {
   });
 
   // ============================================================
-  // Models section tests
-  // ============================================================
-
-  it("fetches models from gateway when Models tab is selected", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        object: "list",
-        data: [
-          { id: "gpt-4o", object: "model", created: 1234567890, owned_by: "openai" },
-          { id: "claude-sonnet-4-20250514", object: "model", created: 1234567890, owned_by: "anthropic" },
-        ],
-      }),
-    });
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText("gpt-4o")).toBeInTheDocument();
-      expect(screen.getByText("claude-sonnet-4-20250514")).toBeInTheDocument();
-    });
-  });
-
-  it("shows model details: provider and owned_by", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        object: "list",
-        data: [
-          { id: "gpt-4o", object: "model", created: 1234567890, owned_by: "openai" },
-        ],
-      }),
-    });
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText("openai")).toBeInTheDocument();
-    });
-  });
-
-  it("shows loading state while fetching models", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    // Make fetch hang so we can observe the loading state
-    mockFetch.mockImplementation(() => new Promise(() => {}));
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText(/加载中/)).toBeInTheDocument();
-    });
-  });
-
-  it("shows error state when model fetch fails", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    mockFetch.mockRejectedValueOnce(new Error("Network error"));
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText(/加载模型列表失败/)).toBeInTheDocument();
-    });
-  });
-
-  it("shows error when gateway returns non-ok model response", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-      json: async () => ({
-        error: { message: "Invalid API key" },
-      }),
-    });
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText(/加载模型列表失败/)).toBeInTheDocument();
-      expect(screen.getByText(/Invalid API key/)).toBeInTheDocument();
-    });
-  });
-
-  it("shows fallback error when gateway returns non-ok without message", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      json: async () => ({}), // no error.message
-    });
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert: "Failed to fetch models" is the fallback error from the throw
-    await waitFor(() => {
-      expect(screen.getByText(/Failed to fetch models/)).toBeInTheDocument();
-    });
-  });
-
-  it("shows fallback error when fetch rejects with non-Error value", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    // Reject with a string (no .message property)
-    mockFetch.mockRejectedValueOnce("raw string error");
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert: "加载模型列表失败" is the fallback when error has no message
-    // The error card heading also shows "加载模型列表失败", so there may be multiple matches
-    await waitFor(() => {
-      const errorMessages = screen.getAllByText("加载模型列表失败");
-      expect(errorMessages.length).toBeGreaterThanOrEqual(1);
-    });
-  });
-
-  it("shows empty state when no models are available", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        object: "list",
-        data: [],
-      }),
-    });
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText(/暂无可用模型/)).toBeInTheDocument();
-    });
-  });
-
-  it("shows model table with id and provider columns", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        object: "list",
-        data: [
-          { id: "gpt-4o", object: "model", created: 1234567890, owned_by: "openai" },
-        ],
-      }),
-    });
-    renderWithProviders(<Docs />);
-
-    // Act
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText("模型 ID")).toBeInTheDocument();
-      expect(screen.getByText("提供商")).toBeInTheDocument();
-    });
-  });
-
-  // ============================================================
   // Billing section tests
   // ============================================================
 
@@ -528,30 +315,5 @@ describe("Docs", () => {
     // Assert
     expect(screen.getByText(/cache_read/)).toBeInTheDocument();
     expect(screen.getByText(/cache_write/)).toBeInTheDocument();
-  });
-
-  // ============================================================
-  // Edge case: switch tabs before models load
-  // ============================================================
-
-  it("cancels pending model fetch when switching away from Models tab", async () => {
-    // Arrange
-    const user = userEvent.setup();
-    // Make fetch hang
-    mockFetch.mockImplementation(() => new Promise(() => {}));
-    renderWithProviders(<Docs />);
-
-    // Act: click models tab, then quickly switch to billing
-    await user.click(screen.getByRole("tab", { name: "模型列表" }));
-    await user.click(screen.getByRole("tab", { name: "计费说明" }));
-
-    // Assert: billing content shows, no model content leak
-    await waitFor(() => {
-      expect(screen.getByText("计费维度")).toBeInTheDocument();
-    });
-    // Loading indicator should not be present after switching away
-    await waitFor(() => {
-      expect(screen.queryByText(/加载中/)).not.toBeInTheDocument();
-    });
   });
 });

@@ -1,6 +1,6 @@
 import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Key, BarChart3, Wallet, Box, Play, Shield, LogOut, LayoutDashboard, FileText, Book, Settings, UserCircle, Users } from "lucide-react";
+import { Key, BarChart3, Wallet, Box, Play, LogOut, LayoutDashboard, FileText, Book, Settings, UserCircle, Users } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
 
@@ -21,7 +21,6 @@ export default function ConsoleLayout() {
     ...(isEnterpriseAdmin ? [
       { to: "/team", icon: Users, label: "团队管理" },
     ] : []),
-    { to: "/security", icon: Shield, label: "安全设置" },
     { to: "/docs", icon: Book, label: "开发文档" },
   ];
 

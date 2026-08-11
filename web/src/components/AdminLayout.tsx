@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import {
   Box,
   Wallet,
@@ -41,13 +41,8 @@ function linkClass(isActive: boolean) {
 
 export default function AdminLayout() {
   const navigate = useNavigate();
-  const location = useLocation();
   const { logout } = useAuth();
-  const [usersOpen, setUsersOpen] = useState(
-    () =>
-      location.pathname.startsWith("/admin/tenants") ||
-      location.pathname.startsWith("/admin/users"),
-  );
+  const [usersOpen, setUsersOpen] = useState(true);
 
   const handleLogout = async () => {
     await logout();

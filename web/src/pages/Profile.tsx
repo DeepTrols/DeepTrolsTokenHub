@@ -59,7 +59,7 @@ export default function Profile() {
       <Tabs defaultValue="personal" className="max-w-2xl">
         <TabsList>
           <TabsTrigger value="personal">个人信息</TabsTrigger>
-          <TabsTrigger value="security">安全设置</TabsTrigger>
+          <TabsTrigger value="security">登录记录</TabsTrigger>
           {isEnterpriseUser && <TabsTrigger value="enterprise">企业信息</TabsTrigger>}
         </TabsList>
 
