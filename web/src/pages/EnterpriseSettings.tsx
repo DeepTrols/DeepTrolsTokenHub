@@ -7,13 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/StateViews";
-import { Building2, Globe, Save } from "lucide-react";
-
-interface Domain {
-  id: string;
-  domain: string;
-  is_primary: boolean;
-}
+import { Building2, Save } from "lucide-react";
 
 interface EnterpriseData {
   id: string;
@@ -28,7 +22,6 @@ interface EnterpriseData {
   runtime_config: Record<string, unknown>;
   settlement_config?: Record<string, unknown>;
   member_count: number;
-  domains: Domain[];
 }
 
 const STATUS_META: Record<string, { label: string; variant: "success" | "destructive" | "secondary" | "outline" }> = {
@@ -210,28 +203,6 @@ export default function EnterpriseSettings() {
         </Card>
       )}
 
-      {/* 域名列表（只读） */}
-      <Card>
-        <CardContent className="p-5">
-          <h3 className="font-semibold mb-3">企业域名</h3>
-          {(info.domains ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">暂无域名</p>
-          ) : (
-            <div className="space-y-1.5">
-              {info.domains.map(d => (
-                <div key={d.id} className="flex items-center justify-between p-2 bg-muted rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <Globe size={14} className="text-muted-foreground" />
-                    <code className="text-sm">{d.domain}</code>
-                    {d.is_primary && <Badge variant="secondary" className="text-xs">主域名</Badge>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground mt-3">域名自助管理将在后续版本开放</p>
-        </CardContent>
-      </Card>
     </div>
   );
 }

@@ -15,7 +15,7 @@ import ModelManagement from "./pages/ModelManagement";
 import Playground from "./pages/Playground";
 import Security from "./pages/Security";
 import Tenants from "./pages/Tenants";
-import TenantMembers from "./pages/TenantMembers";
+import Finance from "./pages/Finance";
 import Policies from "./pages/Policies";
 import Channels from "./pages/Channels";
 import QuotaManagement from "./pages/QuotaManagement";
@@ -80,7 +80,7 @@ export default function App() {
         <Route path="models" element={<ModelManagement />} />
         <Route path="channels" element={<Channels />} />
         <Route path="tenants" element={<Tenants />} />
-        <Route path="tenants/:id/members" element={<TenantMembers />} />
+        <Route path="finance" element={<Finance />} />
         <Route path="policies" element={<Policies />} />
         <Route path="providers" element={<Navigate to="/admin/channels" replace />} />
         <Route path="quotas" element={<QuotaManagement />} />

@@ -1,50 +1,374 @@
+import { useMemo, useState } from "react";
+import { useAdminMutation, useAdminQuery } from "../lib/hooks/use-api";
 import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
 import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useState } from "react";import { useNavigate } from "react-router-dom";import { useAdminMutation, useAdminQuery } from "../lib/hooks/use-api";import { Plus, Edit, Trash2, Users, Globe, Settings2 } from "lucide-react";
-interface Domain { id:string;domain:string;is_primary:boolean }
-interface TenantData { id:string;code:string;name:string;status:string;status_reason?:string;member_count?:number;domains?:Domain[] }
-const SS=[{v:"pending_review",l:"待审核"},{v:"active",l:"已激活"},{v:"suspended",l:"已停用"},{v:"terminated",l:"已终止"},{v:"rejected",l:"已拒绝"}];
-function sb(s:string):"success"|"destructive"|"secondary"|"outline" {if(s==="active")return"success";if(s==="suspended"||s==="terminated")return"destructive";if(s==="pending_review")return"secondary";return"outline"}
-function sl(s:string):string {return SS.find(x=>x.v===s)?.l||s}
-export default function Tenants(){
-  const nav=useNavigate();
-  const{data:td,isLoading,isError,error,refetch}=useAdminQuery<{data:TenantData[]}>("/tenants");
-  const tenants=td?.data??[];
-  const le=isError?(error instanceof Error?error.message:String(error)):"";
-  const[di,setDi]=useState<string|null>(null);
-  const{data:detail}=useAdminQuery<TenantData>(di?"/tenants/"+di:"",{enabled:!!di});
-  const[sf,setSf]=useState(false);const[ed,setEd]=useState<TenantData|null>(null);
-  const[nm,setNm]=useState("");const[cd,setCd]=useState("");const[st,setSt]=useState("pending_review");const[rs,setRs]=useState("");
-  const[df,setDf]=useState<string|null>(null);const[dn,setDn]=useState("");const[ip,setIp]=useState(false);
-  const cM=useAdminMutation<unknown,Record<string,unknown>>("post","/tenants");
-  const uM=useAdminMutation<unknown,{id:string}&Record<string,unknown>>("put",(v:any)=>"/tenants/"+v.id,"/tenants");
-  const dM=useAdminMutation<unknown,{id:string}>("delete",(v:any)=>"/tenants/"+v.id,"/tenants");
-  const aM=useAdminMutation<unknown,{id:string;domain:string;is_primary:boolean}>("post",(v:any)=>"/tenants/"+v.id+"/domains",(v:any)=>"/tenants/"+v.id);
-  const rM=useAdminMutation<unknown,{id:string;domainId:string}>("delete",(v:any)=>"/tenants/"+v.id+"/domains/"+v.domainId,(v:any)=>"/tenants/"+v.id);
-  const reset=()=>{setNm("");setCd("");setSt("pending_review");setRs("");setEd(null);setSf(false)};
-  const hs=async()=>{if(!nm.trim()||!cd.trim())return;const b:Record<string,unknown>={name:nm.trim(),code:cd.trim()};if(ed){b.status=st;if(rs)b.status_reason=rs}if(ed)await uM.mutateAsync({id:ed.id,...b});else await cM.mutateAsync(b);reset()};
-  const hd=async(t:TenantData)=>{if(!confirm("Terminate "+t.name+"?"))return;await dM.mutateAsync({id:t.id})};
-  const ad=async(tid:string)=>{if(!dn.trim())return;await aM.mutateAsync({id:tid,domain:dn.trim(),is_primary:ip});setDf(null);setDn("")};
-  const rd=async(tid:string,did:string)=>{await rM.mutateAsync({id:tid,domainId:did})};
-  if(isLoading)return <div><h2 className="text-2xl font-bold mb-6">租户管理</h2><Card><CardContent className="p-12 text-center"><div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3"/><p className="text-muted-foreground">加载中...</p></CardContent></Card></div>;
-  return <div>
-    <div className="flex items-center justify-between mb-6"><div><h2 className="text-2xl font-bold">租户管理</h2><p className="text-sm text-muted-foreground mt-1">管理租户生命周期</p></div><Button onClick={()=>{reset();setSf(true)}}><Plus size={16} className="mr-1.5"/>创建租户</Button></div>
-    {le&&<Card className="mb-4 border-destructive/20"><CardContent className="p-4 text-destructive text-sm"><Button variant="destructive" size="sm" onClick={()=>refetch()}>重试</Button></CardContent></Card>}
-    {!isLoading&&tenants.length===0&&<Card><CardContent className="p-12 text-center text-muted-foreground"><Users size={40} className="mx-auto mb-3 opacity-30"/><p>暂无租户</p></CardContent></Card>}
-    <div className="space-y-2">{tenants.map(t=><Card key={t.id}><CardContent className="p-4"><div className="flex items-center justify-between"><div className="flex-1 cursor-pointer" onClick={()=>di===t.id?setDi(null):setDi(t.id)}><div className="flex items-center gap-2"><p className="font-medium text-sm">{t.name}</p><Badge variant={sb(t.status)}>{sl(t.status)}</Badge></div><p className="text-xs text-muted-foreground mt-0.5"><code>{t.code}</code><span className="ml-2 inline-flex items-center gap-1"><Users size={12}/>{t.member_count ?? 0} 名成员</span>{t.status_reason?" · "+t.status_reason:""}</p></div><div className="flex items-center gap-2"><Button variant="outline" size="sm" onClick={()=>nav("/admin/tenants/"+t.id+"/members")}><Settings2 size={14} className="mr-1"/>管理成员</Button><Button variant="ghost" size="icon" onClick={()=>{setEd(t);setNm(t.name);setCd(t.code);setSt(t.status);setRs(t.status_reason||"");setSf(true)}}><Edit size={14}/></Button><Button variant="ghost" size="icon" className="hover:text-destructive" onClick={()=>hd(t)}><Trash2 size={14}/></Button></div></div>
-    {di===t.id&&detail&&<div className="mt-3 pt-3 border-t"><div className="flex items-center justify-between mb-3"><h4 className="text-sm font-semibold">域名</h4><Button variant="outline" size="sm" onClick={()=>setDf(t.id)}><Plus size={12} className="mr-1"/>添加</Button></div>
-    {df===t.id&&<div className="flex gap-2 items-end mb-3"><Input value={dn} onChange={e=>setDn(e.target.value)} placeholder="api.example.com" className="flex-1 h-8 text-xs"/><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={ip} onChange={e=>setIp(e.target.checked)}/>主域名</label><Button size="sm" onClick={()=>ad(t.id)}>添加</Button><Button variant="outline" size="sm" onClick={()=>setDf(null)}>取消</Button></div>}
-    {(detail.domains||[]).length===0?<p className="text-xs text-muted-foreground">暂无域名</p>:detail.domains?.map(d=><div key={d.id} className="flex items-center justify-between p-2 bg-muted rounded-lg mb-1"><div className="flex items-center gap-2"><Globe size={14} className="text-muted-foreground"/><code className="text-xs">{d.domain}</code>{d.is_primary&&<Badge variant="secondary" className="text-xs">主域名</Badge>}</div><Button variant="ghost" size="icon" className="h-6 w-6 hover:text-destructive" onClick={()=>rd(t.id,d.id)}><Trash2 size={12}/></Button></div>)}</div>}</CardContent></Card>)}</div>
-    <Dialog open={sf} onOpenChange={setSf}><DialogContent><DialogHeader><DialogTitle>{ed?"编辑租户":"创建租户"}</DialogTitle></DialogHeader>
-    <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>名称*</Label><Input value={nm} onChange={e=>setNm(e.target.value)}/></div><div className="space-y-2"><Label>编码*</Label><Input value={cd} onChange={e=>setCd(e.target.value)} disabled={!!ed}/></div>
-    {ed&&<><div className="space-y-2"><Label>状态</Label><Select value={st} onValueChange={setSt}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{SS.map(s=><SelectItem key={s.v} value={s.v}>{s.l}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>原因</Label><Input value={rs} onChange={e=>setRs(e.target.value)}/></div></>}</div>
-    <DialogFooter><Button variant="outline" onClick={reset}>取消</Button><Button onClick={hs}>{ed?"保存":"创建"}</Button></DialogFooter></DialogContent></Dialog>
-  </div>;
+import { Card } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Plus,
+  Search,
+  X,
+  CheckCircle2,
+  Pause,
+  Play,
+  Trash2,
+  Building2,
+} from "lucide-react";
+
+interface TenantData {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
+  status_reason?: string;
+  created_at: string;
+}
+
+const STATUS_META: Record<string, { label: string; variant: "success" | "destructive" | "secondary" | "outline" }> = {
+  pending_review: { label: "待审核", variant: "secondary" },
+  active: { label: "已激活", variant: "success" },
+  suspended: { label: "已停用", variant: "destructive" },
+  terminated: { label: "已终止", variant: "outline" },
+  rejected: { label: "已拒绝", variant: "outline" },
+};
+
+type LifecycleAction = "approve" | "reject" | "suspend" | "reactivate" | "terminate";
+
+const ACTION_LABEL: Record<LifecycleAction, string> = {
+  approve: "审核通过",
+  reject: "拒绝",
+  suspend: "停用",
+  reactivate: "启用",
+  terminate: "终止",
+};
+
+export default function Tenants() {
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useAdminQuery<{ data: TenantData[]; total: number }>("/tenants");
+  const tenants = data?.data ?? [];
+  const total = data?.total ?? 0;
+
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    if (!q.trim()) return tenants;
+    const lq = q.toLowerCase();
+    return tenants.filter(
+      (t) => t.name.toLowerCase().includes(lq) || t.code.toLowerCase().includes(lq),
+    );
+  }, [tenants, q]);
+
+  // 生命周期变更：状态更新走 PUT，终止走 DELETE（服务端置为 terminated）。
+  const uM = useAdminMutation<unknown, { id: string; status: string; status_reason?: string }>(
+    "put",
+    (v) => "/tenants/" + v.id,
+    "/tenants",
+  );
+  const dM = useAdminMutation<unknown, { id: string }>(
+    "delete",
+    (v) => "/tenants/" + v.id,
+    "/tenants",
+  );
+
+  const [pendingAction, setPendingAction] = useState<{ tenant: TenantData; action: LifecycleAction } | null>(null);
+  const [reason, setReason] = useState("");
+
+  const runTransition = async (t: TenantData, action: LifecycleAction, r?: string) => {
+    if (action === "terminate") {
+      await dM.mutateAsync({ id: t.id });
+      return;
+    }
+    const next: Record<Exclude<LifecycleAction, "terminate">, string> = {
+      approve: "active",
+      reject: "rejected",
+      suspend: "suspended",
+      reactivate: "active",
+    };
+    await uM.mutateAsync({ id: t.id, status: next[action], status_reason: r ?? "" });
+  };
+
+  const requestAction = (t: TenantData, action: LifecycleAction) => {
+    // 审核通过 / 启用 无需原因，直接执行。
+    if (action === "approve" || action === "reactivate") {
+      runTransition(t, action).catch(() => {});
+      return;
+    }
+    setPendingAction({ tenant: t, action });
+    setReason("");
+  };
+
+  const confirmAction = async () => {
+    if (!pendingAction) return;
+    const { tenant, action } = pendingAction;
+    setPendingAction(null);
+    try {
+      await runTransition(tenant, action, reason.trim() || undefined);
+    } catch {
+      /* 错误由 refetch 后的列表状态反映 */
+    }
+  };
+
+  // 创建企业
+  const [createOpen, setCreateOpen] = useState(false);
+  const [nm, setNm] = useState("");
+  const [cd, setCd] = useState("");
+  const cM = useAdminMutation<unknown, { name: string; code: string }>(
+    "post",
+    "/tenants",
+    "/tenants",
+  );
+  const create = async () => {
+    if (!nm.trim() || !cd.trim()) return;
+    try {
+      await cM.mutateAsync({ name: nm.trim(), code: cd.trim() });
+      setCreateOpen(false);
+      setNm("");
+      setCd("");
+    } catch {
+      /* 冲突/校验错误由列表状态反映 */
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <SectionPageLayout>
+        <SectionPageLayout.Header>
+          <SectionPageLayout.HeaderBlock>
+            <SectionPageLayout.Title>企业管理</SectionPageLayout.Title>
+          </SectionPageLayout.HeaderBlock>
+        </SectionPageLayout.Header>
+        <SectionPageLayout.Content>
+          <LoadingState message="加载企业..." />
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
+    );
+  }
+
+  return (
+    <SectionPageLayout>
+      <SectionPageLayout.Header>
+        <SectionPageLayout.HeaderBlock>
+          <SectionPageLayout.Title>企业管理</SectionPageLayout.Title>
+          <SectionPageLayout.Description>共 {total} 家企业</SectionPageLayout.Description>
+        </SectionPageLayout.HeaderBlock>
+        <SectionPageLayout.Actions>
+          <Button
+            onClick={() => {
+              setNm("");
+              setCd("");
+              setCreateOpen(true);
+            }}
+          >
+            <Plus size={16} className="mr-1.5" />
+            创建企业
+          </Button>
+        </SectionPageLayout.Actions>
+      </SectionPageLayout.Header>
+
+      <SectionPageLayout.Content>
+        <div className="mb-4 flex items-center gap-2">
+          <div className="relative max-w-sm flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="搜索企业名称 / 编码"
+              className="pl-9 h-9 text-sm"
+            />
+            {q && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                onClick={() => setQ("")}
+              >
+                <X size={14} />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {isError && <ErrorState error={error} onRetry={() => refetch()} />}
+
+        <Card className="overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>企业</TableHead>
+                <TableHead>编码</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>创建时间</TableHead>
+                <TableHead className="text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5}>
+                    <EmptyState icon={Building2} title={q ? "未找到" : "暂无企业"} />
+                  </TableCell>
+                </TableRow>
+              )}
+              {filtered.map((t) => {
+                const meta = STATUS_META[t.status] ?? { label: t.status, variant: "secondary" as const };
+                return (
+                  <TableRow key={t.id}>
+                    <TableCell>
+                      <p className="font-medium text-sm">{t.name}</p>
+                    </TableCell>
+                    <TableCell>
+                      <code className="text-xs">{t.code}</code>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1 items-start">
+                        <Badge variant={meta.variant}>{meta.label}</Badge>
+                        {t.status_reason && (
+                          <span className="text-xs text-muted-foreground">{t.status_reason}</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {new Date(t.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex gap-1 justify-end flex-wrap">
+                        {t.status === "pending_review" && (
+                          <>
+                            <Button variant="default" size="sm" onClick={() => requestAction(t, "approve")}>
+                              <CheckCircle2 size={14} className="mr-1" />
+                              审核通过
+                            </Button>
+                            <Button variant="outline" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "reject")}>
+                              拒绝
+                            </Button>
+                          </>
+                        )}
+                        {t.status === "active" && (
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => requestAction(t, "suspend")}>
+                              <Pause size={14} className="mr-1" />
+                              停用
+                            </Button>
+                            <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "terminate")}>
+                              <Trash2 size={14} className="mr-1" />
+                              终止
+                            </Button>
+                          </>
+                        )}
+                        {t.status === "suspended" && (
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => requestAction(t, "reactivate")}>
+                              <Play size={14} className="mr-1" />
+                              启用
+                            </Button>
+                            <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "terminate")}>
+                              <Trash2 size={14} className="mr-1" />
+                              终止
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Card>
+      </SectionPageLayout.Content>
+
+      {/* 状态变更确认（拒绝 / 停用 / 终止） */}
+      <Dialog open={pendingAction !== null} onOpenChange={() => setPendingAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {pendingAction ? `${ACTION_LABEL[pendingAction.action]}：${pendingAction.tenant.name}` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          {pendingAction && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>原因（可选）</Label>
+                <Input
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder={pendingAction.action === "terminate" ? "填写终止原因" : "填写操作原因"}
+                />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {pendingAction.action === "terminate"
+                  ? "终止后该企业将无法继续使用平台服务，此操作不可撤销。"
+                  : "确认后企业状态将更新。"}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingAction(null)}>
+              取消
+            </Button>
+            <Button
+              variant={
+                pendingAction?.action === "reject" || pendingAction?.action === "terminate"
+                  ? "destructive"
+                  : "default"
+              }
+              onClick={confirmAction}
+            >
+              确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 创建企业 */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>创建企业</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>企业名称 *</Label>
+              <Input value={nm} onChange={(e) => setNm(e.target.value)} placeholder="例：某某科技有限公司" />
+            </div>
+            <div className="space-y-2">
+              <Label>企业编码 *</Label>
+              <Input value={cd} onChange={(e) => setCd(e.target.value)} placeholder="唯一编码，如 acme-corp" />
+            </div>
+            <p className="text-xs text-muted-foreground">新企业创建后为待审核状态，需审核通过后方可使用。</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={create} disabled={!nm.trim() || !cd.trim() || cM.isPending}>
+              {cM.isPending ? "创建中..." : "创建"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </SectionPageLayout>
+  );
 }

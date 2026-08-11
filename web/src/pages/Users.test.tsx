@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen } from "@testing-library/react";
-import Tenants from "./Tenants";
+import Users from "./Users";
 import { renderWithProviders } from "../test/test-utils";
 
 vi.mock("../lib/api", () => ({
@@ -20,20 +20,21 @@ vi.mock("../lib/auth", () => ({
 import { adminApi } from "../lib/api";
 const mockAdminGet = adminApi.get as ReturnType<typeof vi.fn>;
 
-function seedTenants() {
+function seedUsers() {
   return [
     {
-      id: "t1",
-      code: "tenant-a",
-      name: "Tenant A",
+      id: "u1",
+      email: "alice@example.com",
+      display_name: "Alice",
+      role: "user",
+      user_type: "personal",
       status: "active",
-      status_reason: "",
       created_at: "2026-01-01T00:00:00Z",
     },
   ];
 }
 
-describe("Tenants（企业管理）", () => {
+describe("Users（个人管理）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -43,45 +44,45 @@ describe("Tenants（企业管理）", () => {
   });
 
   it("renders page title and create button", async () => {
-    mockAdminGet.mockResolvedValue({ data: seedTenants(), total: 1 });
+    mockAdminGet.mockResolvedValue({ data: seedUsers(), total: 1 });
 
-    renderWithProviders(<Tenants />);
+    renderWithProviders(<Users />);
 
-    expect(screen.getByText("企业管理")).toBeInTheDocument();
-    expect(await screen.findByText("创建企业")).toBeInTheDocument();
+    expect(screen.getByText("个人管理")).toBeInTheDocument();
+    expect(await screen.findByText("创建个人用户")).toBeInTheDocument();
   });
 
   it("shows loading spinner while fetching", () => {
     mockAdminGet.mockImplementation(() => new Promise(() => {}));
 
-    renderWithProviders(<Tenants />);
+    renderWithProviders(<Users />);
 
-    expect(screen.getByText("加载企业...")).toBeInTheDocument();
+    expect(screen.getByText("加载个人账号...")).toBeInTheDocument();
   });
 
-  it("displays enterprise list when loaded", async () => {
-    mockAdminGet.mockResolvedValue({ data: seedTenants(), total: 1 });
+  it("displays personal accounts when loaded", async () => {
+    mockAdminGet.mockResolvedValue({ data: seedUsers(), total: 1 });
 
-    renderWithProviders(<Tenants />);
+    renderWithProviders(<Users />);
 
-    expect(await screen.findByText("Tenant A")).toBeInTheDocument();
-    expect(screen.getByText("tenant-a")).toBeInTheDocument();
+    expect(await screen.findByText("alice@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Alice")).toBeInTheDocument();
   });
 
-  it("shows empty state when there are no enterprises", async () => {
+  it("shows empty state when there are no personal accounts", async () => {
     mockAdminGet.mockResolvedValue({ data: [], total: 0 });
 
-    renderWithProviders(<Tenants />);
+    renderWithProviders(<Users />);
 
-    expect(await screen.findByText("暂无企业")).toBeInTheDocument();
+    expect(await screen.findByText("暂无个人账号")).toBeInTheDocument();
   });
 
   it("shows error with retry on failure", async () => {
-    mockAdminGet.mockRejectedValue(new Error("tenants down"));
+    mockAdminGet.mockRejectedValue(new Error("users down"));
 
-    renderWithProviders(<Tenants />);
+    renderWithProviders(<Users />);
 
-    expect(await screen.findByText("tenants down")).toBeInTheDocument();
+    expect(await screen.findByText("users down")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /重试/ })).toBeInTheDocument();
   });
 });
