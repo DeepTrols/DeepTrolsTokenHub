@@ -154,7 +154,8 @@ func TestHandleUserLedger_ReturnsUserTypeAndTenant(t *testing.T) {
 }
 
 // seedUsageLogForLedgerTest inserts a usage_log (and a backing api_key) for the
-// given user and model, enough for the top_models aggregation to see it.
+// given user and model, with a fixed per-call footprint: 15 tokens and a final
+// cost of 1, so the model_usage aggregation yields predictable numbers.
 func seedUsageLogForLedgerTest(t *testing.T, a *app.App, userID uuid.UUID, model string) {
 	t.Helper()
 	keyID := uuid.New()
@@ -167,19 +168,23 @@ func seedUsageLogForLedgerTest(t *testing.T, a *app.App, userID uuid.UUID, model
 	}
 	if _, err := a.Pool.Exec(context.Background(),
 		`INSERT INTO usage_logs (id, user_id, api_key_id, request_id, request_type,
-		                         public_model_code, usage_source, list_cost, final_cost, status, created_at)
-		 VALUES ($1, $2, $3, $4, 'chat', $5, 'upstream', 0, 0, 'completed', $6)`,
+		                         public_model_code, usage_source, usage_normalized,
+		                         list_cost, final_cost, status, created_at)
+		 VALUES ($1, $2, $3, $4, 'chat', $5, 'upstream', '{"input_tokens": 10, "output_tokens": 5}'::jsonb,
+		         0, 1, 'completed', $6)`,
 		uuid.New(), userID, keyID, "req-ledger-"+uuid.New().String()[:8], model, now); err != nil {
 		t.Fatalf("seedUsageLogForLedgerTest: usage log: %v", err)
 	}
 }
 
-func TestHandleUserLedger_TopModels(t *testing.T) {
+// TestHandleUserLedger_ModelUsage verifies every called model is listed with its
+// own aggregated call count, tokens and cost — not just a top-3 slice.
+func TestHandleUserLedger_ModelUsage(t *testing.T) {
 	a := appForLedgerTest(t)
-	admin := seedUserForTenantsTest(t, a, "admin-topmodels@test.com", "pass", "Admin")
-	u := seedUserForLedgerTest(t, a, "topmodels@test.com", domain.UserTypePersonal)
+	admin := seedUserForTenantsTest(t, a, "admin-modelusage@test.com", "pass", "Admin")
+	u := seedUserForLedgerTest(t, a, "modelusage@test.com", domain.UserTypePersonal)
 
-	// gpt-4o x2, claude-sonnet x1, deepseek-v3 x1 → top 3 in that order.
+	// gpt-4o x2, claude-sonnet x1, deepseek-v3 x1 → all three must appear.
 	seedUsageLogForLedgerTest(t, a, u.ID, "gpt-4o")
 	seedUsageLogForLedgerTest(t, a, u.ID, "gpt-4o")
 	seedUsageLogForLedgerTest(t, a, u.ID, "claude-sonnet")
@@ -214,13 +219,31 @@ func TestHandleUserLedger_TopModels(t *testing.T) {
 	if row.RequestCount != 4 {
 		t.Errorf("request_count = %d, want 4", row.RequestCount)
 	}
-	want := []string{"gpt-4o", "claude-sonnet", "deepseek-v3"}
-	if len(row.TopModels) != len(want) {
-		t.Fatalf("top_models = %v, want %v", row.TopModels, want)
+
+	if len(row.ModelUsage) != 3 {
+		t.Fatalf("model_usage has %d entries, want 3 (full: %v)", len(row.ModelUsage), row.ModelUsage)
 	}
-	for i := range want {
-		if row.TopModels[i] != want[i] {
-			t.Errorf("top_models[%d] = %q, want %q (full: %v)", i, row.TopModels[i], want[i], row.TopModels)
+	byModel := map[string]modelUsageRow{}
+	for _, mu := range row.ModelUsage {
+		byModel[mu.Model] = mu
+	}
+
+	wantCalls := map[string]int64{"gpt-4o": 2, "claude-sonnet": 1, "deepseek-v3": 1}
+	for model, calls := range wantCalls {
+		mu, ok := byModel[model]
+		if !ok {
+			t.Errorf("model %q missing from model_usage", model)
+			continue
+		}
+		if mu.Calls != calls {
+			t.Errorf("model %q calls = %d, want %d", model, mu.Calls, calls)
+		}
+		// 15 tokens and cost 1 per call (see seedUsageLogForLedgerTest).
+		if mu.Tokens != calls*15 {
+			t.Errorf("model %q tokens = %d, want %d", model, mu.Tokens, calls*15)
+		}
+		if mu.Cost == "" {
+			t.Errorf("model %q cost is empty", model)
 		}
 	}
 }

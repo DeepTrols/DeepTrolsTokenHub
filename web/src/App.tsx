@@ -20,7 +20,6 @@ import Policies from "./pages/Policies";
 import Channels from "./pages/Channels";
 import QuotaManagement from "./pages/QuotaManagement";
 import Reconciliation from "./pages/Reconciliation";
-import AuditLogs from "./pages/AuditLogs";
 import Users from "./pages/Users";
 import Costs from "./pages/Costs";
 import Profile from "./pages/Profile";
@@ -85,7 +84,6 @@ export default function App() {
         <Route path="providers" element={<Navigate to="/admin/channels" replace />} />
         <Route path="quotas" element={<QuotaManagement />} />
         <Route path="reconciliation" element={<Reconciliation />} />
-        <Route path="audit" element={<AuditLogs />} />
         <Route path="users" element={<Users />} />
         <Route path="costs" element={<Costs />} />
       </Route>

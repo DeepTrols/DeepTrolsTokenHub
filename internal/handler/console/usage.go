@@ -191,60 +191,6 @@ func toFloat64(v interface{}) (float64, bool) {
 	}
 }
 
-// HandleAdminListUsage returns usage logs across ALL users (admin only).
-func HandleAdminListUsage(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if rejectNonAdmin(w, r) {
-			return
-		}
-
-		limit, offset := parsePagination(r)
-		if limit <= 0 {
-			limit = 50
-		}
-
-		rows, err := a.Pool.Query(r.Context(),
-			`SELECT ul.id, ul.public_model_code, ul.request_id, ul.api_key_id,
-			        u.email, ul.status, ul.final_cost, ul.created_at,
-			        COALESCE(ul.usage_normalized->>'input_tokens','0')::bigint,
-			        COALESCE(ul.usage_normalized->>'output_tokens','0')::bigint
-			 FROM usage_logs ul
-			 JOIN users u ON u.id = ul.user_id
-			 ORDER BY ul.created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to query usage logs"})
-			return
-		}
-		defer rows.Close()
-
-		type adminUsageResponse struct {
-			ID           string `json:"id"`
-			Model        string `json:"model"`
-			RequestID    string `json:"request_id"`
-			APIKeyID     string `json:"api_key_id"`
-			UserEmail    string `json:"user_email"`
-			Status       string `json:"status"`
-			Cost         string `json:"cost"`
-			InputTokens  int64  `json:"input_tokens"`
-			OutputTokens int64  `json:"output_tokens"`
-			CreatedAt    string `json:"created_at"`
-		}
-		var response []adminUsageResponse
-		for rows.Next() {
-			var r adminUsageResponse
-			var cost string
-			var t time.Time
-			if err := rows.Scan(&r.ID, &r.Model, &r.RequestID, &r.APIKeyID, &r.UserEmail, &r.Status, &cost, &t, &r.InputTokens, &r.OutputTokens); err != nil {
-				continue
-			}
-			r.Cost = cost
-			r.CreatedAt = t.Format(time.RFC3339)
-			response = append(response, r)
-		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"data": response, "total": len(response)})
-	}
-}
-
 type chargeLineResponse struct {
 	Dimension   string `json:"dimension"`
 	UnitName    string `json:"unit_name"`

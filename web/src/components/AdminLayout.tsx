@@ -6,7 +6,6 @@ import {
   BarChart3,
   LogOut,
   Shield,
-  ScrollText,
   UserCog,
   DollarSign,
   Building2,
@@ -22,7 +21,6 @@ const navItems = [
   { to: "/admin/channels", icon: Shield, label: "渠道管理" },
   { to: "/admin/quotas", icon: Wallet, label: "配额管理" },
   { to: "/admin/reconciliation", icon: BarChart3, label: "对账管理" },
-  { to: "/admin/audit", icon: ScrollText, label: "审计日志" },
   { to: "/admin/policies", icon: Route, label: "策略管理" },
   { to: "/admin/costs", icon: Calculator, label: "成本核算" },
 ];

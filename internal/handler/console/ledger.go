@@ -7,21 +7,28 @@ import (
 )
 
 type userLedgerRow struct {
-	ID           string   `json:"id"`
-	Email        string   `json:"email"`
-	DisplayName  string   `json:"display_name"`
-	Role         string   `json:"role"`
-	Status       string   `json:"status"`
-	UserType     string   `json:"user_type"`
-	TenantID     string   `json:"tenant_id,omitempty"`
-	TenantName   string   `json:"tenant_name,omitempty"`
-	Balance      string   `json:"balance"`       // 当前可用余额
-	Frozen       string   `json:"frozen"`        // 冻结金额
-	TotalTopup   string   `json:"total_topup"`   // 累计充值
-	TotalSpend   string   `json:"total_spend"`   // 累计消费
-	RequestCount int64    `json:"request_count"` // 调用次数
-	TotalTokens  int64    `json:"total_tokens"`  // 累计 token
-	TopModels    []string `json:"top_models"`    // 调用最多的前 3 个模型名称（仅名称）
+	ID           string          `json:"id"`
+	Email        string          `json:"email"`
+	DisplayName  string          `json:"display_name"`
+	Role         string          `json:"role"`
+	Status       string          `json:"status"`
+	UserType     string          `json:"user_type"`
+	TenantID     string          `json:"tenant_id,omitempty"`
+	TenantName   string          `json:"tenant_name,omitempty"`
+	Balance      string          `json:"balance"`       // 当前可用余额
+	Frozen       string          `json:"frozen"`        // 冻结金额
+	TotalTopup   string          `json:"total_topup"`   // 累计充值
+	TotalSpend   string          `json:"total_spend"`   // 累计消费
+	RequestCount int64           `json:"request_count"` // 调用次数
+	TotalTokens  int64           `json:"total_tokens"`  // 累计 token
+	ModelUsage   []modelUsageRow `json:"model_usage"`   // 每个调用过的模型的聚合（次数/token/费用）
+}
+
+type modelUsageRow struct {
+	Model  string `json:"model"`
+	Calls  int64  `json:"calls"`
+	Tokens int64  `json:"tokens"`
+	Cost   string `json:"cost"`
 }
 
 // HandleUserLedger returns per-user financial and usage ledger (admin only).
@@ -88,39 +95,42 @@ func HandleUserLedger(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// Top 3 called models per user, one aggregate query (no N+1). Each row
-		// carries only model names, ordered by call count descending.
-		topModels, err := a.Pool.Query(r.Context(),
-			`SELECT user_id, public_model_code
-			 FROM (
-			   SELECT user_id, public_model_code, COUNT(*) AS cnt,
-			          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY COUNT(*) DESC, public_model_code) AS rn
-			   FROM usage_logs
-			   GROUP BY user_id, public_model_code
-			 ) ranked
-			 WHERE rn <= 3
-			 ORDER BY user_id, cnt DESC, public_model_code`)
+		// Per-model aggregated usage per user, one query (no N+1). Every model
+		// a user has called appears once with its total calls/tokens/cost,
+		// ordered by call count descending.
+		modelRows, err := a.Pool.Query(r.Context(),
+			`SELECT user_id, public_model_code,
+			        COUNT(*) AS calls,
+			        COALESCE(SUM(
+			          COALESCE(CAST(usage_normalized->>'input_tokens' AS bigint), 0) +
+			          COALESCE(CAST(usage_normalized->>'output_tokens' AS bigint), 0)
+			        ), 0) AS tokens,
+			        COALESCE(SUM(final_cost), 0) AS cost
+			 FROM usage_logs
+			 GROUP BY user_id, public_model_code
+			 ORDER BY user_id, calls DESC, public_model_code`)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to query top models"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to query model usage"})
 			return
 		}
-		defer topModels.Close()
-		byUser := make(map[string][]string)
-		for topModels.Next() {
-			var userID, model string
-			if err := topModels.Scan(&userID, &model); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read top models"})
+		defer modelRows.Close()
+		byUser := make(map[string][]modelUsageRow)
+		for modelRows.Next() {
+			var userID string
+			var mu modelUsageRow
+			if err := modelRows.Scan(&userID, &mu.Model, &mu.Calls, &mu.Tokens, &mu.Cost); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read model usage"})
 				return
 			}
-			byUser[userID] = append(byUser[userID], model)
+			byUser[userID] = append(byUser[userID], mu)
 		}
-		if err := topModels.Err(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to iterate top models"})
+		if err := modelRows.Err(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to iterate model usage"})
 			return
 		}
 		for i := range ledger {
-			if models := byUser[ledger[i].ID]; len(models) > 0 {
-				ledger[i].TopModels = models
+			if usage := byUser[ledger[i].ID]; len(usage) > 0 {
+				ledger[i].ModelUsage = usage
 			}
 		}
 

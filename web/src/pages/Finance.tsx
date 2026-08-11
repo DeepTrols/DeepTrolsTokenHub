@@ -6,16 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatAmount } from "../lib/format";
-import {
-  Search,
-  X,
-  Wallet as WalletIcon,
-  TrendingUp,
-  TrendingDown,
-  Activity,
-  ChevronDown,
-  Landmark,
-} from "lucide-react";
+import { Search, X, Activity, ChevronDown, Landmark } from "lucide-react";
+
+interface ModelUsageRow {
+  model: string;
+  calls: number;
+  tokens: number;
+  cost: string;
+}
 
 interface LedgerRow {
   id: string;
@@ -32,7 +30,7 @@ interface LedgerRow {
   total_spend: string;
   request_count: number;
   total_tokens: number;
-  top_models: string[];
+  model_usage: ModelUsageRow[];
 }
 
 function statusVariant(s: string): "success" | "destructive" | "secondary" {
@@ -63,27 +61,7 @@ export default function Finance() {
     );
   }, [rows, q]);
 
-  // 汇总卡片：总体指标。
-  const summary = useMemo(() => {
-    let balance = 0;
-    let topup = 0;
-    let spend = 0;
-    let calls = 0;
-    for (const r of rows) {
-      balance += Number(r.balance) || 0;
-      topup += Number(r.total_topup) || 0;
-      spend += Number(r.total_spend) || 0;
-      calls += r.request_count || 0;
-    }
-    return {
-      balance: formatAmount(balance.toFixed(2)),
-      topup: formatAmount(topup.toFixed(2)),
-      spend: formatAmount(spend.toFixed(2)),
-      calls,
-    };
-  }, [rows]);
-
-  // 展开的行：显示该账号 Top-3 模型。
+  // 展开的行：显示该账号所有调用过的模型及每次调用的聚合（次数/token/费用）。
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleRow = (id: string) => {
     setExpanded((prev) => {
@@ -119,46 +97,6 @@ export default function Finance() {
       </SectionPageLayout.Header>
 
       <SectionPageLayout.Content>
-        {/* 总体指标 */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">总余额</CardTitle>
-              <WalletIcon size={16} className="text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold tabular-nums">{summary.balance} CNY</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">累计充值</CardTitle>
-              <TrendingUp size={16} className="text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold tabular-nums">{summary.topup} CNY</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">累计消费</CardTitle>
-              <TrendingDown size={16} className="text-orange-500" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold tabular-nums">{summary.spend} CNY</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">总调用量</CardTitle>
-              <Activity size={16} className="text-blue-500" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold tabular-nums">{summary.calls.toLocaleString()}</p>
-            </CardContent>
-          </Card>
-        </div>
-
         <div className="mb-4 flex items-center gap-2">
           <div className="relative max-w-sm flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -213,7 +151,7 @@ export default function Finance() {
                         <button
                           type="button"
                           aria-expanded={isOpen}
-                          aria-label="展开 Top 模型"
+                          aria-label="展开模型详情"
                           onClick={() => toggleRow(r.id)}
                           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
                         >
@@ -239,20 +177,33 @@ export default function Finance() {
                       <TableRow className="bg-muted/30">
                         <TableCell colSpan={8}>
                           <div className="py-1">
-                            <p className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+                            <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
                               <Activity size={12} />
-                              调用最多的模型（Top {r.top_models.length ? Math.min(r.top_models.length, 3) : 0}）
+                              模型调用明细
                             </p>
-                            {r.top_models.length === 0 ? (
+                            {r.model_usage.length === 0 ? (
                               <p className="text-xs text-muted-foreground">暂无调用记录</p>
                             ) : (
-                              <div className="flex flex-wrap gap-1.5">
-                                {r.top_models.map((m) => (
-                                  <Badge key={m} variant="secondary" className="font-mono text-xs">
-                                    {m}
-                                  </Badge>
-                                ))}
-                              </div>
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>模型</TableHead>
+                                    <TableHead className="text-right">调用次数</TableHead>
+                                    <TableHead className="text-right">Tokens</TableHead>
+                                    <TableHead className="text-right">费用</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {r.model_usage.map((m) => (
+                                    <TableRow key={m.model}>
+                                      <TableCell className="font-mono text-xs">{m.model}</TableCell>
+                                      <TableCell className="text-right tabular-nums">{m.calls.toLocaleString()}</TableCell>
+                                      <TableCell className="text-right tabular-nums">{m.tokens.toLocaleString()}</TableCell>
+                                      <TableCell className="text-right font-mono text-xs">{formatAmount(m.cost)} CNY</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
                             )}
                           </div>
                         </TableCell>

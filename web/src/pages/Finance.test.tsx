@@ -37,7 +37,10 @@ function seedLedger() {
       total_spend: "50.00",
       request_count: 10,
       total_tokens: 1234,
-      top_models: ["gpt-4o", "claude-3.5-sonnet"],
+      model_usage: [
+        { model: "gpt-4o", calls: 6, tokens: 900, cost: "0.90" },
+        { model: "claude-3.5-sonnet", calls: 4, tokens: 334, cost: "1.10" },
+      ],
     },
     {
       id: "u2",
@@ -54,7 +57,7 @@ function seedLedger() {
       total_spend: "30.00",
       request_count: 5,
       total_tokens: 678,
-      top_models: ["gpt-4o"],
+      model_usage: [{ model: "gpt-4o", calls: 5, tokens: 678, cost: "0.50" }],
     },
   ];
 }
@@ -84,17 +87,6 @@ describe("Finance（账务管理）", () => {
     expect(screen.getByText("加载账务数据...")).toBeInTheDocument();
   });
 
-  it("shows aggregate summary cards", async () => {
-    mockAdminGet.mockResolvedValue({ data: seedLedger(), total: 2 });
-
-    renderWithProviders(<Finance />);
-
-    expect(await screen.findByText("150.00 CNY")).toBeInTheDocument(); // 总余额
-    expect(screen.getByText("300.00 CNY")).toBeInTheDocument(); // 累计充值
-    expect(screen.getByText("80.00 CNY")).toBeInTheDocument(); // 累计消费
-    expect(screen.getByText("15")).toBeInTheDocument(); // 总调用量
-  });
-
   it("lists accounts with type and tenant", async () => {
     mockAdminGet.mockResolvedValue({ data: seedLedger(), total: 2 });
 
@@ -107,16 +99,19 @@ describe("Finance（账务管理）", () => {
     expect(screen.getByText("Tenant B")).toBeInTheDocument();
   });
 
-  it("reveals top models when a row is expanded", async () => {
+  it("reveals per-model usage details when a row is expanded", async () => {
     mockAdminGet.mockResolvedValue({ data: seedLedger(), total: 2 });
 
     renderWithProviders(<Finance />);
 
-    const toggle = (await screen.findAllByLabelText("展开 Top 模型"))[0];
+    const toggle = (await screen.findAllByLabelText("展开模型详情"))[0];
     toggle.click();
 
     expect(await screen.findByText("claude-3.5-sonnet")).toBeInTheDocument();
     expect(screen.getByText("gpt-4o")).toBeInTheDocument();
+    // 模型调用总量（gpt-4o 在该账号下调用 6 次）。
+    expect(screen.getByText("6")).toBeInTheDocument();
+    expect(screen.getByText("0.90 CNY")).toBeInTheDocument(); // 该模型累计费用
   });
 
   it("shows empty state when there is no data", async () => {

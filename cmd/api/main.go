@@ -165,8 +165,6 @@ func main() {
 		r.Post("/quotas/{id}/allocate", console.HandleAllocateQuota(application))
 		r.Get("/quota-ledger", console.HandleQuotaLedger(application))
 		r.Get("/reconciliation", console.HandleListReconciliationRuns(application))
-		r.Get("/audit", console.HandleListAuditLogs(application))
-		r.Get("/admin-usage", console.HandleAdminListUsage(application))
 
 		r.Get("/users", console.HandleListUsers(application))
 		r.Get("/costs", console.HandleCostSummary(application))
