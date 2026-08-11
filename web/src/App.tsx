@@ -24,7 +24,6 @@ import Users from "./pages/Users";
 import Costs from "./pages/Costs";
 import Profile from "./pages/Profile";
 import TeamManagement from "./pages/TeamManagement";
-import EnterpriseSettings from "./pages/EnterpriseSettings";
 import Docs from "./pages/Docs";
 
 export default function App() {
@@ -55,11 +54,6 @@ export default function App() {
         <Route path="team" element={
           <RequireAuth tenantAdminOnly>
             <TeamManagement />
-          </RequireAuth>
-        } />
-        <Route path="enterprise" element={
-          <RequireAuth tenantAdminOnly>
-            <EnterpriseSettings />
           </RequireAuth>
         } />
         <Route path="security" element={<Security />} />
