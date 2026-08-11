@@ -471,6 +471,249 @@ func TestConsume_OnNonExistentAllocation(t *testing.T) {
 	}
 }
 
+// seedQuotaPool inserts a quota pool with full headroom (allocated = 0).
+func seedQuotaPool(t *testing.T, ctx context.Context, repo *PostgresRepository, tenantID uuid.UUID, total int64) uuid.UUID {
+	t.Helper()
+	poolID := uuid.New()
+	_, err := repo.pool.Exec(ctx, `
+		INSERT INTO quota_pools (id, tenant_id, dimension, total_amount, allocated_amount, used_amount, unit_name)
+		VALUES ($1, $2, 'token', $3, 0, 0, 'token')
+	`, poolID, tenantID, total)
+	if err != nil {
+		t.Fatalf("seed pool: %v", err)
+	}
+	return poolID
+}
+
+var truncateQuota = []string{
+	"quota_ledger", "quota_allocations", "quota_pools",
+	"tenant_models", "model_pricing", "models", "tenants", "api_key_spend", "api_keys", "users",
+}
+
+func TestFindPool_NotFound(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	_, err := repo.FindPool(ctx, uuid.New())
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got: %v", err)
+	}
+}
+
+func TestFindPool_Success(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	tenantID := seedQuotaTenant(t, ctx, repo)
+	poolID := seedQuotaPool(t, ctx, repo, tenantID, 100000)
+
+	pool, err := repo.FindPool(ctx, poolID)
+	if err != nil {
+		t.Fatalf("FindPool: %v", err)
+	}
+	if pool.TenantID != tenantID {
+		t.Errorf("TenantID = %s, want %s", pool.TenantID, tenantID)
+	}
+	if pool.TotalAmount != 100000 {
+		t.Errorf("TotalAmount = %d, want 100000", pool.TotalAmount)
+	}
+}
+
+func TestFindPoolsByTenant_Scoped(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	tenantA := seedQuotaTenant(t, ctx, repo)
+	tenantB := seedQuotaTenant(t, ctx, repo)
+	seedQuotaPool(t, ctx, repo, tenantA, 100000)
+	seedQuotaPool(t, ctx, repo, tenantA, 200000)
+	seedQuotaPool(t, ctx, repo, tenantB, 300000)
+
+	pools, err := repo.FindPoolsByTenant(ctx, tenantA)
+	if err != nil {
+		t.Fatalf("FindPoolsByTenant: %v", err)
+	}
+	if len(pools) != 2 {
+		t.Fatalf("len = %d, want 2 (tenant A only)", len(pools))
+	}
+	for _, p := range pools {
+		if p.TenantID != tenantA {
+			t.Errorf("pool %s belongs to tenant %s, want tenant A", p.ID, p.TenantID)
+		}
+	}
+}
+
+func TestAllocate_NewAllocation(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	userID := seedQuotaUser(t, ctx, repo.pool)
+	tenantID := seedQuotaTenant(t, ctx, repo)
+	poolID := seedQuotaPool(t, ctx, repo, tenantID, 100000)
+
+	alloc, err := repo.Allocate(ctx, poolID, userID, 30000, "idem-alloc-new")
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if alloc.AllocatedAmount != 30000 {
+		t.Errorf("AllocatedAmount = %d, want 30000", alloc.AllocatedAmount)
+	}
+	if alloc.UsedAmount != 0 {
+		t.Errorf("UsedAmount = %d, want 0", alloc.UsedAmount)
+	}
+	if alloc.Remaining() != 30000 {
+		t.Errorf("Remaining = %d, want 30000", alloc.Remaining())
+	}
+
+	// Pool allocated counter advanced by the full amount.
+	var poolAllocated int64
+	_ = repo.pool.QueryRow(ctx, `SELECT allocated_amount FROM quota_pools WHERE id = $1`, poolID).Scan(&poolAllocated)
+	if poolAllocated != 30000 {
+		t.Errorf("pool allocated_amount = %d, want 30000", poolAllocated)
+	}
+
+	// Audit trail has one allocate entry.
+	entries, err := repo.FindLedgerByAllocation(ctx, alloc.ID, 100, 0)
+	if err != nil {
+		t.Fatalf("FindLedgerByAllocation: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("ledger len = %d, want 1", len(entries))
+	}
+	if entries[0].Action != domain.QuotaActionAllocate || entries[0].Amount != 30000 {
+		t.Errorf("entry = %+v, want action=allocate amount=30000", entries[0])
+	}
+}
+
+func TestAllocate_IncreaseExisting(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	userID := seedQuotaUser(t, ctx, repo.pool)
+	tenantID := seedQuotaTenant(t, ctx, repo)
+	poolID := seedQuotaPool(t, ctx, repo, tenantID, 100000)
+
+	if _, err := repo.Allocate(ctx, poolID, userID, 30000, "idem-alloc-inc-1"); err != nil {
+		t.Fatalf("first Allocate: %v", err)
+	}
+	alloc, err := repo.Allocate(ctx, poolID, userID, 20000, "idem-alloc-inc-2")
+	if err != nil {
+		t.Fatalf("second Allocate: %v", err)
+	}
+	if alloc.AllocatedAmount != 50000 {
+		t.Errorf("AllocatedAmount = %d, want 50000 (cumulative)", alloc.AllocatedAmount)
+	}
+
+	// A second allocate writes a second ledger row but only one allocation row.
+	var allocCount int
+	_ = repo.pool.QueryRow(ctx, `SELECT COUNT(*) FROM quota_allocations WHERE pool_id = $1 AND user_id = $2`, poolID, userID).Scan(&allocCount)
+	if allocCount != 1 {
+		t.Errorf("allocation rows = %d, want 1 (upsert not insert)", allocCount)
+	}
+}
+
+func TestAllocate_InsufficientCapacity(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	userID := seedQuotaUser(t, ctx, repo.pool)
+	tenantID := seedQuotaTenant(t, ctx, repo)
+	poolID := seedQuotaPool(t, ctx, repo, tenantID, 10000)
+
+	if _, err := repo.Allocate(ctx, poolID, userID, 5000, "idem-alloc-ok"); err != nil {
+		t.Fatalf("first Allocate: %v", err)
+	}
+	if _, err := repo.Allocate(ctx, poolID, userID, 6000, "idem-alloc-over"); !errors.Is(err, ErrInsufficientQuota) {
+		t.Fatalf("expected ErrInsufficientQuota, got: %v", err)
+	}
+
+	// The failed allocation must not have moved any counter.
+	var poolAllocated int64
+	_ = repo.pool.QueryRow(ctx, `SELECT allocated_amount FROM quota_pools WHERE id = $1`, poolID).Scan(&poolAllocated)
+	if poolAllocated != 5000 {
+		t.Errorf("pool allocated_amount = %d, want 5000 (unchanged after rejection)", poolAllocated)
+	}
+}
+
+func TestAllocate_Idempotent(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	userID := seedQuotaUser(t, ctx, repo.pool)
+	tenantID := seedQuotaTenant(t, ctx, repo)
+	poolID := seedQuotaPool(t, ctx, repo, tenantID, 100000)
+
+	first, err := repo.Allocate(ctx, poolID, userID, 30000, "idem-alloc-dup")
+	if err != nil {
+		t.Fatalf("first Allocate: %v", err)
+	}
+	second, err := repo.Allocate(ctx, poolID, userID, 99999, "idem-alloc-dup")
+	if err != nil {
+		t.Fatalf("second Allocate (idempotent): %v", err)
+	}
+	if first.ID != second.ID {
+		t.Errorf("expected same allocation for idempotent call, got %s vs %s", first.ID, second.ID)
+	}
+	if second.AllocatedAmount != 30000 {
+		t.Errorf("AllocatedAmount = %d, want 30000 (replayed, not doubled)", second.AllocatedAmount)
+	}
+
+	var poolAllocated int64
+	_ = repo.pool.QueryRow(ctx, `SELECT allocated_amount FROM quota_pools WHERE id = $1`, poolID).Scan(&poolAllocated)
+	if poolAllocated != 30000 {
+		t.Errorf("pool allocated_amount = %d, want 30000", poolAllocated)
+	}
+}
+
+func TestAllocate_UnknownPool(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	_, err := repo.Allocate(ctx, uuid.New(), uuid.New(), 100, "idem-alloc-missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got: %v", err)
+	}
+}
+
+func TestFindAllocationsByTenant_Scoped(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	userA := seedQuotaUser(t, ctx, repo.pool)
+	userB := seedQuotaUser(t, ctx, repo.pool)
+	tenantA := seedQuotaTenant(t, ctx, repo)
+	tenantB := seedQuotaTenant(t, ctx, repo)
+	poolA := seedQuotaPool(t, ctx, repo, tenantA, 100000)
+	poolB := seedQuotaPool(t, ctx, repo, tenantB, 100000)
+
+	if _, err := repo.Allocate(ctx, poolA, userA, 10000, "idem-alloc-tenant-a"); err != nil {
+		t.Fatalf("Allocate tenant A: %v", err)
+	}
+	if _, err := repo.Allocate(ctx, poolB, userB, 20000, "idem-alloc-tenant-b"); err != nil {
+		t.Fatalf("Allocate tenant B: %v", err)
+	}
+
+	allocs, err := repo.FindAllocationsByTenant(ctx, tenantA)
+	if err != nil {
+		t.Fatalf("FindAllocationsByTenant: %v", err)
+	}
+	if len(allocs) != 1 {
+		t.Fatalf("len = %d, want 1 (tenant A only)", len(allocs))
+	}
+	if allocs[0].UserID != userA || allocs[0].AllocatedAmount != 10000 {
+		t.Errorf("unexpected allocation for tenant A: %+v", allocs[0])
+	}
+}
+
 func TestConsume_UpdatesPoolUsedAmount(t *testing.T) {
 	repo := NewPostgresRepository(testutil.SetupPool(t))
 	ctx := context.Background()

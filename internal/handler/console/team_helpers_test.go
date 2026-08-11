@@ -10,6 +10,7 @@ import (
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	"github.com/deeptrols/api/internal/repository/membership"
+	"github.com/deeptrols/api/internal/repository/quota"
 	"github.com/deeptrols/api/internal/repository/tenant"
 	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/user"
@@ -31,6 +32,7 @@ func appForTeamTest(t *testing.T) *app.App {
 		Users:       user.NewPostgresRepository(pool),
 		Tenants:     tenant.NewPostgresRepository(pool),
 		Memberships: membership.NewPostgresRepository(pool),
+		Quotas:      quota.NewPostgresRepository(pool),
 		Healthy:     true,
 	}
 }

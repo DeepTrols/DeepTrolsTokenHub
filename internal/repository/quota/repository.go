@@ -30,4 +30,28 @@ type Repository interface {
 	// Restore returns consumed quota back to the allocation.
 	// Best-effort: logs errors in the caller but does not fail the main flow.
 	Restore(ctx context.Context, allocationID uuid.UUID, amount int64, idempotencyKey string) (*domain.QuotaLedgerEntry, error)
+
+	// --- Enterprise admin (team) management ---
+
+	// FindPool retrieves a single quota pool. Returns ErrNotFound when the pool
+	// does not exist.
+	FindPool(ctx context.Context, poolID uuid.UUID) (*domain.QuotaPool, error)
+
+	// FindPoolsByTenant lists all quota pools owned by a tenant.
+	FindPoolsByTenant(ctx context.Context, tenantID uuid.UUID) ([]domain.QuotaPool, error)
+
+	// FindAllocationsByTenant lists all allocations across a tenant's pools.
+	FindAllocationsByTenant(ctx context.Context, tenantID uuid.UUID) ([]domain.QuotaAllocation, error)
+
+	// Allocate atomically grants or increases a user's allocation inside a pool.
+	// The pool row is locked, capacity is enforced (pool.allocated + amount <=
+	// pool.total), the allocation is upserted on (pool_id, user_id), the pool
+	// allocated counter is incremented, and an `allocate` ledger entry is
+	// written. Returns ErrInsufficientQuota when the pool has no headroom and
+	// ErrNotFound when the pool does not exist.
+	Allocate(ctx context.Context, poolID, userID uuid.UUID, amount int64, idempotencyKey string) (*domain.QuotaAllocation, error)
+
+	// FindLedgerByAllocation returns the ledger entries for an allocation, newest
+	// first, bounded by limit/offset.
+	FindLedgerByAllocation(ctx context.Context, allocationID uuid.UUID, limit, offset int) ([]domain.QuotaLedgerEntry, error)
 }

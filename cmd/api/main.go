@@ -90,13 +90,18 @@ func main() {
 			r.Get("/profile", console.HandleGetProfile(application))
 
 			// Team management: rate-limited so an authenticated user cannot
-			// spam status toggles, role changes, or member removal.
+			// spam status toggles, role changes, member removal, sub-account
+			// creation, or quota allocation.
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.TeamRateLimit(application.RateLimiter, 30, 1*time.Minute))
 				r.Get("/team", console.HandleListTeamMembers(application))
+				r.Post("/team/members", console.HandleCreateSubAccount(application))
 				r.Delete("/team/{userId}", console.HandleRemoveMember(application))
 				r.Put("/team/{userId}/role", console.HandleChangeMemberRole(application))
 				r.Put("/team/{userId}/status", console.HandleSuspendMember(application))
+				r.Get("/team/quotas", console.HandleListTeamQuotas(application))
+				r.Post("/team/quotas/allocate", console.HandleAllocateTeamQuota(application))
+				r.Get("/team/quotas/ledger", console.HandleTeamQuotaLedger(application))
 			})
 
 			r.Get("/api-keys", console.HandleListAPIKeys(application))

@@ -51,6 +51,7 @@ type App struct {
 	Wallets     wallet.Repository
 	Channels    channel.Repository
 	Memberships membership.Repository
+	Quotas      quota.Repository
 
 	// Services
 	Charger      *billing.Charger
@@ -95,11 +96,16 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.Channels = channel.NewPostgresRepository(pool)
 	a.Memberships = membership.NewPostgresRepository(pool)
 
+	// One quota repository is shared by the gateway's QuotaChecker (consumption
+	// reads/writes) and the console/admin handlers (pool + allocation management).
+	quotaRepo := quota.NewPostgresRepository(pool)
+	a.Quotas = quotaRepo
+
 	// Wire services.
 	a.Charger = billing.NewCharger(a.Wallets)
 	a.Logger = billing.NewLoggerWithPool(a.Usage, a.Pool)
 	a.Pricer = billing.NewPricer(a.Models.(model.PricingRepository))
-	a.QuotaChecker = billing.NewQuotaChecker(quota.NewPostgresRepository(pool))
+	a.QuotaChecker = billing.NewQuotaChecker(quotaRepo)
 	a.Router = gateway.NewRouter(a.Models, a.Channels)
 	a.Executor = gateway.NewLiteLLMExecutor()
 	a.HttpClient = &http.Client{Timeout: 120 * time.Second}

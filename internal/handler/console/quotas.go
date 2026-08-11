@@ -2,10 +2,12 @@ package console
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/deeptrols/api/internal/app"
+	"github.com/deeptrols/api/internal/repository/quota"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -113,7 +115,9 @@ func HandleCreateQuotaPool(a *app.App) http.HandlerFunc {
 	}
 }
 
-// HandleAllocateQuota allocates quota from a pool to a user.
+// HandleAllocateQuota allocates quota from a pool to a user. The capacity check,
+// allocation upsert, pool counter, and ledger entry all happen atomically in the
+// repository, so concurrent allocations can never oversubscribe a pool.
 func HandleAllocateQuota(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		poolID, err := uuid.Parse(chi.URLParam(r, "id"))
@@ -140,37 +144,21 @@ func HandleAllocateQuota(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// Check pool exists and has remaining capacity.
-		var totalAmount, allocatedAmount int64
-		if err := a.Pool.QueryRow(r.Context(),
-			`SELECT total_amount, allocated_amount FROM quota_pools WHERE id=$1`, poolID,
-		).Scan(&totalAmount, &allocatedAmount); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Quota pool not found"})
-			return
-		}
-		if allocatedAmount+req.Amount > totalAmount {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Insufficient pool capacity"})
-			return
-		}
-
-		allocID := uuid.New()
-		now := time.Now()
-		if _, err := a.Pool.Exec(r.Context(),
-			`INSERT INTO quota_allocations (id, pool_id, user_id, allocated_amount, used_amount, created_at, updated_at)
-			 VALUES ($1, $2, $3, $4, 0, $5, $5)
-			 ON CONFLICT (pool_id, user_id) DO UPDATE SET allocated_amount = quota_allocations.allocated_amount + $4, updated_at = $5`,
-			allocID, poolID, userID, req.Amount, now,
-		); err != nil {
+		alloc, err := a.Quotas.Allocate(r.Context(), poolID, userID, req.Amount, "admin-allocate-"+uuid.New().String())
+		if err != nil {
+			if errors.Is(err, quota.ErrInsufficientQuota) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Insufficient pool capacity"})
+				return
+			}
+			if errors.Is(err, quota.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "Quota pool not found"})
+				return
+			}
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create allocation"})
 			return
 		}
 
-		// Update pool allocated counter.
-		a.Pool.Exec(r.Context(),
-			`UPDATE quota_pools SET allocated_amount = allocated_amount + $1, updated_at = NOW() WHERE id = $2`,
-			req.Amount, poolID,
-		)
-		writeJSON(w, http.StatusCreated, map[string]string{"id": allocID.String()})
+		writeJSON(w, http.StatusCreated, map[string]string{"id": alloc.ID.String()})
 	}
 }
 
