@@ -67,13 +67,17 @@ func ensureStringSlice(s []string) []string {
 // scanKey scans an api_keys row. Arrays are returned as JSON text via array_to_json
 // and scanned into strings, then unmarshaled back to []string.
 //
-// Column order (17 columns):
+// Column order (20 columns):
 //
 //	id, user_id, tenant_id, key_prefix, key_hash, encrypted_key, masked_key,
 //	name, status, allowed_models_json, source_whitelist_json,
 //	cumulative_limit, weekly_limit, monthly_limit,
 //	over_limit_action, last_used_at, last_7d_active,
 //	created_at, updated_at, revoked_at
+//
+// Nullable columns are COALESCE'd in apiKeySelectClause so a key with no
+// configured limits (or no name/tenant) scans into its zero value instead of
+// failing with "cannot scan NULL into *string".
 func scanKey(row pgx.Row) (*domain.APIKey, error) {
 	var k domain.APIKey
 	var allowedJSON, whitelistJSON string
@@ -115,13 +119,15 @@ func parseJSONStringArray(raw string) []string {
 
 // apiKeySelectClause is the common SELECT clause used by all read queries.
 // Uses array_to_json to convert TEXT[] to JSON text for reliable scanning.
+// name/limits are nullable in the schema, so they are COALESCE'd to keep the
+// scan NULL-safe (a key created without limits legitimately has NULL here).
 const apiKeySelectClause = `
 		id, user_id, tenant_id, key_prefix, key_hash,
 		COALESCE(encrypted_key, ''), masked_key,
-		name, status,
+		COALESCE(name, ''), status,
 		COALESCE(array_to_json(allowed_models)::text, '[]'),
 		COALESCE(array_to_json(source_whitelist)::text, '[]'),
-		cumulative_limit, weekly_limit, monthly_limit,
+		COALESCE(cumulative_limit::text, ''), COALESCE(weekly_limit::text, ''), COALESCE(monthly_limit::text, ''),
 		over_limit_action, last_used_at, last_7d_active,
 		created_at, updated_at, revoked_at
 	`

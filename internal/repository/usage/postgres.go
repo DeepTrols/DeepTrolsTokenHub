@@ -122,16 +122,24 @@ func (r *PostgresRepository) ListByAPIKey(ctx context.Context, apiKeyID uuid.UUI
 	return listUsageLogs(ctx, r.pool, "api_key_id", apiKeyID, filter)
 }
 
+// usageLogSelectClause selects all columns scanned by scanUsageLog.
+// Nullable string/decimal columns (upstream_model_code, provider_request_id,
+// estimated_cost, upstream_cost, error_code/message, request/response_summary)
+// are COALESCE'd so a log row with routing/error details unrecorded scans into
+// zero values instead of failing with "cannot scan NULL into *string".
+// channel_id/instance_id/route_policy_id/tenant_id are *uuid.UUID pointers and
+// tolerate NULL natively.
 const usageLogSelectClause = `
 	id, tenant_id, user_id, api_key_id, request_id, request_type,
-	public_model_code, upstream_model_code, channel_id, instance_id,
-	route_policy_id, provider_request_id, usage_source,
+	public_model_code, COALESCE(upstream_model_code, ''), channel_id, instance_id,
+	route_policy_id, COALESCE(provider_request_id, ''), usage_source,
 	COALESCE(usage_raw::text, '{}'), COALESCE(usage_normalized::text, '{}'),
-	estimated_cost, list_cost, discount_amount,
-	final_cost, upstream_cost, currency,
+	COALESCE(estimated_cost::text, ''), list_cost, discount_amount,
+	final_cost, COALESCE(upstream_cost::text, ''), currency,
 	COALESCE(price_snapshot::text, '{}'),
-	quota_deducted, wallet_charged, status, error_code, error_message,
-	request_summary, response_summary, created_at
+	quota_deducted, wallet_charged, status,
+	COALESCE(error_code, ''), COALESCE(error_message, ''),
+	COALESCE(request_summary, ''), COALESCE(response_summary, ''), created_at
 `
 
 func scanUsageLog(row pgx.Row) (*domain.UsageLog, error) {

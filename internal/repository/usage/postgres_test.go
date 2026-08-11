@@ -307,6 +307,62 @@ func TestListUsageLogs(t *testing.T) {
 	})
 }
 
+// TestListUsageLogs_HandlesNullColumns guards against the regression where a
+// usage_logs row with unrecorded routing/error details (NULL upstream_model_code,
+// provider_request_id, estimated_cost, upstream_cost, error_code/message,
+// request/response_summary, tenant_id, etc.) crashed the scan with
+// "cannot scan NULL into *string". The demo seed produces exactly these rows.
+func TestListUsageLogs_HandlesNullColumns(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateAll(t, repo.pool)
+
+	userID := seedUsageUser(t, ctx, repo)
+	keyID := seedUsageKey(t, ctx, repo, userID)
+
+	// Insert via raw SQL with every nullable column left NULL.
+	if _, err := repo.pool.Exec(ctx,
+		`INSERT INTO usage_logs (id, user_id, api_key_id, request_id, request_type,
+		                         public_model_code, usage_source, usage_normalized,
+		                         list_cost, discount_amount, final_cost, currency,
+		                         quota_deducted, wallet_charged, status, created_at)
+		 VALUES ($1, $2, $3, 'req-null-1', 'chat', 'deepseek-v4-flash', 'upstream',
+		         '{"input_tokens": 10, "output_tokens": 5}'::jsonb,
+		         0, 0, 0, 'CNY', 0, 0, 'completed', NOW())`,
+		uuid.New(), userID, keyID); err != nil {
+		t.Fatalf("seed usage_log with NULL columns: %v", err)
+	}
+
+	t.Run("list scans NULL routing columns as zero values", func(t *testing.T) {
+		logs, total, err := repo.ListByUser(ctx, userID, UsageFilter{Limit: 10})
+		if err != nil {
+			t.Fatalf("ListByUser with NULL-column row: %v", err)
+		}
+		if total != 1 {
+			t.Errorf("total = %d, want 1", total)
+		}
+		if len(logs) != 1 {
+			t.Fatalf("len(logs) = %d, want 1", len(logs))
+		}
+		l := logs[0]
+		if l.UpstreamModelCode != "" {
+			t.Errorf("UpstreamModelCode = %q, want empty", l.UpstreamModelCode)
+		}
+		if !l.EstimatedCost.Equal(decimal.Zero) {
+			t.Errorf("EstimatedCost = %s, want 0", l.EstimatedCost)
+		}
+		if !l.UpstreamCost.Equal(decimal.Zero) {
+			t.Errorf("UpstreamCost = %s, want 0", l.UpstreamCost)
+		}
+		if l.TenantID != nil {
+			t.Errorf("TenantID = %v, want nil", l.TenantID)
+		}
+		if l.ErrorCode != "" || l.ErrorMessage != "" {
+			t.Errorf("expected empty error fields, got %q / %q", l.ErrorCode, l.ErrorMessage)
+		}
+	})
+}
+
 func TestUsageListFilters(t *testing.T) {
 	repo := NewPostgresRepository(testutil.SetupPool(t))
 	ctx := context.Background()

@@ -13,9 +13,31 @@
 DELETE FROM usage_logs WHERE request_id LIKE 'demo-seed-%';
 
 -- 2. 确保每个演示用户都有一条 api_key（usage_logs.api_key_id 非空）。
---    用确定性 key_hash 保证幂等。
-INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key, name, created_at, updated_at)
-SELECT uuid_generate_v4(), u.id, 'dt-sk-', 'demo-hash-' || u.id::text, 'dt-sk-****demo', '演示密钥', NOW(), NOW()
+--    先清掉本脚本此前生成的演示密钥，再重建（ON CONFLICT DO NOTHING 无法把旧的
+--    NULL 限额行刷新成新值）；确定性 key_hash 保证幂等。
+--    演示密钥带真实的限制/模型白名单/最近使用时间，避免 NULL 触发扫描端到端回归
+--    （前端「API 密钥」列表会把 NULL 限额渲染成 0）。
+DELETE FROM api_keys WHERE key_hash LIKE 'demo-hash-%';
+INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key, name, status,
+                      allowed_models, source_whitelist,
+                      cumulative_limit, weekly_limit, monthly_limit,
+                      over_limit_action, last_used_at, created_at, updated_at)
+SELECT
+  uuid_generate_v4(),
+  u.id,
+  'dt-sk-',
+  'demo-hash-' || u.id::text,
+  'dt-sk-****demo',
+  CASE WHEN u.email = 'deeptrols@admin.com' THEN '演示密钥（管理员）' ELSE '演示密钥（测试）' END,
+  'active',
+  CASE WHEN u.email = 'deeptrols@admin.com'
+       THEN ARRAY['deepseek-v4-flash', 'deepseek-v4-pro', 'qwen3.5-plus', 'qwen3.7-plus']
+       ELSE ARRAY['deepseek-v4-flash', 'qwen3.5-flash'] END,
+  '{}'::text[],
+  1000.000000, 100.000000, 100.000000,
+  'block',
+  NOW() - interval '6 hours',
+  NOW(), NOW()
 FROM users u
 WHERE u.email IN ('deeptrols@admin.com', 'deeptrols@test.com')
 ON CONFLICT (key_hash) DO NOTHING;

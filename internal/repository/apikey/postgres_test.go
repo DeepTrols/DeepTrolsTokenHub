@@ -242,6 +242,69 @@ func TestListByUser(t *testing.T) {
 	})
 }
 
+// TestListByUser_HandlesNullLimits guards against the regression where a key
+// created without limits (NULL cumulative/weekly/monthly_limit, NULL name,
+// NULL tenant_id) crashed the scan with "cannot scan NULL into *string".
+// The demo seed produces exactly these rows, and so does a key that is created
+// with no quota configured.
+func TestListByUser_HandlesNullLimits(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, "wallet_transactions", "wallets", "api_keys", "users")
+
+	userID := seedUser(t, ctx, repo)
+	now := time.Now().UTC()
+
+	// Insert via raw SQL with every nullable column left NULL — the failure mode
+	// seen in the demo seed.
+	if _, err := repo.pool.Exec(ctx,
+		`INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key, created_at, updated_at)
+		 VALUES ($1, $2, 'sk-null', 'null_limits_key', 'sk-null...xxx', $3, $3)`,
+		uuid.New(), userID, now); err != nil {
+		t.Fatalf("seed key with NULL limits: %v", err)
+	}
+
+	t.Run("list scans NULL limits as zero", func(t *testing.T) {
+		keys, err := repo.ListByUser(ctx, userID, nil)
+		if err != nil {
+			t.Fatalf("ListByUser with NULL-limit row: %v", err)
+		}
+		if len(keys) != 1 {
+			t.Fatalf("len(keys) = %d, want 1", len(keys))
+		}
+		k := keys[0]
+		if !k.CumulativeLimit.Equal(decimal.Zero) {
+			t.Errorf("CumulativeLimit = %s, want 0", k.CumulativeLimit)
+		}
+		if !k.WeeklyLimit.Equal(decimal.Zero) {
+			t.Errorf("WeeklyLimit = %s, want 0", k.WeeklyLimit)
+		}
+		if !k.MonthlyLimit.Equal(decimal.Zero) {
+			t.Errorf("MonthlyLimit = %s, want 0", k.MonthlyLimit)
+		}
+		if k.TenantID != nil {
+			t.Errorf("TenantID = %v, want nil", k.TenantID)
+		}
+		if k.LastUsedAt != nil {
+			t.Errorf("LastUsedAt = %v, want nil", k.LastUsedAt)
+		}
+	})
+
+	t.Run("find by id scans NULL limits as zero", func(t *testing.T) {
+		keys, err := repo.ListByUser(ctx, userID, nil)
+		if err != nil {
+			t.Fatalf("ListByUser: %v", err)
+		}
+		found, err := repo.FindByID(ctx, keys[0].ID)
+		if err != nil {
+			t.Fatalf("FindByID on NULL-limit row: %v", err)
+		}
+		if !found.CumulativeLimit.Equal(decimal.Zero) {
+			t.Errorf("FindByID CumulativeLimit = %s, want 0", found.CumulativeLimit)
+		}
+	})
+}
+
 func TestUpdateAPIKey(t *testing.T) {
 	repo := NewPostgresRepository(testutil.SetupPool(t))
 	ctx := context.Background()
