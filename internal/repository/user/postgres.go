@@ -128,18 +128,26 @@ func (r *PostgresRepository) Create(ctx context.Context, user *domain.User) erro
 	return nil
 }
 
-// List returns users ordered by creation date, with pagination.
-func (r *PostgresRepository) List(ctx context.Context, limit, offset int) ([]domain.User, error) {
+// List returns users ordered by creation date, with pagination and an
+// optional user_type filter. A zero-value filter lists every user.
+func (r *PostgresRepository) List(ctx context.Context, filter ListFilter, limit, offset int) ([]domain.User, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	const query = `
+	query := `
 		SELECT id, email, password_hash, display_name, role, status,
 		       user_type, phone, avatar_url,
 		       created_at, updated_at
-		FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
-	`
-	rows, err := r.pool.Query(ctx, query, limit, offset)
+		FROM users`
+	args := make([]any, 0, 4)
+	if filter.UserType != "" {
+		args = append(args, string(filter.UserType))
+		query += fmt.Sprintf(` WHERE user_type = $%d`, len(args))
+	}
+	args = append(args, limit, offset)
+	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
+
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("user list: %w", err)
 	}
@@ -212,10 +220,16 @@ func (r *PostgresRepository) UpdatePassword(ctx context.Context, id uuid.UUID, p
 	return nil
 }
 
-// Count returns the total number of users.
-func (r *PostgresRepository) Count(ctx context.Context) (int, error) {
+// Count returns the number of users, optionally narrowed by a user_type filter.
+func (r *PostgresRepository) Count(ctx context.Context, filter ListFilter) (int, error) {
+	query := `SELECT COUNT(*) FROM users`
+	args := make([]any, 0, 1)
+	if filter.UserType != "" {
+		args = append(args, string(filter.UserType))
+		query += fmt.Sprintf(` WHERE user_type = $%d`, len(args))
+	}
 	var count int
-	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
+	err := r.pool.QueryRow(ctx, query, args...).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("user count: %w", err)
 	}

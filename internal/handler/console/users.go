@@ -20,23 +20,33 @@ type userListResponse struct {
 	Email       string    `json:"email"`
 	DisplayName string    `json:"display_name"`
 	Role        string    `json:"role"`
+	UserType    string    `json:"user_type"`
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// HandleListUsers returns all users with pagination (admin only).
+// HandleListUsers returns users with pagination, optionally filtered by
+// ?user_type=personal|enterprise (admin only).
 func HandleListUsers(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if rejectNonAdmin(w, r) {
 			return
 		}
+		filter := userRepo.ListFilter{}
+		if raw := r.URL.Query().Get("user_type"); raw != "" {
+			if raw != string(domain.UserTypePersonal) && raw != string(domain.UserTypeEnterprise) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid user_type"})
+				return
+			}
+			filter.UserType = domain.UserType(raw)
+		}
 		limit, offset := parsePagination(r)
-		users, err := a.Users.List(r.Context(), limit, offset)
+		users, err := a.Users.List(r.Context(), filter, limit, offset)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to list users"})
 			return
 		}
-		total, err := a.Users.Count(r.Context())
+		total, err := a.Users.Count(r.Context(), filter)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to count users"})
 			return
@@ -46,7 +56,7 @@ func HandleListUsers(a *app.App) http.HandlerFunc {
 		for _, u := range users {
 			response = append(response, userListResponse{
 				ID: u.ID.String(), Email: u.Email, DisplayName: u.DisplayName,
-				Role: u.Role, Status: string(u.Status),
+				Role: u.Role, UserType: string(u.UserType), Status: string(u.Status),
 				CreatedAt: u.CreatedAt,
 			})
 		}

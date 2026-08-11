@@ -207,3 +207,84 @@ func TestCreateUserBannedStatus(t *testing.T) {
 		t.Errorf("Status = %s, want banned", found.Status)
 	}
 }
+
+func TestListByUserType(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateAll(t, repo.pool)
+
+	now := time.Now().UTC()
+	personal := &domain.User{
+		ID: uuid.New(), Email: "list-p@test.com", PasswordHash: "h",
+		DisplayName: "P", Role: "user", UserType: domain.UserTypePersonal,
+		Status: domain.UserStatusActive, CreatedAt: now, UpdatedAt: now,
+	}
+	enterprise := &domain.User{
+		ID: uuid.New(), Email: "list-e@test.com", PasswordHash: "h",
+		DisplayName: "E", Role: "user", UserType: domain.UserTypeEnterprise,
+		Status: domain.UserStatusActive, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := repo.Create(ctx, personal); err != nil {
+		t.Fatalf("Create personal: %v", err)
+	}
+	if err := repo.Create(ctx, enterprise); err != nil {
+		t.Fatalf("Create enterprise: %v", err)
+	}
+
+	users, err := repo.List(ctx, ListFilter{UserType: domain.UserTypePersonal}, 20, 0)
+	if err != nil {
+		t.Fatalf("List personal: %v", err)
+	}
+	if len(users) != 1 || users[0].ID != personal.ID {
+		t.Errorf("personal filter: got %d users, want only the personal user", len(users))
+	}
+
+	users, err = repo.List(ctx, ListFilter{UserType: domain.UserTypeEnterprise}, 20, 0)
+	if err != nil {
+		t.Fatalf("List enterprise: %v", err)
+	}
+	if len(users) != 1 || users[0].ID != enterprise.ID {
+		t.Errorf("enterprise filter: got %d users, want only the enterprise user", len(users))
+	}
+
+	// Zero-value filter returns every user.
+	users, err = repo.List(ctx, ListFilter{}, 20, 0)
+	if err != nil {
+		t.Fatalf("List all: %v", err)
+	}
+	if len(users) != 2 {
+		t.Errorf("no filter: got %d users, want 2", len(users))
+	}
+}
+
+func TestCountByUserType(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateAll(t, repo.pool)
+
+	now := time.Now().UTC()
+	seed := func(email string, userType domain.UserType) {
+		t.Helper()
+		u := &domain.User{
+			ID: uuid.New(), Email: email, PasswordHash: "h", DisplayName: "U",
+			Role: "user", UserType: userType, Status: domain.UserStatusActive,
+			CreatedAt: now, UpdatedAt: now,
+		}
+		if err := repo.Create(ctx, u); err != nil {
+			t.Fatalf("Create %s: %v", email, err)
+		}
+	}
+	seed("count-p1@test.com", domain.UserTypePersonal)
+	seed("count-p2@test.com", domain.UserTypePersonal)
+	seed("count-e1@test.com", domain.UserTypeEnterprise)
+
+	if n, err := repo.Count(ctx, ListFilter{UserType: domain.UserTypePersonal}); err != nil || n != 2 {
+		t.Errorf("Count personal = %d, err = %v; want 2", n, err)
+	}
+	if n, err := repo.Count(ctx, ListFilter{UserType: domain.UserTypeEnterprise}); err != nil || n != 1 {
+		t.Errorf("Count enterprise = %d, err = %v; want 1", n, err)
+	}
+	if n, err := repo.Count(ctx, ListFilter{}); err != nil || n != 3 {
+		t.Errorf("Count all = %d, err = %v; want 3", n, err)
+	}
+}

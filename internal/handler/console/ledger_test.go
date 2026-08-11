@@ -152,3 +152,75 @@ func TestHandleUserLedger_ReturnsUserTypeAndTenant(t *testing.T) {
 		t.Errorf("personal tenant_name = %q, want empty", personalRow.TenantName)
 	}
 }
+
+// seedUsageLogForLedgerTest inserts a usage_log (and a backing api_key) for the
+// given user and model, enough for the top_models aggregation to see it.
+func seedUsageLogForLedgerTest(t *testing.T, a *app.App, userID uuid.UUID, model string) {
+	t.Helper()
+	keyID := uuid.New()
+	now := time.Now().UTC()
+	if _, err := a.Pool.Exec(context.Background(),
+		`INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key, name, created_at, updated_at)
+		 VALUES ($1, $2, 'dt-sk-', $3, $4, 'ledger key', $5, $5)`,
+		keyID, userID, "hash-ledger-"+uuid.New().String()[:8], "dt-sk-****ledger", now); err != nil {
+		t.Fatalf("seedUsageLogForLedgerTest: api key: %v", err)
+	}
+	if _, err := a.Pool.Exec(context.Background(),
+		`INSERT INTO usage_logs (id, user_id, api_key_id, request_id, request_type,
+		                         public_model_code, usage_source, list_cost, final_cost, status, created_at)
+		 VALUES ($1, $2, $3, $4, 'chat', $5, 'upstream', 0, 0, 'completed', $6)`,
+		uuid.New(), userID, keyID, "req-ledger-"+uuid.New().String()[:8], model, now); err != nil {
+		t.Fatalf("seedUsageLogForLedgerTest: usage log: %v", err)
+	}
+}
+
+func TestHandleUserLedger_TopModels(t *testing.T) {
+	a := appForLedgerTest(t)
+	admin := seedUserForTenantsTest(t, a, "admin-topmodels@test.com", "pass", "Admin")
+	u := seedUserForLedgerTest(t, a, "topmodels@test.com", domain.UserTypePersonal)
+
+	// gpt-4o x2, claude-sonnet x1, deepseek-v3 x1 → top 3 in that order.
+	seedUsageLogForLedgerTest(t, a, u.ID, "gpt-4o")
+	seedUsageLogForLedgerTest(t, a, u.ID, "gpt-4o")
+	seedUsageLogForLedgerTest(t, a, u.ID, "claude-sonnet")
+	seedUsageLogForLedgerTest(t, a, u.ID, "deepseek-v3")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/ledger", nil)
+	req = setAdminCtxForTenants(req, admin.ID.String())
+	w := httptest.NewRecorder()
+	HandleUserLedger(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp struct {
+		Data  []userLedgerRow `json:"data"`
+		Total int             `json:"total"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	var row userLedgerRow
+	for _, r := range resp.Data {
+		if r.ID == u.ID.String() {
+			row = r
+		}
+	}
+	if row.ID == "" {
+		t.Fatal("seeded user missing from ledger")
+	}
+	if row.RequestCount != 4 {
+		t.Errorf("request_count = %d, want 4", row.RequestCount)
+	}
+	want := []string{"gpt-4o", "claude-sonnet", "deepseek-v3"}
+	if len(row.TopModels) != len(want) {
+		t.Fatalf("top_models = %v, want %v", row.TopModels, want)
+	}
+	for i := range want {
+		if row.TopModels[i] != want[i] {
+			t.Errorf("top_models[%d] = %q, want %q (full: %v)", i, row.TopModels[i], want[i], row.TopModels)
+		}
+	}
+}

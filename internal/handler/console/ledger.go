@@ -7,20 +7,21 @@ import (
 )
 
 type userLedgerRow struct {
-	ID           string `json:"id"`
-	Email        string `json:"email"`
-	DisplayName  string `json:"display_name"`
-	Role         string `json:"role"`
-	Status       string `json:"status"`
-	UserType     string `json:"user_type"`
-	TenantID     string `json:"tenant_id,omitempty"`
-	TenantName   string `json:"tenant_name,omitempty"`
-	Balance      string `json:"balance"`       // 当前可用余额
-	Frozen       string `json:"frozen"`        // 冻结金额
-	TotalTopup   string `json:"total_topup"`   // 累计充值
-	TotalSpend   string `json:"total_spend"`   // 累计消费
-	RequestCount int64  `json:"request_count"` // 调用次数
-	TotalTokens  int64  `json:"total_tokens"`  // 累计 token
+	ID           string   `json:"id"`
+	Email        string   `json:"email"`
+	DisplayName  string   `json:"display_name"`
+	Role         string   `json:"role"`
+	Status       string   `json:"status"`
+	UserType     string   `json:"user_type"`
+	TenantID     string   `json:"tenant_id,omitempty"`
+	TenantName   string   `json:"tenant_name,omitempty"`
+	Balance      string   `json:"balance"`       // 当前可用余额
+	Frozen       string   `json:"frozen"`        // 冻结金额
+	TotalTopup   string   `json:"total_topup"`   // 累计充值
+	TotalSpend   string   `json:"total_spend"`   // 累计消费
+	RequestCount int64    `json:"request_count"` // 调用次数
+	TotalTokens  int64    `json:"total_tokens"`  // 累计 token
+	TopModels    []string `json:"top_models"`    // 调用最多的前 3 个模型名称（仅名称）
 }
 
 // HandleUserLedger returns per-user financial and usage ledger (admin only).
@@ -85,6 +86,42 @@ func HandleUserLedger(a *app.App) http.HandlerFunc {
 		if err := rows.Err(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to iterate ledger"})
 			return
+		}
+
+		// Top 3 called models per user, one aggregate query (no N+1). Each row
+		// carries only model names, ordered by call count descending.
+		topModels, err := a.Pool.Query(r.Context(),
+			`SELECT user_id, public_model_code
+			 FROM (
+			   SELECT user_id, public_model_code, COUNT(*) AS cnt,
+			          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY COUNT(*) DESC, public_model_code) AS rn
+			   FROM usage_logs
+			   GROUP BY user_id, public_model_code
+			 ) ranked
+			 WHERE rn <= 3
+			 ORDER BY user_id, cnt DESC, public_model_code`)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to query top models"})
+			return
+		}
+		defer topModels.Close()
+		byUser := make(map[string][]string)
+		for topModels.Next() {
+			var userID, model string
+			if err := topModels.Scan(&userID, &model); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read top models"})
+				return
+			}
+			byUser[userID] = append(byUser[userID], model)
+		}
+		if err := topModels.Err(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to iterate top models"})
+			return
+		}
+		for i := range ledger {
+			if models := byUser[ledger[i].ID]; len(models) > 0 {
+				ledger[i].TopModels = models
+			}
 		}
 
 		writeJSON(w, http.StatusOK, map[string]interface{}{"data": ledger, "total": len(ledger)})

@@ -13,6 +13,7 @@ import (
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	"github.com/deeptrols/api/internal/pkg/keyhash"
+	"github.com/deeptrols/api/internal/repository/user"
 	"github.com/google/uuid"
 )
 
@@ -55,7 +56,7 @@ func (m *mockUserRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.User
 	return nil, userErrNotFound
 }
 func (m *mockUserRepo) Create(ctx context.Context, user *domain.User) error { return nil }
-func (m *mockUserRepo) List(ctx context.Context, limit, offset int) ([]domain.User, error) {
+func (m *mockUserRepo) List(ctx context.Context, filter user.ListFilter, limit, offset int) ([]domain.User, error) {
 	return nil, nil
 }
 func (m *mockUserRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.UserStatus) error {
@@ -68,7 +69,7 @@ func (m *mockUserRepo) UpdateProfile(ctx context.Context, id uuid.UUID, displayN
 func (m *mockUserRepo) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
 	return nil
 }
-func (m *mockUserRepo) Count(ctx context.Context) (int, error) { return 0, nil }
+func (m *mockUserRepo) Count(ctx context.Context, filter user.ListFilter) (int, error) { return 0, nil }
 
 // consoleTestApp builds an App for ConsoleAuth tests. A nil user makes
 // FindByID return "not found" (the disabled/deleted-account path).
