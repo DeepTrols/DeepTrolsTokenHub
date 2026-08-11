@@ -36,6 +36,9 @@ web/coverage/
 # Temp
 tmp/
 
+# Runtime logs
+api.log
+
 # Vite temp
 web/vite.config.ts.timestamp-*
 

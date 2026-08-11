@@ -39,6 +39,13 @@ func main() {
 	// Ensure admin user exists with hardcoded credentials.
 	ensureAdminUser(application, cfg)
 
+	// Ensure the system administrator owns the platform tenant so enterprise
+	// settings and team management are reachable for role=admin users.
+	// Non-fatal: a failure only degrades admin enterprise features, not serving.
+	if err := application.EnsurePlatformTenant(context.Background(), uuid.Nil); err != nil {
+		log.Printf("ensurePlatformTenant: %v", err)
+	}
+
 	r := chi.NewRouter()
 
 	// Security headers (must be first).

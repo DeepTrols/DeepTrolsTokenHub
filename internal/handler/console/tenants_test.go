@@ -721,6 +721,67 @@ func TestHandleDeleteTenant_Success(t *testing.T) {
 	}
 }
 
+func TestHandleDeleteTenant_PlatformTenant_Forbidden(t *testing.T) {
+	a := appForTenantsTest(t)
+	user := seedUserForTenantsTest(t, a, "admin-del-plat@tens.com", "pass", "Admin Del Plat")
+
+	tn := seedTenantForTest(t, a, app.PlatformTenantCode, "DeepTrols 平台企业", domain.TenantStatusActive)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/"+tn.ID.String(), nil)
+	req = chiRouteCtx(req, "id", tn.ID.String())
+	req = setAdminCtxForTenants(req, user.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleDeleteTenant(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+
+	// The platform tenant must remain active.
+	kept, err := a.Tenants.FindByID(context.Background(), tn.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if kept.Status != domain.TenantStatusActive {
+		t.Errorf("status = %s, want %s (platform tenant must stay active)", kept.Status, domain.TenantStatusActive)
+	}
+}
+
+func TestHandleUpdateTenant_PlatformTenant_StatusChange_Forbidden(t *testing.T) {
+	a := appForTenantsTest(t)
+	user := seedUserForTenantsTest(t, a, "admin-upd-plat@tens.com", "pass", "Admin Upd Plat")
+
+	tn := seedTenantForTest(t, a, app.PlatformTenantCode, "DeepTrols 平台企业", domain.TenantStatusActive)
+
+	body := map[string]interface{}{
+		"status": string(domain.TenantStatusSuspended),
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/tenants/"+tn.ID.String(), bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = chiRouteCtx(req, "id", tn.ID.String())
+	req = setAdminCtxForTenants(req, user.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleUpdateTenant(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+
+	kept, err := a.Tenants.FindByID(context.Background(), tn.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if kept.Status != domain.TenantStatusActive {
+		t.Errorf("status = %s, want %s (platform tenant must stay active)", kept.Status, domain.TenantStatusActive)
+	}
+}
+
 // =============================================================================
 // HandleAddTenantDomain Tests
 // =============================================================================

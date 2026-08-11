@@ -582,6 +582,35 @@ func TestHandleTransferOwnership_OK(t *testing.T) {
 	}
 }
 
+func TestHandleTransferOwnership_PlatformTenant_Forbidden(t *testing.T) {
+	a := appForEnterpriseTest(t)
+	tn := seedTenantForTest(t, a, app.PlatformTenantCode, "DeepTrols 平台企业", domain.TenantStatusActive)
+	owner := seedEnterpriseUserForEnterpriseTest(t, a, "owner-plat@test.com")
+	target := seedEnterpriseUserForEnterpriseTest(t, a, "target-plat@test.com")
+	_ = seedMembershipForAdminTest(t, a, tn.ID, owner.ID, domain.MembershipRoleOwner, domain.MembershipStatusActive)
+	_ = seedMembershipForAdminTest(t, a, tn.ID, target.ID, domain.MembershipRoleAdmin, domain.MembershipStatusActive)
+
+	body := bytes.NewBufferString(`{"target_user_id":"` + target.ID.String() + `"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/console/team/transfer-ownership", body)
+	req = setTenantCtxForEnterprise(req, owner.ID.String(), tn.ID.String(), "owner")
+	w := httptest.NewRecorder()
+
+	HandleTransferOwnership(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+
+	// The owner must still own the platform tenant.
+	m, err := a.Memberships.FindByUserAndTenant(context.Background(), owner.ID, tn.ID)
+	if err != nil {
+		t.Fatalf("find owner membership: %v", err)
+	}
+	if m.Role != domain.MembershipRoleOwner {
+		t.Errorf("owner role = %s, want owner", m.Role)
+	}
+}
+
 // =============================================================================
 // C-1: suspended members lose enterprise access
 // =============================================================================

@@ -289,6 +289,13 @@ func HandleUpdateTenant(a *app.App) http.HandlerFunc {
 		if req.Status != nil {
 			newStatus := domain.TenantStatus(*req.Status)
 
+			// The platform tenant's lifecycle is managed by the bootstrap; it
+			// must not be suspended or terminated from the admin console.
+			if isPlatformTenant(tn) && newStatus != tn.Status {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "The platform tenant's status cannot be changed"})
+				return
+			}
+
 			// Validate it's a known status
 			if !isValidTenantStatus(newStatus) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid status value"})
@@ -347,6 +354,11 @@ func HandleDeleteTenant(a *app.App) http.HandlerFunc {
 		tn, err := a.Tenants.FindByID(r.Context(), tenantID)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Tenant not found"})
+			return
+		}
+
+		// The platform tenant is bootstrap-owned; it must not be terminable.
+		if rejectPlatformTenantMutation(w, tn) {
 			return
 		}
 

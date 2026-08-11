@@ -382,6 +382,14 @@ func HandleTransferOwnership(a *app.App) http.HandlerFunc {
 			return
 		}
 
+		// The platform tenant's ownership is bound to the system administrator
+		// by the bootstrap; transferring it would be fought on the next boot.
+		pt, findErr := a.Tenants.FindByID(r.Context(), tenantID)
+		if findErr == nil && isPlatformTenant(pt) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "The platform tenant's ownership cannot be transferred"})
+			return
+		}
+
 		var req transferOwnershipRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
