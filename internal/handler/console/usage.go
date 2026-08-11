@@ -1,11 +1,14 @@
 package console
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/deeptrols/api/internal/app"
+	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	"github.com/deeptrols/api/internal/repository/usage"
 	"github.com/go-chi/chi/v5"
@@ -17,6 +20,7 @@ type usageLogResponse struct {
 	Model        string `json:"model"`
 	RequestID    string `json:"request_id"`
 	APIKeyID     string `json:"api_key_id"`
+	APIKeyName   string `json:"api_key_name"`
 	Status       string `json:"status"`
 	InputTokens  int64  `json:"input_tokens"`
 	OutputTokens int64  `json:"output_tokens"`
@@ -40,6 +44,14 @@ func HandleListUsage(a *app.App) http.HandlerFunc {
 			Offset:    0,
 		}
 
+		if k := r.URL.Query().Get("api_key_id"); k != "" {
+			if _, err := uuid.Parse(k); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid api_key_id"})
+				return
+			}
+			filter.APIKeyID = k
+		}
+
 		if l := r.URL.Query().Get("limit"); l != "" {
 			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
 				filter.Limit = parsed
@@ -54,6 +66,12 @@ func HandleListUsage(a *app.App) http.HandlerFunc {
 		logs, total, err := a.Usage.ListByUser(r.Context(), userID, filter)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to list usage logs"})
+			return
+		}
+
+		keyNames, err := resolveAPIKeyNames(r.Context(), a, userID, logs)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to resolve API key names"})
 			return
 		}
 
@@ -74,6 +92,7 @@ func HandleListUsage(a *app.App) http.HandlerFunc {
 				Model:        l.PublicModelCode,
 				RequestID:    l.RequestID,
 				APIKeyID:     l.APIKeyID.String(),
+				APIKeyName:   keyNames[l.APIKeyID],
 				Status:       string(l.Status),
 				InputTokens:  inputTokens,
 				OutputTokens: outputTokens,
@@ -87,6 +106,41 @@ func HandleListUsage(a *app.App) http.HandlerFunc {
 			"total": total,
 		})
 	}
+}
+
+// resolveAPIKeyNames returns the display names for the API keys referenced by
+// the given usage logs, keyed by API key ID. Keys without a matching api_keys
+// row for the user resolve to an empty string. Scoping the lookup to userID
+// keeps a caller from learning another user's key names.
+func resolveAPIKeyNames(ctx context.Context, a *app.App, userID uuid.UUID, logs []domain.UsageLog) (map[uuid.UUID]string, error) {
+	names := make(map[uuid.UUID]string, len(logs))
+	ids := make([]uuid.UUID, 0, len(logs))
+	for _, l := range logs {
+		if _, seen := names[l.APIKeyID]; seen {
+			continue
+		}
+		names[l.APIKeyID] = ""
+		ids = append(ids, l.APIKeyID)
+	}
+	if len(ids) == 0 {
+		return names, nil
+	}
+
+	rows, err := a.Pool.Query(ctx,
+		`SELECT id, name FROM api_keys WHERE id = ANY($1) AND user_id = $2`, ids, userID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve api key names: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("resolve api key names scan: %w", err)
+		}
+		names[id] = name
+	}
+	return names, rows.Err()
 }
 
 // getFloatFromMap extracts a float64 value from a map by key.

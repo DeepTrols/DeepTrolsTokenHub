@@ -204,6 +204,7 @@ func TestHandleListUsage_WithUsageLogs(t *testing.T) {
 			Model        string `json:"model"`
 			RequestID    string `json:"request_id"`
 			Status       string `json:"status"`
+			APIKeyName   string `json:"api_key_name"`
 			InputTokens  int    `json:"input_tokens"`
 			OutputTokens int    `json:"output_tokens"`
 			Cost         string `json:"cost"`
@@ -231,6 +232,9 @@ func TestHandleListUsage_WithUsageLogs(t *testing.T) {
 			}
 			if l.OutputTokens != 300 {
 				t.Errorf("gpt-4o output_tokens = %d, want 300", l.OutputTokens)
+			}
+			if l.APIKeyName != "Usage Test Key" {
+				t.Errorf("api_key_name = %q, want %q", l.APIKeyName, "Usage Test Key")
 			}
 		}
 		if l.Model == "claude-sonnet" && l.Status == "failed" {
@@ -449,6 +453,135 @@ func TestHandleListUsage_OnlyOwnUsage(t *testing.T) {
 	}
 	if resp.Data[0].RequestID != "req-user-a" {
 		t.Errorf("request_id = %s, want 'req-user-a'", resp.Data[0].RequestID)
+	}
+}
+
+func TestHandleListUsage_FilterByAPIKey(t *testing.T) {
+	a := appForUsageTest(t)
+	seedUser := seedUserForUsageTest(t, a, "usage-apikey@example.com", "pass", "APIKey Usage")
+	keyA := seedAPIKeyForUsage(t, a, seedUser.ID)
+	keyB := seedAPIKeyForUsage(t, a, seedUser.ID)
+
+	mkLog := func(reqID string, keyID uuid.UUID) domain.UsageLog {
+		return domain.UsageLog{
+			ID:              uuid.New(),
+			UserID:          seedUser.ID,
+			APIKeyID:        keyID,
+			RequestID:       reqID,
+			RequestType:     "chat",
+			PublicModelCode: "gpt-4o",
+			UsageSource:     domain.UsageSourceUpstream,
+			ListCost:        decimal.RequireFromString("0.001"),
+			FinalCost:       decimal.RequireFromString("0.001"),
+			Status:          domain.UsageLogStatusCompleted,
+			CreatedAt:       time.Now().UTC(),
+		}
+	}
+	for _, lg := range []domain.UsageLog{
+		mkLog("req-api-a", keyA.ID),
+		mkLog("req-api-b", keyB.ID),
+	} {
+		if err := a.Usage.CreateUsageLog(context.Background(), &lg); err != nil {
+			t.Fatalf("create log: %v", err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/console/usage?api_key_id="+keyB.ID.String(), nil)
+	req = setUserInUsageContext(req, seedUser.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleListUsage(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp struct {
+		Data []struct {
+			RequestID string `json:"request_id"`
+		} `json:"data"`
+		Total int `json:"total"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 log filtered by api_key_id, got %d", len(resp.Data))
+	}
+	if resp.Data[0].RequestID != "req-api-b" {
+		t.Errorf("request_id = %s, want 'req-api-b'", resp.Data[0].RequestID)
+	}
+	if resp.Total != 1 {
+		t.Errorf("total = %d, want 1", resp.Total)
+	}
+}
+
+func TestHandleListUsage_InvalidAPIKeyFilter(t *testing.T) {
+	a := appForUsageTest(t)
+	seedUser := seedUserForUsageTest(t, a, "usage-badkey@example.com", "pass", "Bad Key Usage")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/console/usage?api_key_id=not-a-uuid", nil)
+	req = setUserInUsageContext(req, seedUser.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleListUsage(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleListUsage_APIKeyFilterNoCrossUserLeak(t *testing.T) {
+	a := appForUsageTest(t)
+	userA := seedUserForUsageTest(t, a, "usage-leakA@example.com", "passA", "Leak A")
+	userB := seedUserForUsageTest(t, a, "usage-leakB@example.com", "passB", "Leak B")
+	keyA := seedAPIKeyForUsage(t, a, userA.ID)
+	keyB := seedAPIKeyForUsage(t, a, userB.ID)
+
+	for _, lg := range []domain.UsageLog{
+		{
+			ID: uuid.New(), UserID: userA.ID, APIKeyID: keyA.ID, RequestID: "req-leak-a",
+			RequestType: "chat", PublicModelCode: "gpt-4o", UsageSource: domain.UsageSourceUpstream,
+			ListCost: decimal.RequireFromString("0.001"), FinalCost: decimal.RequireFromString("0.001"),
+			Status: domain.UsageLogStatusCompleted, CreatedAt: time.Now().UTC(),
+		},
+		{
+			ID: uuid.New(), UserID: userB.ID, APIKeyID: keyB.ID, RequestID: "req-leak-b",
+			RequestType: "chat", PublicModelCode: "gpt-4o", UsageSource: domain.UsageSourceUpstream,
+			ListCost: decimal.RequireFromString("0.001"), FinalCost: decimal.RequireFromString("0.001"),
+			Status: domain.UsageLogStatusCompleted, CreatedAt: time.Now().UTC(),
+		},
+	} {
+		if err := a.Usage.CreateUsageLog(context.Background(), &lg); err != nil {
+			t.Fatalf("create log: %v", err)
+		}
+	}
+
+	// User A filters by their own key, but must never see user B's log even
+	// though a cross-user api_key_id would be passed.
+	req := httptest.NewRequest(http.MethodGet, "/api/console/usage?api_key_id="+keyB.ID.String(), nil)
+	req = setUserInUsageContext(req, userA.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleListUsage(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Data []struct {
+			RequestID string `json:"request_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data) != 0 {
+		t.Fatalf("expected 0 logs, got %d (cross-user leak)", len(resp.Data))
 	}
 }
 

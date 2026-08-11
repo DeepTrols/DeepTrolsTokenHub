@@ -20,6 +20,7 @@ type UsageFilter struct {
 	ModelCode string
 	Status    string
 	RequestID string
+	APIKeyID  string
 	From      string
 	To        string
 	Limit     int

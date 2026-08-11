@@ -197,6 +197,11 @@ func listUsageLogs(ctx context.Context, pool *pgxpool.Pool, filterColumn string,
 		args = append(args, f.RequestID)
 		argIdx++
 	}
+	if f.APIKeyID != "" {
+		where += fmt.Sprintf(" AND api_key_id = $%d", argIdx)
+		args = append(args, f.APIKeyID)
+		argIdx++
+	}
 	if f.From != "" {
 		t, err := time.Parse(time.RFC3339, f.From)
 		if err == nil {

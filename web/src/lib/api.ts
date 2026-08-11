@@ -82,6 +82,7 @@ export interface UsageLog {
   model: string;
   request_id: string;
   api_key_id?: string;
+  api_key_name?: string;
   status: string;
   input_tokens: number;
   output_tokens: number;
