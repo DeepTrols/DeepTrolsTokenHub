@@ -25,7 +25,7 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 var _ Repository = (*PostgresRepository)(nil)
 
 // scanUser scans a users row into a domain.User.
-// Column order: id, email, password_hash, display_name, role, status, totp_secret, totp_enabled,
+// Column order: id, email, password_hash, display_name, role, status,
 //
 //	user_type, phone, avatar_url, created_at, updated_at
 func scanUser(row pgx.Row) (*domain.User, error) {
@@ -39,8 +39,6 @@ func scanUser(row pgx.Row) (*domain.User, error) {
 		&u.DisplayName,
 		&role,
 		&u.Status,
-		&u.TOTPSecret,
-		&u.TOTPEnabled,
 		&userType,
 		&phone,
 		&avatarURL,
@@ -68,7 +66,6 @@ func scanUser(row pgx.Row) (*domain.User, error) {
 func (r *PostgresRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	const query = `
 		SELECT id, email, password_hash, display_name, role, status,
-		       totp_secret, totp_enabled,
 		       user_type, phone, avatar_url,
 		       created_at, updated_at
 		FROM users WHERE email = $1
@@ -88,7 +85,6 @@ func (r *PostgresRepository) FindByEmail(ctx context.Context, email string) (*do
 func (r *PostgresRepository) FindByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	const query = `
 		SELECT id, email, password_hash, display_name, role, status,
-		       totp_secret, totp_enabled,
 		       user_type, phone, avatar_url,
 		       created_at, updated_at
 		FROM users WHERE id = $1
@@ -116,14 +112,13 @@ func (r *PostgresRepository) Create(ctx context.Context, user *domain.User) erro
 
 	const query = `
 		INSERT INTO users (id, email, password_hash, display_name, role, status,
-		                   totp_secret, totp_enabled,
 		                   user_type, phone, avatar_url,
 		                   created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
 	_, err := r.pool.Exec(ctx, query,
 		user.ID, user.Email, user.PasswordHash, user.DisplayName, user.Role,
-		user.Status, user.TOTPSecret, user.TOTPEnabled,
+		user.Status,
 		string(userType), user.Phone, user.AvatarURL,
 		user.CreatedAt, user.UpdatedAt,
 	)
@@ -140,7 +135,6 @@ func (r *PostgresRepository) List(ctx context.Context, limit, offset int) ([]dom
 	}
 	const query = `
 		SELECT id, email, password_hash, display_name, role, status,
-		       totp_secret, totp_enabled,
 		       user_type, phone, avatar_url,
 		       created_at, updated_at
 		FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2

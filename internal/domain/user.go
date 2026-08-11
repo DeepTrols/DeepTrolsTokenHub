@@ -23,8 +23,6 @@ type User struct {
 	Status       UserStatus
 	Phone        string
 	AvatarURL    string
-	TOTPSecret   string
-	TOTPEnabled  bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

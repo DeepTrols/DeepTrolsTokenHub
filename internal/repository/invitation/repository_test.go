@@ -17,8 +17,8 @@ func seedUserForInvitation(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	t.Helper()
 	id := uuid.New()
 	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, email, password_hash, display_name, role, status, totp_enabled, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8)`,
+		`INSERT INTO users (id, email, password_hash, display_name, role, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		id, email, "hashed", email, "user", domain.UserStatusActive, time.Now().UTC(), time.Now().UTC(),
 	)
 	if err != nil {

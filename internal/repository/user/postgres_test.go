@@ -22,16 +22,14 @@ func seedUserForTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, emai
 		DisplayName:  displayName,
 		Role:         "user",
 		Status:       domain.UserStatusActive,
-		TOTPSecret:   "",
-		TOTPEnabled:  false,
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
 	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, email, password_hash, display_name, role, status, totp_secret, totp_enabled, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		`INSERT INTO users (id, email, password_hash, display_name, role, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		u.ID, u.Email, u.PasswordHash, u.DisplayName, u.Role,
-		u.Status, u.TOTPSecret, u.TOTPEnabled, u.CreatedAt, u.UpdatedAt,
+		u.Status, u.CreatedAt, u.UpdatedAt,
 	)
 	if err != nil {
 		t.Fatalf("seedUserForTest: %v", err)
@@ -64,9 +62,6 @@ func TestFindByEmail(t *testing.T) {
 	}
 	if found.Status != user.Status {
 		t.Errorf("Status = %s, want %s", found.Status, user.Status)
-	}
-	if found.TOTPEnabled != user.TOTPEnabled {
-		t.Errorf("TOTPEnabled = %v, want %v", found.TOTPEnabled, user.TOTPEnabled)
 	}
 }
 
@@ -182,40 +177,6 @@ func TestCreateDuplicate(t *testing.T) {
 	err := repo.Create(ctx, user2)
 	if err == nil {
 		t.Fatal("expected error for duplicate email")
-	}
-}
-
-func TestCreateUserWithTOTP(t *testing.T) {
-	repo := NewPostgresRepository(testutil.SetupPool(t))
-	ctx := context.Background()
-	testutil.TruncateAll(t, repo.pool)
-
-	user := &domain.User{
-		ID:           uuid.New(),
-		Email:        "totp@test.com",
-		PasswordHash: "hashed_pw",
-		DisplayName:  "TOTP User",
-		Role:         "user",
-		Status:       domain.UserStatusActive,
-		TOTPSecret:   "JBSWY3DPEHPK3PXP",
-		TOTPEnabled:  true,
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
-	}
-
-	if err := repo.Create(ctx, user); err != nil {
-		t.Fatalf("Create with TOTP: %v", err)
-	}
-
-	found, err := repo.FindByEmail(ctx, "totp@test.com")
-	if err != nil {
-		t.Fatalf("FindByEmail: %v", err)
-	}
-	if found.TOTPSecret != "JBSWY3DPEHPK3PXP" {
-		t.Errorf("TOTPSecret = %s, want JBSWY3DPEHPK3PXP", found.TOTPSecret)
-	}
-	if !found.TOTPEnabled {
-		t.Error("expected TOTPEnabled to be true")
 	}
 }
 

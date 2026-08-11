@@ -17,7 +17,7 @@ vi.mock("../lib/api", () => ({
 // Mock auth - Playground page is wrapped by RequireAuth
 vi.mock("../lib/auth", () => ({
   useAuth: () => ({
-    user: { id: "test-user", email: "test@test.com", name: "Test", role: "user", status: "active", totp_enabled: false },
+    user: { id: "test-user", email: "test@test.com", name: "Test", role: "user", status: "active" },
     isLoading: false,
     isAuthenticated: true,
     logout: vi.fn(),

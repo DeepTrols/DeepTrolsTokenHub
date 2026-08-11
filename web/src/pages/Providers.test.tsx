@@ -23,7 +23,7 @@ vi.mock("../lib/api", () => ({
 // Mock auth - Providers page is wrapped by RequireAuth (admin)
 vi.mock("../lib/auth", () => ({
   useAuth: () => ({
-    user: { id: "admin-user", email: "admin@test.com", name: "Admin", role: "admin", status: "active", totp_enabled: false },
+    user: { id: "admin-user", email: "admin@test.com", name: "Admin", role: "admin", status: "active" },
     isLoading: false,
     isAuthenticated: true,
     logout: vi.fn(),

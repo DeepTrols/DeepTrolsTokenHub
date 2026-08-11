@@ -32,7 +32,6 @@ describe("AuthProvider", () => {
         name: "Test User",
         role: "user",
         status: "active",
-        totp_enabled: false,
       }),
     );
 
@@ -60,7 +59,6 @@ describe("AuthProvider", () => {
         name: "Test User",
         role: "user",
         status: "active",
-        totp_enabled: false,
       }),
     );
 
@@ -129,7 +127,6 @@ describe("AuthProvider", () => {
         name: "Test User",
         role: "user",
         status: "active",
-        totp_enabled: false,
       }),
     );
 

@@ -26,8 +26,8 @@ func seedUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, email strin
 		UpdatedAt:    time.Now().UTC(),
 	}
 	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, email, password_hash, display_name, role, status, totp_enabled, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8)`,
+		`INSERT INTO users (id, email, password_hash, display_name, role, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		u.ID, u.Email, u.PasswordHash, u.DisplayName, u.Role, u.Status, u.CreatedAt, u.UpdatedAt,
 	)
 	if err != nil {

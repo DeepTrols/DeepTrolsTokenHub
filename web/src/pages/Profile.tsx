@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Smartphone, History, CheckCircle, XCircle, User, Building2 } from "lucide-react";
+import { History, CheckCircle, XCircle, User, Building2 } from "lucide-react";
 import { useConsoleMutation, useConsoleQuery } from "../lib/hooks/use-api";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
@@ -11,9 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface MemberItem { id: string; name: string; email: string; role: string; }
 interface EnterpriseInfo { tenant_id: string; tenant_name: string; credit_code: string; members: MemberItem[]; }
-interface ProfileData { user: { id: string; email: string; name: string; role: string; status: string; totp_enabled: boolean; user_type: string; phone: string; avatar_url: string; tenant_id: string; tenant_name: string; tenant_role: string; }; enterprise: EnterpriseInfo | null; }
+interface ProfileData { user: { id: string; email: string; name: string; role: string; status: string; user_type: string; phone: string; avatar_url: string; tenant_id: string; tenant_name: string; tenant_role: string; }; enterprise: EnterpriseInfo | null; }
 interface LoginHistoryEntry { ip_address: string; user_agent: string; success: boolean; created_at: string; }
-interface TOTPSetupResponse { secret: string; qr_url: string; }
 
 function fmtTime(iso: string): string { try { return new Date(iso).toLocaleString("zh-CN", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }); } catch { return iso; } }
 function trunc(s: string): string { return s && s.length > 40 ? s.slice(0,40)+"..." : s; }
@@ -48,26 +47,6 @@ export default function Profile() {
     try {
       await updateProfile.mutateAsync({ display_name: displayName, phone, avatar_url: avatarUrl });
     } catch { /* mutation state shows error */ }
-  }
-
-  // MFA state — same pattern as Security.tsx
-  const [isMFASettingUp, setIsMFASettingUp] = useState(false);
-  const [mfaSecret, setMfaSecret] = useState<string | null>(null);
-  const [totpCode, setTotpCode] = useState("");
-  const [mfaError, setMfaError] = useState<string | null>(null);
-  const [mfaEnabled, setMfaEnabled] = useState(false);
-  useEffect(() => { if (profile?.totp_enabled) setMfaEnabled(true); }, [profile?.totp_enabled]);
-  const mfaSetup = useConsoleMutation<TOTPSetupResponse, undefined>("post", "/auth/totp/setup", "");
-  const mfaVerify = useConsoleMutation<unknown, { code: string }>("post", "/auth/totp/verify", "");
-
-  async function handleEnableMFA() {
-    try { setMfaError(null); setIsMFASettingUp(true); const res = await mfaSetup.mutateAsync(undefined); setMfaSecret(res.secret); }
-    catch (err) { setMfaError(err instanceof Error ? err.message : "MFA 设置失败"); setIsMFASettingUp(false); }
-  }
-  async function handleVerifyMFA() {
-    if (!totpCode || totpCode.length !== 6) { setMfaError("请输入6位验证码"); return; }
-    try { setMfaError(null); await mfaVerify.mutateAsync({ code: totpCode }); setMfaEnabled(true); setIsMFASettingUp(false); }
-    catch (err) { setMfaError(err instanceof Error ? err.message : "验证失败"); }
   }
 
   return (
@@ -110,31 +89,6 @@ export default function Profile() {
         {/* Tab 2: Security */}
         <TabsContent value="security">
           <div className="space-y-4">
-            <Card><CardContent className="p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-primary/10 rounded-lg"><Smartphone size={20} className="text-primary" /></div>
-                <div><h3 className="font-semibold">两步验证 (MFA)</h3><p className="text-xs text-muted-foreground">基于 TOTP 的额外安全保护</p></div>
-              </div>
-              {mfaEnabled ? (
-                <p className="text-sm text-emerald-600 font-medium">已开启</p>
-              ) : isMFASettingUp && mfaSecret ? (
-                <div className="space-y-4">
-                  <div className="p-4 bg-muted rounded-lg text-center"><p className="text-sm font-mono font-bold mb-2">密钥: {mfaSecret}</p><p className="text-xs text-muted-foreground">使用 Google Authenticator 输入上方密钥</p></div>
-                  <div className="flex flex-col items-center gap-3">
-                    <Input value={totpCode} onChange={e => setTotpCode(e.target.value.replace(/\D/g,""))} maxLength={6} placeholder="123456" className="w-32 text-center text-lg tracking-widest" />
-                    {mfaError && <p className="text-sm text-destructive">{mfaError}</p>}
-                    <div className="flex gap-2"><Button onClick={handleVerifyMFA}>确认开启</Button><Button variant="outline" onClick={()=>{setIsMFASettingUp(false);setMfaSecret(null);setMfaError(null);}}>取消</Button></div>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-sm text-muted-foreground mb-4">开启后登录需输入动态验证码。</p>
-                  {mfaError && <p className="text-sm text-destructive mb-3">{mfaError}</p>}
-                  <Button onClick={handleEnableMFA}>开启两步验证</Button>
-                </div>
-              )}
-            </CardContent></Card>
-
             <Card><CardContent className="p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 bg-muted rounded-lg"><History size={20} /></div>

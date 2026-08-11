@@ -107,8 +107,6 @@ func main() {
 				r.Post("/team/transfer-ownership", console.HandleTransferOwnership(application))
 			})
 
-			r.Post("/auth/totp/setup", console.HandleTOTPSetup(application))
-			r.Post("/auth/totp/verify", console.HandleTOTPVerify(application))
 			r.Get("/api-keys", console.HandleListAPIKeys(application))
 			r.Post("/api-keys", console.HandleCreateAPIKey(application))
 			r.Put("/api-keys/{id}", console.HandleUpdateAPIKey(application))
@@ -119,9 +117,6 @@ func main() {
 			r.Get("/wallet", console.HandleGetWallet(application))
 			r.Get("/wallet/transactions", console.HandleListTransactions(application))
 			r.Post("/wallet/topup", console.HandleTopUp(application))
-			r.Post("/wallet/redeem", console.HandleRedeem(application))
-			r.Get("/invite", console.HandleGetInvite(application))
-			r.Post("/invite/transfer", console.HandleTransferRewards(application))
 			// User portal: read-only model listing only
 			r.Get("/models", console.HandleListModels(application))
 			r.Get("/models/{id}", console.HandleGetModel(application))

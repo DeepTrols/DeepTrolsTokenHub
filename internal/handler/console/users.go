@@ -21,7 +21,6 @@ type userListResponse struct {
 	DisplayName string    `json:"display_name"`
 	Role        string    `json:"role"`
 	Status      string    `json:"status"`
-	TOTPEnabled bool      `json:"totp_enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -47,7 +46,7 @@ func HandleListUsers(a *app.App) http.HandlerFunc {
 		for _, u := range users {
 			response = append(response, userListResponse{
 				ID: u.ID.String(), Email: u.Email, DisplayName: u.DisplayName,
-				Role: u.Role, Status: string(u.Status), TOTPEnabled: u.TOTPEnabled,
+				Role: u.Role, Status: string(u.Status),
 				CreatedAt: u.CreatedAt,
 			})
 		}

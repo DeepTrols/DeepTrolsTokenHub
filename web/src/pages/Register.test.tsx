@@ -46,7 +46,7 @@ describe("Register", () => {
     mockFetch
       .mockResolvedValueOnce({ ok: false, status: 401 })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "x" }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "u1", email: "test@example.com", name: "Test User", role: "user", status: "active", totp_enabled: false }) });
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "u1", email: "test@example.com", name: "Test User", role: "user", status: "active" }) });
 
     renderRegister();
     await user.type(screen.getByPlaceholderText("请输入昵称"), "Test User");

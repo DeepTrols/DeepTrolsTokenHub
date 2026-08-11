@@ -17,7 +17,6 @@ import (
 	"github.com/deeptrols/api/internal/config"
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
-	"github.com/deeptrols/api/internal/pkg/totp"
 	"github.com/deeptrols/api/internal/repository/user"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -26,7 +25,6 @@ import (
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
-	TOTPCode string `json:"totp_code,omitempty"`
 }
 
 type loginResponse struct {
@@ -50,7 +48,6 @@ type meResponse struct {
 	Name        string `json:"name"`
 	Role        string `json:"role"`
 	Status      string `json:"status"`
-	TOTPEnabled bool   `json:"totp_enabled"`
 	UserType    string `json:"user_type"`
 	Phone       string `json:"phone,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
@@ -101,20 +98,6 @@ func HandleLogin(a *app.App) http.HandlerFunc {
 				return
 			}
 
-			// If TOTP is enabled, require a valid TOTP code.
-			if dbUser.TOTPEnabled {
-				if req.TOTPCode == "" {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "TOTP code required", "mfa_required": "true"})
-					return
-				}
-				valid, err := totp.Validate(dbUser.TOTPSecret, req.TOTPCode, 1)
-				if err != nil || !valid {
-					recordLoginHistory(ctx, a, dbUser.ID, ipAddress, userAgent, false)
-					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid TOTP code"})
-					return
-				}
-			}
-
 			// Generate JWT.
 			token, expiry, err := generateLoginJWT(a, dbUser)
 			if err != nil {
@@ -161,111 +144,6 @@ func HandleLogin(a *app.App) http.HandlerFunc {
 	}
 }
 
-// HandleTOTPSetup generates a TOTP secret and stores it for the authenticated user.
-func HandleTOTPSetup(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := jwtutil.UserIDFromContext(r.Context())
-		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
-			return
-		}
-
-		dbUser, err := a.Users.FindByID(r.Context(), userID)
-		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "User not found"})
-			return
-		}
-
-		if dbUser.TOTPEnabled {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "TOTP already enabled"})
-			return
-		}
-
-		secret, err := totp.GenerateSecret()
-		if err != nil {
-			log.Printf("HandleTOTPSetup: generate secret: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate TOTP secret"})
-			return
-		}
-
-		// Store the secret (unverified — only committed after verify)
-		_, err = a.Pool.Exec(r.Context(),
-			`UPDATE users SET totp_secret = $2, updated_at = NOW() WHERE id = $1`,
-			userID, secret)
-		if err != nil {
-			log.Printf("HandleTOTPSetup: store secret: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to store TOTP secret"})
-			return
-		}
-
-		qrURL := totp.GenerateKeyURI(secret, dbUser.Email, a.Config.TOTP.Issuer)
-
-		writeJSON(w, http.StatusOK, map[string]string{
-			"secret": secret,
-			"qr_url": qrURL,
-		})
-	}
-}
-
-// HandleTOTPVerify validates a TOTP code and enables MFA for the user.
-func HandleTOTPVerify(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := jwtutil.UserIDFromContext(r.Context())
-		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
-			return
-		}
-
-		var req struct {
-			Code string `json:"code"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-			return
-		}
-
-		if len(req.Code) != 6 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Code must be 6 digits"})
-			return
-		}
-
-		dbUser, err := a.Users.FindByID(r.Context(), userID)
-		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "User not found"})
-			return
-		}
-
-		if dbUser.TOTPSecret == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "TOTP not set up — call /auth/totp/setup first"})
-			return
-		}
-
-		valid, err := totp.Validate(dbUser.TOTPSecret, req.Code, 1)
-		if err != nil {
-			log.Printf("HandleTOTPVerify: validate: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Verification failed"})
-			return
-		}
-
-		if !valid {
-			writeJSON(w, http.StatusOK, map[string]interface{}{"verified": false, "error": "Invalid code"})
-			return
-		}
-
-		// Enable TOTP
-		_, err = a.Pool.Exec(r.Context(),
-			`UPDATE users SET totp_enabled = true, updated_at = NOW() WHERE id = $1`,
-			userID)
-		if err != nil {
-			log.Printf("HandleTOTPVerify: enable: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to enable TOTP"})
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]interface{}{"verified": true})
-	}
-}
-
 // HandleMe returns the authenticated user's profile.
 func HandleMe(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -297,7 +175,6 @@ func HandleMe(a *app.App) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, meResponse{
 			ID: dbUser.ID.String(), Email: dbUser.Email, Name: dbUser.DisplayName,
 			Role: dbUser.Role, Status: string(dbUser.Status),
-			TOTPEnabled: dbUser.TOTPEnabled,
 			UserType:   string(dbUser.UserType),
 			Phone:      dbUser.Phone,
 			AvatarURL:  dbUser.AvatarURL,

@@ -6,7 +6,6 @@ export interface AuthUser {
   name: string;
   role: string;
   status: string;
-  totp_enabled: boolean;
   user_type: string;
   phone: string;
   avatar_url: string;
@@ -15,11 +14,9 @@ export interface AuthUser {
   tenant_role: string;
 }
 
-/** Result of a login attempt. When mfaRequired is true the caller should
- * prompt for a TOTP code and call login again with totpCode set. */
+/** Result of a login attempt. */
 export interface LoginResult {
   success: boolean;
-  mfaRequired: boolean;
   error: string | null;
 }
 
@@ -27,7 +24,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string, totpCode?: string) => Promise<LoginResult>;
+  login: (email: string, password: string) => Promise<LoginResult>;
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -60,33 +57,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [fetchMe]);
 
-  const login = useCallback(async (email: string, password: string, totpCode?: string): Promise<LoginResult> => {
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     let res: Response;
     try {
       res = await fetch("/api/console/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, totp_code: totpCode }),
+        body: JSON.stringify({ email, password }),
         credentials: "include",
       });
     } catch {
-      return { success: false, mfaRequired: false, error: "网络错误，请稍后重试" };
+      return { success: false, error: "网络错误，请稍后重试" };
     }
 
     if (res.status === 401) {
-      const body = (await res.json().catch(() => ({}))) as { mfa_required?: string };
-      if (body.mfa_required === "true") {
-        return { success: false, mfaRequired: true, error: "请输入两步验证码" };
-      }
-      return { success: false, mfaRequired: false, error: "登录失败，请检查账号和密码" };
+      return { success: false, error: "登录失败，请检查账号和密码" };
     }
 
     if (!res.ok) {
-      return { success: false, mfaRequired: false, error: "登录失败，请稍后重试" };
+      return { success: false, error: "登录失败，请稍后重试" };
     }
 
     await fetchMe();
-    return { success: true, mfaRequired: false, error: null };
+    return { success: true, error: null };
   }, [fetchMe]);
 
   const register = useCallback(async (email: string, password: string, name: string) => {

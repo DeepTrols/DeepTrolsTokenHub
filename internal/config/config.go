@@ -18,13 +18,12 @@ type Config struct {
 	Server        ServerConfig
 	JWT           JWTConfig
 	Encryption    EncryptionConfig
-	TOTP          TOTPConfig
 	Bootstrap     BootstrapConfig
 	Cookie        CookieConfig
 	ResponseCache ResponseCacheConfig
-	// FakePayment enables demo-only money faucets (fake topup / redeem codes /
-	// signup bonus). MUST be false in production. When false, these endpoints
-	// return 403 and no bonus balance is granted.
+	// FakePayment enables the demo-only topup faucet and signup bonus.
+	// MUST be false in production. When false, the topup endpoint returns 403
+	// and no bonus balance is granted.
 	FakePayment bool
 	// PlatformHosts are comma-separated internal hostnames (e.g. docker
 	// service names like api/web/worker) exempt from tenant resolution.
@@ -81,10 +80,6 @@ type JWTConfig struct {
 
 type EncryptionConfig struct {
 	Key string
-}
-
-type TOTPConfig struct {
-	Issuer string
 }
 
 type BootstrapConfig struct {
@@ -144,9 +139,6 @@ func Load() (*Config, error) {
 		},
 		Encryption: EncryptionConfig{
 			Key: encKey,
-		},
-		TOTP: TOTPConfig{
-			Issuer: envOrDefault("TOTP_ISSUER", "DeepTrols"),
 		},
 		Bootstrap: BootstrapConfig{
 			AdminEmail:    envOrDefault("ADMIN_EMAIL", "deeptrols@admin.com"),

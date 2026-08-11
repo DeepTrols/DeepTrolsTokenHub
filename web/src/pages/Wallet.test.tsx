@@ -11,7 +11,7 @@ vi.mock("../lib/api", () => ({
 
 vi.mock("../lib/auth", () => ({
   useAuth: () => ({
-    user: { id: "test-user", email: "test@test.com", name: "Test", role: "user", status: "active", totp_enabled: false },
+    user: { id: "test-user", email: "test@test.com", name: "Test", role: "user", status: "active" },
     isLoading: false,
     isAuthenticated: true,
     logout: vi.fn(),
@@ -23,7 +23,6 @@ const mockApiGet = api.get as ReturnType<typeof vi.fn>;
 const mockApiPost = api.post as ReturnType<typeof vi.fn>;
 
 const wallet = { balance: "100.00", frozen: "5.00", available: "95.00", currency: "CNY", total_charged: "50.00" };
-const invite = { invite_code: "A1B2C3D4", total_rewards: "25.00", referral_count: 3 };
 
 function seedTxs() {
   return [
@@ -41,43 +40,34 @@ describe("Wallet", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders page title and three balance cards", async () => {
+  it("renders page title and two balance cards (no frozen funds)", async () => {
     mockApiGet.mockResolvedValueOnce(wallet);
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
-    mockApiGet.mockResolvedValueOnce(invite);
 
     renderWithProviders(<Wallet />);
 
     expect(screen.getByText("钱包管理")).toBeInTheDocument();
     expect(await screen.findByText("可用余额")).toBeInTheDocument();
-    expect(screen.getByText("冻结金额")).toBeInTheDocument();
     expect(screen.getByText("累计消费")).toBeInTheDocument();
+    expect(screen.queryByText("冻结金额")).not.toBeInTheDocument();
   });
 
-  it("shows three tabs: 在线充值, 兑换码, 邀请返利", async () => {
-    mockApiGet.mockResolvedValueOnce(wallet);
+  it("formats wallet amounts to 2 decimals with banker's rounding", async () => {
+    mockApiGet.mockResolvedValueOnce({
+      ...wallet,
+      available: "95.237",
+      total_charged: "-0.763000",
+    });
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
-    mockApiGet.mockResolvedValueOnce(invite);
 
     renderWithProviders(<Wallet />);
 
-    expect(await screen.findByText("在线充值")).toBeInTheDocument();
-    expect(screen.getByText("兑换码")).toBeInTheDocument();
-    expect(screen.getByText("邀请返利")).toBeInTheDocument();
-  });
-
-  it("shows invite code when invite data loads", async () => {
-    mockApiGet.mockResolvedValueOnce(wallet);
-    mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
-    mockApiGet.mockResolvedValueOnce(invite);
-
-    renderWithProviders(<Wallet />);
-
-    const inviteTab = await screen.findByText("邀请返利");
-    await userEvent.click(inviteTab);
-
-    expect(await screen.findByText("A1B2C3D4")).toBeInTheDocument();
-    expect(screen.getByText("25.00 CNY")).toBeInTheDocument();
+    // The ￥ symbol is rendered inside a nested <span>, so assert the number
+    // itself (the card's direct text node). 累计消费 shows the absolute value,
+    // so a negative total_charged renders without the minus sign.
+    expect(await screen.findByText("95.24")).toBeInTheDocument();
+    expect(screen.getByText("0.76")).toBeInTheDocument();
+    expect(screen.queryByText("-0.76")).not.toBeInTheDocument();
   });
 
   it("shows error with retry on fetch failure", async () => {
@@ -89,63 +79,20 @@ describe("Wallet", () => {
     expect(screen.getByRole("button", { name: /重试/ })).toBeInTheDocument();
   });
 
-  it("submits a payment from the 在线充值 tab", async () => {
+  it("submits a payment", async () => {
     const user = userEvent.setup();
     mockApiGet.mockResolvedValueOnce(wallet);
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
-    mockApiGet.mockResolvedValueOnce(invite);
     mockApiPost.mockResolvedValue({ data: { balance_after: "145.00" } });
 
     renderWithProviders(<Wallet />);
 
-    await waitFor(() => expect(screen.getByText("50 CNY")).toBeInTheDocument());
-    await user.click(screen.getByText("50 CNY"));
+    await waitFor(() => expect(screen.getByText("50 ￥")).toBeInTheDocument());
+    await user.click(screen.getByText("50 ￥"));
     await user.click(screen.getByRole("button", { name: "充值" }));
 
     await waitFor(() => {
       expect(mockApiPost).toHaveBeenCalledWith("/wallet/topup", { amount: "50" });
     });
-  });
-
-  it("redeems a code from the 兑换码 tab", async () => {
-    const user = userEvent.setup();
-    mockApiGet.mockResolvedValueOnce(wallet);
-    mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
-    mockApiGet.mockResolvedValueOnce(invite);
-    mockApiPost.mockResolvedValue({
-      data: { amount: "10", balance_after: "105.00", message: "成功兑换 10 CNY" },
-    });
-
-    renderWithProviders(<Wallet />);
-
-    const redeemTab = await screen.findByText("兑换码");
-    await user.click(redeemTab);
-
-    await user.type(
-      screen.getByPlaceholderText("粘贴或输入管理员提供的兑换码"),
-      "DEEP-TEST-CODE"
-    );
-    await user.click(screen.getByRole("button", { name: "兑换" }));
-
-    await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith("/wallet/redeem", {
-        code: "DEEP-TEST-CODE",
-      });
-    });
-  });
-
-  it("shows transfer rewards button disabled when no rewards", async () => {
-    const user = userEvent.setup();
-    mockApiGet.mockResolvedValueOnce(wallet);
-    mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
-    mockApiGet.mockResolvedValueOnce({ invite_code: "NO_REWARD", total_rewards: "0", referral_count: 0 });
-
-    renderWithProviders(<Wallet />);
-
-    const inviteTab = await screen.findByText("邀请返利");
-    await user.click(inviteTab);
-
-    const btn = await screen.findByRole("button", { name: /转入余额/ });
-    expect(btn).toBeDisabled();
   });
 });

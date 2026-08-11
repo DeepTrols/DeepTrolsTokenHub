@@ -10,7 +10,7 @@ vi.mock("../lib/api", () => ({
 
 vi.mock("../lib/auth", () => ({
   useAuth: () => ({
-    user: { id: "admin", email: "admin@test.com", name: "Admin", role: "admin", status: "active", totp_enabled: false },
+    user: { id: "admin", email: "admin@test.com", name: "Admin", role: "admin", status: "active" },
     isLoading: false, isAuthenticated: true, logout: vi.fn(),
   }),
 }));

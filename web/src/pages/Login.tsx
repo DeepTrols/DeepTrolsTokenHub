@@ -12,8 +12,6 @@ export default function Login() {
   const auth = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [totpCode, setTotpCode] = useState("");
-  const [mfaRequired, setMfaRequired] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -22,11 +20,8 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      const result = await auth.login(email, password, totpCode || undefined);
-      if (result.mfaRequired) {
-        setMfaRequired(true);
-        setTotpCode("");
-      } else if (result.success) {
+      const result = await auth.login(email, password);
+      if (result.success) {
         navigate("/dashboard");
       } else {
         setError(result.error || "登录失败，请检查账号和密码");
@@ -71,22 +66,6 @@ export default function Login() {
                 required
               />
             </div>
-            {mfaRequired && (
-              <div className="space-y-2">
-                <Label htmlFor="totp">两步验证码</Label>
-                <Input
-                  id="totp"
-                  type="text"
-                  inputMode="numeric"
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ""))}
-                  maxLength={6}
-                  className="tracking-widest text-center"
-                  placeholder="输入6位动态验证码"
-                  required
-                />
-              </div>
-            )}
             {error && (
               <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">{error}</div>
             )}

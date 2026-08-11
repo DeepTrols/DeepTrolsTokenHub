@@ -57,7 +57,6 @@ func HandleGetProfile(a *app.App) http.HandlerFunc {
 				Name:        dbUser.DisplayName,
 				Role:        dbUser.Role,
 				Status:      string(dbUser.Status),
-				TOTPEnabled: dbUser.TOTPEnabled,
 				UserType:    string(dbUser.UserType),
 				Phone:       dbUser.Phone,
 				AvatarURL:   dbUser.AvatarURL,

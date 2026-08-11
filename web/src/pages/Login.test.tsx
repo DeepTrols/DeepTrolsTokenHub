@@ -43,7 +43,7 @@ describe("Login", () => {
     mockFetch
       .mockResolvedValueOnce({ ok: false, status: 401 })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "x" }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "u1", email: "admin@test.com", name: "Admin", role: "admin", status: "active", totp_enabled: false }) });
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "u1", email: "admin@test.com", name: "Admin", role: "admin", status: "active" }) });
 
     renderLogin();
     await user.type(screen.getByPlaceholderText("请输入管理员账号"), "admin@test.com");
@@ -71,33 +71,6 @@ describe("Login", () => {
       expect(screen.getByText("登录失败，请检查账号和密码")).toBeInTheDocument();
     });
     expect(mockNavigate).not.toHaveBeenCalled();
-  });
-
-  it("prompts for TOTP code when login requires MFA, then logs in", async () => {
-    const user = userEvent.setup();
-    mockFetch.mockReset();
-    // initial fetchMe 401, login returns mfa_required, second fetchMe 401,
-    // login with totp succeeds, final fetchMe returns user.
-    mockFetch
-      .mockResolvedValueOnce({ ok: false, status: 401 }) // mount fetchMe
-      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: "TOTP code required", mfa_required: "true" }) }) // login 1
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "x" }) }) // login 2 (totp)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "u1", email: "admin@test.com", name: "Admin", role: "admin", status: "active", totp_enabled: true }) }); // post-login fetchMe
-
-    renderLogin();
-    await user.type(screen.getByPlaceholderText("请输入管理员账号"), "admin@test.com");
-    await user.type(screen.getByPlaceholderText("请输入密码"), "password123");
-    await user.click(screen.getByRole("button", { name: /登 录/ }));
-
-    // First attempt: MFA required -> code input appears.
-    expect(await screen.findByPlaceholderText("输入6位动态验证码")).toBeInTheDocument();
-
-    await user.type(screen.getByPlaceholderText("输入6位动态验证码"), "123456");
-    await user.click(screen.getByRole("button", { name: /登 录/ }));
-
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/dashboard");
-    });
   });
 
   it("shows loading state on submit", async () => {
