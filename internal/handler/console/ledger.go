@@ -77,6 +77,8 @@ func HandleUserLedger(a *app.App) http.HandlerFunc {
 		var ledger []userLedgerRow
 		for rows.Next() {
 			var row userLedgerRow
+			// 无调用记录的账号也必须返回空数组（而非 null），保证前端可直接读 .length。
+			row.ModelUsage = []modelUsageRow{}
 			var balance, frozen, totalTopup, totalSpend string
 			if err := rows.Scan(&row.ID, &row.Email, &row.DisplayName, &row.Role, &row.Status,
 				&row.UserType, &row.TenantID, &row.TenantName,

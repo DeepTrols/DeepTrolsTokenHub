@@ -144,6 +144,7 @@ export default function Finance() {
               )}
               {filtered.map((r) => {
                 const isOpen = expanded.has(r.id);
+                const modelUsage = r.model_usage ?? [];
                 return (
                   <Fragment key={r.id}>
                     <TableRow className={isOpen ? "bg-muted/40" : ""}>
@@ -181,7 +182,7 @@ export default function Finance() {
                               <Activity size={12} />
                               模型调用明细
                             </p>
-                            {r.model_usage.length === 0 ? (
+                            {modelUsage.length === 0 ? (
                               <p className="text-xs text-muted-foreground">暂无调用记录</p>
                             ) : (
                               <Table>
@@ -194,7 +195,7 @@ export default function Finance() {
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                  {r.model_usage.map((m) => (
+                                  {modelUsage.map((m) => (
                                     <TableRow key={m.model}>
                                       <TableCell className="font-mono text-xs">{m.model}</TableCell>
                                       <TableCell className="text-right tabular-nums">{m.calls.toLocaleString()}</TableCell>

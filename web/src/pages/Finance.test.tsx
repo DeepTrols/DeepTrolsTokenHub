@@ -114,6 +114,20 @@ describe("Finance（账务管理）", () => {
     expect(screen.getByText("0.90 CNY")).toBeInTheDocument(); // 该模型累计费用
   });
 
+  it("shows empty state when expanding a row with no model_usage", async () => {
+    // 模拟无调用记录账号（model_usage 为 null/缺失）：展开时不能抛错。
+    const seed = seedLedger() as Array<Record<string, unknown>>;
+    seed[1].model_usage = null;
+    mockAdminGet.mockResolvedValue({ data: seed, total: 2 });
+
+    renderWithProviders(<Finance />);
+
+    const toggle = (await screen.findAllByLabelText("展开模型详情"))[1];
+    toggle.click();
+
+    expect(await screen.findByText("暂无调用记录")).toBeInTheDocument();
+  });
+
   it("shows empty state when there is no data", async () => {
     mockAdminGet.mockResolvedValue({ data: [], total: 0 });
 

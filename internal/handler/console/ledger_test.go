@@ -151,6 +151,13 @@ func TestHandleUserLedger_ReturnsUserTypeAndTenant(t *testing.T) {
 	if personalRow.TenantName != "" {
 		t.Errorf("personal tenant_name = %q, want empty", personalRow.TenantName)
 	}
+
+	// 无调用记录的账号必须返回空数组（而非 null），前端才能安全读 .length。
+	for _, r := range resp.Data {
+		if r.ModelUsage == nil {
+			t.Errorf("user %s model_usage is null, want empty array", r.ID)
+		}
+	}
 }
 
 // seedUsageLogForLedgerTest inserts a usage_log (and a backing api_key) for the
