@@ -57,10 +57,9 @@ type meResponse struct {
 }
 
 type registerRequest struct {
-	Email           string `json:"email"`
-	Password        string `json:"password"`
-	Name            string `json:"name"`
-	InvitationToken string `json:"invitation_token,omitempty"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
 }
 
 type registerResponse struct {
@@ -229,45 +228,9 @@ func HandleRegister(a *app.App) http.HandlerFunc {
 			UserType: userType, CreatedAt: now, UpdatedAt: now,
 		}
 
-		// Handle invitation token: validate and join tenant.
-		if req.InvitationToken != "" {
-			inv, err := a.Invitations.FindByToken(ctx, req.InvitationToken)
-			if err != nil || inv == nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid or expired invitation"})
-				return
-			}
-			if inv.Status != domain.InvitationStatusPending {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invitation is no longer valid"})
-				return
-			}
-			if time.Now().UTC().After(inv.ExpiresAt) {
-				_ = a.Invitations.UpdateStatus(ctx, inv.ID, domain.InvitationStatusExpired)
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invitation has expired"})
-				return
-			}
-			u.UserType = domain.UserTypeEnterprise
-		}
-
 		if err := a.Users.Create(ctx, u); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create user"})
 			return
-		}
-
-		// Create membership if joining via invitation.
-		if req.InvitationToken != "" && u.UserType == domain.UserTypeEnterprise {
-			inv, _ := a.Invitations.FindByToken(ctx, req.InvitationToken)
-			if inv != nil {
-				membership := &domain.TenantMembership{
-					ID:       uuid.New(),
-					TenantID: inv.TenantID,
-					UserID:   u.ID,
-					Role:     inv.Role,
-					Status:   domain.MembershipStatusActive,
-					JoinedAt: now,
-				}
-				_ = a.Memberships.Create(ctx, membership)
-				_ = a.Invitations.UpdateStatus(ctx, inv.ID, domain.InvitationStatusAccepted)
-			}
 		}
 
 		// Create wallet. Bonus balance is granted only when the demo money

@@ -17,7 +17,6 @@ import (
 	"github.com/deeptrols/api/internal/pkg/redis"
 	"github.com/deeptrols/api/internal/repository/apikey"
 	"github.com/deeptrols/api/internal/repository/channel"
-	"github.com/deeptrols/api/internal/repository/invitation"
 	"github.com/deeptrols/api/internal/repository/membership"
 	"github.com/deeptrols/api/internal/repository/model"
 	"github.com/deeptrols/api/internal/repository/quota"
@@ -52,7 +51,6 @@ type App struct {
 	Wallets     wallet.Repository
 	Channels    channel.Repository
 	Memberships membership.Repository
-	Invitations invitation.Repository
 
 	// Services
 	Charger      *billing.Charger
@@ -96,7 +94,6 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.Wallets = wallet.NewPostgresRepository(pool)
 	a.Channels = channel.NewPostgresRepository(pool)
 	a.Memberships = membership.NewPostgresRepository(pool)
-	a.Invitations = invitation.NewPostgresRepository(pool)
 
 	// Wire services.
 	a.Charger = billing.NewCharger(a.Wallets)

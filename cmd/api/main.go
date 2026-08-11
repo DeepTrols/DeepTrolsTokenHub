@@ -88,22 +88,15 @@ func main() {
 			r.Put("/me/profile", console.HandleUpdateProfile(application))
 			r.Put("/me/password", console.HandleChangePassword(application))
 			r.Get("/profile", console.HandleGetProfile(application))
-			r.Get("/enterprise", console.HandleGetEnterprise(application))
-			r.Put("/enterprise", console.HandleUpdateEnterprise(application))
-			r.Put("/enterprise/brand", console.HandleUpdateEnterpriseBrand(application))
 
 			// Team management: rate-limited so an authenticated user cannot
-			// spam invites, status toggles, or ownership transfers.
+			// spam status toggles, role changes, or member removal.
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.TeamRateLimit(application.RateLimiter, 30, 1*time.Minute))
 				r.Get("/team", console.HandleListTeamMembers(application))
-				r.Post("/team/invite", console.HandleInviteMember(application))
 				r.Delete("/team/{userId}", console.HandleRemoveMember(application))
 				r.Put("/team/{userId}/role", console.HandleChangeMemberRole(application))
 				r.Put("/team/{userId}/status", console.HandleSuspendMember(application))
-				r.Get("/team/invitations", console.HandleListPendingInvitations(application))
-				r.Delete("/team/invitations/{id}", console.HandleCancelInvitation(application))
-				r.Post("/team/transfer-ownership", console.HandleTransferOwnership(application))
 			})
 
 			r.Get("/api-keys", console.HandleListAPIKeys(application))

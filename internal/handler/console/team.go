@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"net/mail"
-	"time"
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
@@ -86,68 +84,6 @@ func HandleListTeamMembers(a *app.App) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{"members": items})
-	}
-}
-
-type inviteRequest struct {
-	Email string `json:"email"`
-	Role  string `json:"role"`
-}
-
-// HandleInviteMember creates an invitation for a new team member.
-func HandleInviteMember(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if _, err := jwtutil.UserIDFromContext(r.Context()); err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
-			return
-		}
-		tenantID, err := isTenantAdmin(r, a)
-		if err != nil {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Tenant admin access required"})
-			return
-		}
-
-		var req inviteRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-			return
-		}
-		// Parse the address so a malformed string (e.g. "@evil.com" or "a@b")
-		// cannot be staged as an invitation. Acceptance still requires a real
-		// account, but this keeps garbage out of the invitations table.
-		if _, err := mail.ParseAddress(req.Email); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Valid email is required"})
-			return
-		}
-		if req.Role != string(domain.MembershipRoleAdmin) && req.Role != string(domain.MembershipRoleMember) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Role must be 'admin' or 'member'"})
-			return
-		}
-
-		invitedBy, _ := jwtutil.UserIDFromContext(r.Context())
-		now := time.Now().UTC()
-		inv := &domain.TenantInvitation{
-			ID:        uuid.New(),
-			TenantID:  tenantID,
-			InvitedBy: invitedBy,
-			Email:     req.Email,
-			Role:      domain.MembershipRole(req.Role),
-			Token:     uuid.New().String(),
-			Status:    domain.InvitationStatusPending,
-			ExpiresAt: now.Add(7 * 24 * time.Hour),
-			CreatedAt: now,
-		}
-
-		if err := a.Invitations.Create(r.Context(), inv); err != nil {
-			log.Printf("HandleInviteMember: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create invitation"})
-			return
-		}
-
-		writeJSON(w, http.StatusCreated, map[string]string{
-			"token":      inv.Token,
-			"expires_at": inv.ExpiresAt.Format(time.RFC3339),
-		})
 	}
 }
 
