@@ -263,7 +263,15 @@ func listUsageLogs(ctx context.Context, pool *pgxpool.Pool, filterColumn string,
 	return logs, total, rows.Err()
 }
 
+// parseDecimalStr parses a decimal string, returning zero on failure.
+// An empty string is the expected representation of a NULL cost column (the
+// SELECT clause COALESCEs nullable decimals to ''), so it returns zero without
+// logging; only genuinely malformed non-empty values are logged, since those
+// indicate data corruption rather than an unconfigured row.
 func parseDecimalStr(v string) decimal.Decimal {
+	if v == "" {
+		return decimal.Zero
+	}
 	d, err := decimal.NewFromString(v)
 	if err != nil {
 		log.Printf("usage: failed to parse decimal %q, returning zero", v)

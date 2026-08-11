@@ -473,4 +473,11 @@ func TestParseDecimalStrUsage(t *testing.T) {
 			t.Errorf("expected zero, got %s", d)
 		}
 	})
+
+	t.Run("empty string (NULL cost column) returns zero", func(t *testing.T) {
+		d := parseDecimalStr("")
+		if !d.Equal(decimal.Zero) {
+			t.Errorf("expected zero, got %s", d)
+		}
+	})
 }
