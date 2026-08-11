@@ -52,6 +52,23 @@ func HandleListUsage(a *app.App) http.HandlerFunc {
 			filter.APIKeyID = k
 		}
 
+		if f := r.URL.Query().Get("from"); f != "" {
+			t, err := time.Parse(time.RFC3339, f)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid from"})
+				return
+			}
+			filter.From = t.Format(time.RFC3339)
+		}
+		if t := r.URL.Query().Get("to"); t != "" {
+			parsed, err := time.Parse(time.RFC3339, t)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid to"})
+				return
+			}
+			filter.To = parsed.Format(time.RFC3339)
+		}
+
 		if l := r.URL.Query().Get("limit"); l != "" {
 			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
 				filter.Limit = parsed

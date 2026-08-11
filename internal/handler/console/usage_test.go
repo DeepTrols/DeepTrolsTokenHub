@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -530,6 +531,75 @@ func TestHandleListUsage_InvalidAPIKeyFilter(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleListUsage_FilterByFrom(t *testing.T) {
+	a := appForUsageTest(t)
+	seedUser := seedUserForUsageTest(t, a, "usage-from@example.com", "pass", "From Usage")
+	apiKey := seedAPIKeyForUsage(t, a, seedUser.ID)
+
+	// Seed a log 48h in the past.
+	log := domain.UsageLog{
+		ID:              uuid.New(),
+		UserID:          seedUser.ID,
+		APIKeyID:        apiKey.ID,
+		RequestID:       "req-from-past",
+		RequestType:     "chat",
+		PublicModelCode: "gpt-4o",
+		UsageSource:     domain.UsageSourceUpstream,
+		ListCost:        decimal.RequireFromString("0.001"),
+		FinalCost:       decimal.RequireFromString("0.001"),
+		Status:          domain.UsageLogStatusCompleted,
+		CreatedAt:       time.Now().UTC().Add(-48 * time.Hour),
+	}
+	if err := a.Usage.CreateUsageLog(context.Background(), &log); err != nil {
+		t.Fatalf("create log: %v", err)
+	}
+
+	// from = now excludes the 48h-old log.
+	from := url.QueryEscape(time.Now().UTC().Format(time.RFC3339))
+	req := httptest.NewRequest(http.MethodGet, "/api/console/usage?from="+from, nil)
+	req = setUserInUsageContext(req, seedUser.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleListUsage(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp struct {
+		Data  []interface{} `json:"data"`
+		Total int           `json:"total"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Data) != 0 {
+		t.Errorf("expected 0 logs after from filter, got %d", len(resp.Data))
+	}
+	if resp.Total != 0 {
+		t.Errorf("total = %d, want 0", resp.Total)
+	}
+}
+
+func TestHandleListUsage_InvalidDateFilter(t *testing.T) {
+	a := appForUsageTest(t)
+	seedUser := seedUserForUsageTest(t, a, "usage-badfrom@example.com", "pass", "Bad From Usage")
+
+	for _, qs := range []string{"from=not-a-date", "to=not-a-date"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/console/usage?"+qs, nil)
+		req = setUserInUsageContext(req, seedUser.ID.String())
+		w := httptest.NewRecorder()
+
+		handler := HandleListUsage(a)
+		handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("?%s status = %d, want %d", qs, w.Code, http.StatusBadRequest)
+		}
 	}
 }
 

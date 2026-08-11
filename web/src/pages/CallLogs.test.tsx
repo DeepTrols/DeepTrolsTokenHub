@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CallLogs from "./CallLogs";
 import { renderWithProviders } from "../test/test-utils";
@@ -21,7 +21,15 @@ vi.mock("../lib/auth", () => ({
 import { api } from "../lib/api";
 const mockApiGet = api.get as ReturnType<typeof vi.fn>;
 
-// 生产环境: 2 calls across 2 models. 开发环境: 1 call.
+// 生产环境: 2 calls across 2 models. 开发环境: 1 call. 新密钥: no calls.
+function seedKeys() {
+  return [
+    { id: "key-1", name: "生产环境", masked_key: "sk-****abcd", status: "active" },
+    { id: "key-2", name: "开发环境", masked_key: "sk-****efgh", status: "active" },
+    { id: "key-3", name: "新密钥", masked_key: "sk-****zzzz", status: "active" },
+  ];
+}
+
 function seedLogs() {
   return [
     { id: "log-1", model: "gpt-4o", request_id: "req-001", api_key_id: "key-1", api_key_name: "生产环境", status: "completed", input_tokens: 10, output_tokens: 20, cost: "0.50", created_at: "2026-08-01T00:00:00Z" },
@@ -30,8 +38,13 @@ function seedLogs() {
   ];
 }
 
-function mockUsage(usageData: unknown) {
-  mockApiGet.mockImplementation(() => Promise.resolve({ data: usageData }));
+function mockUsage(usageData: unknown, keysData: unknown = seedKeys()) {
+  mockApiGet.mockImplementation((path: string) => {
+    if (String(path).startsWith("/api-keys")) {
+      return Promise.resolve({ data: keysData });
+    }
+    return Promise.resolve({ data: usageData });
+  });
 }
 
 describe("CallLogs", () => {
@@ -43,14 +56,15 @@ describe("CallLogs", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders the page title and subtitle", async () => {
+  it("renders title, subtitle, and time-range control", async () => {
     mockUsage(seedLogs());
 
     renderWithProviders(<CallLogs />);
 
-    // Subtitle renders in the loaded state, after data arrives.
-    expect(await screen.findByText("按 API 密钥查看调用量与模型分布")).toBeInTheDocument();
+    expect(await screen.findByText(/按 API 密钥查看调用量与模型分布/)).toBeInTheDocument();
     expect(screen.getByText("调用记录")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "今天" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "近30天" })).toBeInTheDocument();
   });
 
   it("shows loading spinner while fetching", () => {
@@ -83,6 +97,29 @@ describe("CallLogs", () => {
     expect(screen.getByText(/20 tokens · 0\.20 CNY/)).toBeInTheDocument();
   });
 
+  it("shows a KPI summary of totals across the selected range", async () => {
+    mockUsage(seedLogs());
+
+    renderWithProviders(<CallLogs />);
+
+    expect(await screen.findByText("总请求")).toBeInTheDocument();
+    expect(screen.getByText("总费用")).toBeInTheDocument();
+    // 0.50 + 0.10 + 0.20 = 0.80 CNY
+    expect(screen.getByText("0.80 CNY")).toBeInTheDocument();
+  });
+
+  it("shows zero-usage API keys greyed out instead of hiding them", async () => {
+    mockUsage(seedLogs(), seedKeys());
+
+    renderWithProviders(<CallLogs />);
+
+    expect(await screen.findByText("新密钥")).toBeInTheDocument();
+    expect(screen.getByText("暂无调用")).toBeInTheDocument();
+
+    const zeroKeyButton = screen.getByText("新密钥").closest("button");
+    expect(zeroKeyButton).toBeDisabled();
+  });
+
   it("expands a key to reveal its per-model breakdown", async () => {
     const user = userEvent.setup();
     mockUsage(seedLogs());
@@ -112,8 +149,20 @@ describe("CallLogs", () => {
     expect(screen.queryByText("deepseek-v3")).not.toBeInTheDocument();
   });
 
-  it("shows empty message when there are no logs", async () => {
-    mockUsage([]);
+  it("re-fetches with from/to when the time range changes", async () => {
+    const user = userEvent.setup();
+    mockUsage(seedLogs());
+
+    renderWithProviders(<CallLogs />);
+
+    await screen.findByText("生产环境");
+    await user.click(screen.getByRole("button", { name: "今天" }));
+
+    await waitFor(() => expect(mockApiGet).toHaveBeenCalledWith(expect.stringContaining("from=")));
+  });
+
+  it("shows empty message when there are no keys and no logs", async () => {
+    mockUsage([], []);
 
     renderWithProviders(<CallLogs />);
 
@@ -130,9 +179,12 @@ describe("CallLogs", () => {
   });
 
   it("falls back to a truncated key id when the key has no name", async () => {
-    mockUsage([
-      { id: "log-9", model: "gpt-4o", request_id: "req-9", api_key_id: "abcdef1234567890", api_key_name: "", status: "completed", input_tokens: 1, output_tokens: 1, cost: "0.01", created_at: "2026-08-01T00:00:00Z" },
-    ]);
+    mockUsage(
+      [
+        { id: "log-9", model: "gpt-4o", request_id: "req-9", api_key_id: "abcdef1234567890", api_key_name: "", status: "completed", input_tokens: 1, output_tokens: 1, cost: "0.01", created_at: "2026-08-01T00:00:00Z" },
+      ],
+      [],
+    );
 
     renderWithProviders(<CallLogs />);
 
