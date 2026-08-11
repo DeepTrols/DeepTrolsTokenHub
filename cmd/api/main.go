@@ -72,7 +72,6 @@ func main() {
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(middleware.GatewayAuth(application))
 		r.Use(middleware.GatewayRateLimit(application.RateLimiter, 100, 1*time.Minute))
-		r.Use(middleware.TenantIdentification(application.Tenants, application.Config.PlatformHosts))
 		r.Get("/models", gateway.HandleListModels(application))
 		r.Post("/chat/completions", gateway.HandleChatCompletions(application))
 	})
@@ -160,12 +159,6 @@ func main() {
 		r.Get("/tenants/{id}", console.HandleGetTenant(application))
 		r.Put("/tenants/{id}", console.HandleUpdateTenant(application))
 		r.Delete("/tenants/{id}", console.HandleDeleteTenant(application))
-		r.Post("/tenants/{id}/domains", console.HandleAddTenantDomain(application))
-		r.Delete("/tenants/{id}/domains/{domainId}", console.HandleRemoveTenantDomain(application))
-		r.Get("/tenants/{id}/members", console.HandleAdminListTenantMembers(application))
-		r.Post("/tenants/{id}/members", console.HandleAdminAddTenantMember(application))
-		r.Delete("/tenants/{id}/members/{userId}", console.HandleAdminRemoveTenantMember(application))
-		r.Put("/tenants/{id}/members/{userId}/role", console.HandleAdminChangeTenantMemberRole(application))
 
 		r.Get("/quotas", console.HandleListQuotaPools(application))
 		r.Post("/quotas", console.HandleCreateQuotaPool(application))

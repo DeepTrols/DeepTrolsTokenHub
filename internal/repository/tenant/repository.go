@@ -8,7 +8,6 @@ import (
 )
 
 type Repository interface {
-	FindByDomain(ctx context.Context, domain string) (*domain.Tenant, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*domain.Tenant, error)
 	FindByCode(ctx context.Context, code string) (*domain.Tenant, error)
 	Create(ctx context.Context, tenant *domain.Tenant) error

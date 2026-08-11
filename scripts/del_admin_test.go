@@ -33,7 +33,7 @@ func TestDelAdmin(t *testing.T) {
 	// admin user's own rows, avoids foreign-key violations. The whole run is
 	// inside a rolled-back transaction so no data is actually removed.
 	if _, err := tx.Exec(ctx,
-		`TRUNCATE TABLE provider_evidence, charge_lines, wallet_transactions, quota_allocations, quota_ledger, quota_pools, route_policies, channel_instances, channels, tenant_models, model_pricing, models, tenant_domains, tenants CASCADE`); err != nil {
+		`TRUNCATE TABLE provider_evidence, charge_lines, wallet_transactions, quota_allocations, quota_ledger, quota_pools, route_policies, channel_instances, channels, tenant_models, model_pricing, models, tenants CASCADE`); err != nil {
 		t.Fatalf("truncate leaf tables: %v", err)
 	}
 	for _, q := range []string{

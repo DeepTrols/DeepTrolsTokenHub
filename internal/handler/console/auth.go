@@ -43,23 +43,23 @@ type userProfile struct {
 }
 
 type meResponse struct {
-	ID          string `json:"id"`
-	Email       string `json:"email"`
-	Name        string `json:"name"`
-	Role        string `json:"role"`
-	Status      string `json:"status"`
-	UserType    string `json:"user_type"`
-	Phone       string `json:"phone,omitempty"`
-	AvatarURL   string `json:"avatar_url,omitempty"`
-	TenantID    string `json:"tenant_id,omitempty"`
-	TenantName  string `json:"tenant_name,omitempty"`
-	TenantRole  string `json:"tenant_role,omitempty"`
+	ID         string `json:"id"`
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	Role       string `json:"role"`
+	Status     string `json:"status"`
+	UserType   string `json:"user_type"`
+	Phone      string `json:"phone,omitempty"`
+	AvatarURL  string `json:"avatar_url,omitempty"`
+	TenantID   string `json:"tenant_id,omitempty"`
+	TenantName string `json:"tenant_name,omitempty"`
+	TenantRole string `json:"tenant_role,omitempty"`
 }
 
 type registerRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Name           string `json:"name"`
+	Email           string `json:"email"`
+	Password        string `json:"password"`
+	Name            string `json:"name"`
 	InvitationToken string `json:"invitation_token,omitempty"`
 }
 

@@ -99,19 +99,22 @@ func seedMembershipForTenantsTest(t *testing.T, a *app.App, tenantID, userID uui
 	}
 }
 
-// seedTenantDomainForTest inserts a domain for the given tenant.
-func seedTenantDomainForTest(t *testing.T, a *app.App, tenantID uuid.UUID, domainName string, isPrimary bool) uuid.UUID {
+// seedMembershipForAdminTest inserts a membership via the repository and
+// returns it. Shared by team/enterprise/ledger tests.
+func seedMembershipForAdminTest(t *testing.T, a *app.App, tenantID, userID uuid.UUID, role domain.MembershipRole, status domain.MembershipStatus) *domain.TenantMembership {
 	t.Helper()
-	domainID := uuid.New()
-	now := time.Now().UTC()
-	_, err := a.Pool.Exec(context.Background(),
-		`INSERT INTO tenant_domains (id, tenant_id, domain, is_primary, created_at) VALUES ($1, $2, $3, $4, $5)`,
-		domainID, tenantID, domainName, isPrimary, now,
-	)
-	if err != nil {
-		t.Fatalf("seedTenantDomainForTest: %v", err)
+	m := &domain.TenantMembership{
+		ID:       uuid.New(),
+		TenantID: tenantID,
+		UserID:   userID,
+		Role:     role,
+		Status:   status,
+		JoinedAt: time.Now().UTC(),
 	}
-	return domainID
+	if err := a.Memberships.Create(context.Background(), m); err != nil {
+		t.Fatalf("seedMembershipForAdminTest: %v", err)
+	}
+	return m
 }
 
 // setAdminCtxForTenants adds user_id and role="admin" to the request context.
@@ -230,53 +233,6 @@ func TestHandleListTenants_ReturnsTenants(t *testing.T) {
 	}
 }
 
-func TestHandleListTenants_IncludesMemberCount(t *testing.T) {
-	a := appForTenantsTest(t)
-	admin := seedUserForTenantsTest(t, a, "admin-count@tens.com", "pass", "Admin Count")
-
-	tA := seedTenantForTest(t, a, "count-a", "Count A", domain.TenantStatusActive)
-	tB := seedTenantForTest(t, a, "count-b", "Count B", domain.TenantStatusActive)
-
-	// Tenant A: 2 active members + 1 suspended member. Tenant B: no members.
-	m1 := seedUserForTenantsTest(t, a, "m1@tens.com", "pass", "M1")
-	m2 := seedUserForTenantsTest(t, a, "m2@tens.com", "pass", "M2")
-	m3 := seedUserForTenantsTest(t, a, "m3@tens.com", "pass", "M3")
-	seedMembershipForTenantsTest(t, a, tA.ID, m1.ID, domain.MembershipRoleMember, domain.MembershipStatusActive)
-	seedMembershipForTenantsTest(t, a, tA.ID, m2.ID, domain.MembershipRoleMember, domain.MembershipStatusActive)
-	seedMembershipForTenantsTest(t, a, tA.ID, m3.ID, domain.MembershipRoleMember, domain.MembershipStatusSuspended)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/tenants", nil)
-	req = setAdminCtxForTenants(req, admin.ID.String())
-	w := httptest.NewRecorder()
-
-	handler := HandleListTenants(a)
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
-
-	var resp struct {
-		Data []struct {
-			ID          string `json:"id"`
-			MemberCount int    `json:"member_count"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	counts := map[string]int{}
-	for _, d := range resp.Data {
-		counts[d.ID] = d.MemberCount
-	}
-	if counts[tA.ID.String()] != 2 {
-		t.Errorf("tenant A member_count = %d, want 2 (suspended member must be excluded)", counts[tA.ID.String()])
-	}
-	if counts[tB.ID.String()] != 0 {
-		t.Errorf("tenant B member_count = %d, want 0", counts[tB.ID.String()])
-	}
-}
-
 // =============================================================================
 // HandleGetTenant Tests
 // =============================================================================
@@ -309,50 +265,6 @@ func TestHandleGetTenant_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
-}
-
-func TestHandleGetTenant_WithDomains(t *testing.T) {
-	a := appForTenantsTest(t)
-	user := seedUserForTenantsTest(t, a, "admin-get@tens.com", "pass", "Admin Get")
-
-	tn := seedTenantForTest(t, a, "tenant-with-dom", "Tenant With Domains", domain.TenantStatusActive)
-	seedTenantDomainForTest(t, a, tn.ID, "api.example.com", true)
-	seedTenantDomainForTest(t, a, tn.ID, "staging.example.com", false)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/tenants/"+tn.ID.String(), nil)
-	req = chiRouteCtx(req, "id", tn.ID.String())
-	req = setAdminCtxForTenants(req, user.ID.String())
-	w := httptest.NewRecorder()
-
-	handler := HandleGetTenant(a)
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
-
-	var resp struct {
-		Data struct {
-			ID      string `json:"id"`
-			Code    string `json:"code"`
-			Name    string `json:"name"`
-			Status  string `json:"status"`
-			Domains []struct {
-				ID        uuid.UUID `json:"id"`
-				Domain    string    `json:"domain"`
-				IsPrimary bool      `json:"is_primary"`
-			} `json:"domains"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp.Data.ID != tn.ID.String() {
-		t.Errorf("id = %s, want %s", resp.Data.ID, tn.ID.String())
-	}
-	if len(resp.Data.Domains) != 2 {
-		t.Fatalf("expected 2 domains, got %d", len(resp.Data.Domains))
 	}
 }
 
@@ -779,194 +691,5 @@ func TestHandleUpdateTenant_PlatformTenant_StatusChange_Forbidden(t *testing.T) 
 	}
 	if kept.Status != domain.TenantStatusActive {
 		t.Errorf("status = %s, want %s (platform tenant must stay active)", kept.Status, domain.TenantStatusActive)
-	}
-}
-
-// =============================================================================
-// HandleAddTenantDomain Tests
-// =============================================================================
-
-func TestHandleAddTenantDomain_NoAuth(t *testing.T) {
-	a := appForTenantsTest(t)
-
-	body := map[string]interface{}{"domain": "api.example.com", "is_primary": true}
-	bodyBytes, _ := json.Marshal(body)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/tenants/some-id/domains", bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	handler := HandleAddTenantDomain(a)
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
-}
-
-func TestHandleAddTenantDomain_TenantNotFound(t *testing.T) {
-	a := appForTenantsTest(t)
-	user := seedUserForTenantsTest(t, a, "admin-dom-nf@tens.com", "pass", "Admin Dom NF")
-
-	body := map[string]interface{}{"domain": "api.example.com"}
-	bodyBytes, _ := json.Marshal(body)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/tenants/"+uuid.New().String()+"/domains", bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
-	req = chiRouteCtx(req, "id", uuid.New().String())
-	req = setAdminCtxForTenants(req, user.ID.String())
-	w := httptest.NewRecorder()
-
-	handler := HandleAddTenantDomain(a)
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
-}
-
-func TestHandleAddTenantDomain_MissingDomain(t *testing.T) {
-	a := appForTenantsTest(t)
-	user := seedUserForTenantsTest(t, a, "admin-dom-miss@tens.com", "pass", "Admin Dom Miss")
-
-	tn := seedTenantForTest(t, a, "dom-miss", "Domain Missing", domain.TenantStatusActive)
-
-	body := map[string]interface{}{"is_primary": true}
-	bodyBytes, _ := json.Marshal(body)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/tenants/"+tn.ID.String()+"/domains", bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
-	req = chiRouteCtx(req, "id", tn.ID.String())
-	req = setAdminCtxForTenants(req, user.ID.String())
-	w := httptest.NewRecorder()
-
-	handler := HandleAddTenantDomain(a)
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
-}
-
-func TestHandleAddTenantDomain_Success(t *testing.T) {
-	a := appForTenantsTest(t)
-	user := seedUserForTenantsTest(t, a, "admin-dom@tens.com", "pass", "Admin Dom")
-
-	tn := seedTenantForTest(t, a, "add-dom-tenant", "Add Domain Tenant", domain.TenantStatusActive)
-
-	body := map[string]interface{}{
-		"domain":     "my.example.com",
-		"is_primary": true,
-	}
-	bodyBytes, _ := json.Marshal(body)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/tenants/"+tn.ID.String()+"/domains", bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
-	req = chiRouteCtx(req, "id", tn.ID.String())
-	req = setAdminCtxForTenants(req, user.ID.String())
-	w := httptest.NewRecorder()
-
-	handler := HandleAddTenantDomain(a)
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
-
-	var resp struct {
-		Data struct {
-			ID        string `json:"id"`
-			Domain    string `json:"domain"`
-			IsPrimary bool   `json:"is_primary"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp.Data.Domain != "my.example.com" {
-		t.Errorf("domain = %s, want 'my.example.com'", resp.Data.Domain)
-	}
-	if !resp.Data.IsPrimary {
-		t.Error("is_primary should be true")
-	}
-
-	// Verify in DB
-	var count int
-	err := a.Pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM tenant_domains WHERE tenant_id = $1 AND domain = $2", tn.ID, "my.example.com").Scan(&count)
-	if err != nil {
-		t.Fatalf("query domain count: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("expected 1 domain row, got %d", count)
-	}
-}
-
-// =============================================================================
-// HandleRemoveTenantDomain Tests
-// =============================================================================
-
-func TestHandleRemoveTenantDomain_TenantNotFound(t *testing.T) {
-	a := appForTenantsTest(t)
-	user := seedUserForTenantsTest(t, a, "admin-rmdom-nf@tens.com", "pass", "Admin RmDom NF")
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/"+uuid.New().String()+"/domains/"+uuid.New().String(), nil)
-	req = chiRouteMultiCtx(req, map[string]string{"id": uuid.New().String(), "domainId": uuid.New().String()})
-	req = setAdminCtxForTenants(req, user.ID.String())
-	w := httptest.NewRecorder()
-
-	handler := HandleRemoveTenantDomain(a)
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
-}
-
-func TestHandleRemoveTenantDomain_Success(t *testing.T) {
-	a := appForTenantsTest(t)
-	user := seedUserForTenantsTest(t, a, "admin-rmdom@tens.com", "pass", "Admin RmDom")
-
-	tn := seedTenantForTest(t, a, "rm-dom-tenant", "Remove Domain Tenant", domain.TenantStatusActive)
-	domainID := seedTenantDomainForTest(t, a, tn.ID, "remove-me.example.com", false)
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/"+tn.ID.String()+"/domains/"+domainID.String(), nil)
-	req = chiRouteMultiCtx(req, map[string]string{"id": tn.ID.String(), "domainId": domainID.String()})
-	req = setAdminCtxForTenants(req, user.ID.String())
-	w := httptest.NewRecorder()
-
-	handler := HandleRemoveTenantDomain(a)
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
-
-	// Verify deleted from DB
-	var count int
-	err := a.Pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM tenant_domains WHERE id = $1", domainID).Scan(&count)
-	if err != nil {
-		t.Fatalf("query domain: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("expected 0 domain rows after delete, got %d", count)
-	}
-}
-
-func TestHandleRemoveTenantDomain_NotFound(t *testing.T) {
-	a := appForTenantsTest(t)
-	user := seedUserForTenantsTest(t, a, "admin-rmdom-ns@tens.com", "pass", "Admin RmDom NS")
-
-	tn := seedTenantForTest(t, a, "rm-dom-ns", "Domain Not Found", domain.TenantStatusActive)
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/"+tn.ID.String()+"/domains/"+uuid.New().String(), nil)
-	req = chiRouteMultiCtx(req, map[string]string{"id": tn.ID.String(), "domainId": uuid.New().String()})
-	req = setAdminCtxForTenants(req, user.ID.String())
-	w := httptest.NewRecorder()
-
-	handler := HandleRemoveTenantDomain(a)
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
 }

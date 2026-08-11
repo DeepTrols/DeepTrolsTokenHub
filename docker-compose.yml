@@ -35,8 +35,6 @@ x-api-env: &api-env
   CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
   # 资金安全：生产必须保持 false（false 时 API 拒绝弱密钥 + 关闭造币口）
   ENABLE_FAKE_PAYMENT: ${ENABLE_FAKE_PAYMENT:-false}
-  # 平台内部主机名（docker 服务名），免除租户解析；未知 Host 一律 403
-  PLATFORM_HOSTS: ${PLATFORM_HOSTS:-api,web,worker}
 
 services:
   postgres:

@@ -71,7 +71,6 @@ func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 		"tenant_models",
 		"model_pricing",
 		"models",
-		"tenant_domains",
 		"tenants",
 		"api_key_spend",
 		"api_keys",

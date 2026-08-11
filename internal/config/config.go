@@ -25,10 +25,6 @@ type Config struct {
 	// MUST be false in production. When false, the topup endpoint returns 403
 	// and no bonus balance is granted.
 	FakePayment bool
-	// PlatformHosts are comma-separated internal hostnames (e.g. docker
-	// service names like api/web/worker) exempt from tenant resolution.
-	// Unknown Host headers that match no tenant are rejected.
-	PlatformHosts []string
 }
 
 // ResponseCacheConfig tunes the request-response cache.
@@ -148,8 +144,7 @@ func Load() (*Config, error) {
 			TTLSeconds:  envOrDefaultInt("CACHE_TTL_SECONDS", 3600),
 			CacheModels: os.Getenv("CACHE_MODELS"),
 		},
-		FakePayment:   envOrDefaultBool("ENABLE_FAKE_PAYMENT", false),
-		PlatformHosts: splitComma(os.Getenv("PLATFORM_HOSTS")),
+		FakePayment: envOrDefaultBool("ENABLE_FAKE_PAYMENT", false),
 	}
 
 	// Cookie config depends on JWT expiry, so we compute it after defaults are set.
@@ -233,15 +228,4 @@ func envOrDefaultBool(key string, defaultVal bool) bool {
 		return defaultVal
 	}
 	return val == "true" || val == "1" || val == "yes"
-}
-
-// splitComma splits a comma-separated env value into trimmed non-empty items.
-func splitComma(val string) []string {
-	var out []string
-	for _, p := range strings.Split(val, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

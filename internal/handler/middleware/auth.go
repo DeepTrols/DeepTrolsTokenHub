@@ -26,10 +26,11 @@ const (
 // Values stored at these keys in ConsoleAuth can be extracted
 // via jwtutil.UserIDFromContext / jwtutil.EmailFromContext.
 //
-// Note: CtxTenantID (gateway domain-based tenant) is intentionally NOT
-// aliased to jwtutil.CtxTenantIDKey — the gateway chain and console chain
-// use the same string key "tenant_id" but store different kinds of tenant
-// identifiers (gateway: domain-mapped; console: enterprise membership).
+// CtxTenantID (gateway) is intentionally NOT aliased to
+// jwtutil.CtxTenantIDKey (console): both chains derive the tenant from the
+// user's enterprise membership, but they are set by different auth paths
+// (API-key gateway vs JWT console) and the gateway keeps personal accounts
+// (no membership) tenant-less.
 var (
 	CtxUserID     = jwtutil.CtxUserIDKey
 	CtxEmail      = jwtutil.CtxEmailKey
@@ -85,6 +86,17 @@ func GatewayAuth(application *app.App) func(http.Handler) http.Handler {
 			ctx = context.WithValue(ctx, CtxUserID, key.UserID.String())
 			ctx = context.WithValue(ctx, CtxRequestID, requestID)
 			ctx = context.WithValue(ctx, CtxRequestType, "chat")
+
+			// Resolve the enterprise tenant from the API key owner's active
+			// membership. There are no per-tenant custom domains — every tenant
+			// is served on the platform's own domain — so the tenant comes from
+			// the account, not the Host header. Personal accounts (no active
+			// membership) fall through to the platform tenant.
+			if application.Memberships != nil {
+				if m, err := application.Memberships.FindByUserID(ctx, key.UserID); err == nil && m != nil && m.Status == domain.MembershipStatusActive {
+					ctx = context.WithValue(ctx, CtxTenantID, m.TenantID.String())
+				}
+			}
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

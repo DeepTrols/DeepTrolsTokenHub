@@ -163,9 +163,6 @@ func TestHandleGetEnterprise_Member_OK(t *testing.T) {
 	if resp.MemberCount != 2 {
 		t.Errorf("member_count = %d, want 2", resp.MemberCount)
 	}
-	if resp.Domains == nil {
-		t.Error("domains should be an array (possibly empty), got nil")
-	}
 }
 
 // =============================================================================

@@ -20,19 +20,18 @@ import (
 // Sensitive settlement data (credit_code, business_license, settlement_config)
 // is omitted for regular members; only tenant admins and owners receive it.
 type enterpriseResponse struct {
-	ID               string           `json:"id"`
-	Code             string           `json:"code"`
-	Name             string           `json:"name"`
-	Status           string           `json:"status"`
-	CreditCode       string           `json:"credit_code,omitempty"`
-	ContactEmail     string           `json:"contact_email"`
-	ContactPhone     string           `json:"contact_phone"`
-	BusinessLicense  string           `json:"business_license,omitempty"`
-	BrandConfig      map[string]any   `json:"brand_config"`
-	RuntimeConfig    map[string]any   `json:"runtime_config"`
-	SettlementConfig map[string]any   `json:"settlement_config,omitempty"`
-	MemberCount      int              `json:"member_count"`
-	Domains          []domainResponse `json:"domains"`
+	ID               string         `json:"id"`
+	Code             string         `json:"code"`
+	Name             string         `json:"name"`
+	Status           string         `json:"status"`
+	CreditCode       string         `json:"credit_code,omitempty"`
+	ContactEmail     string         `json:"contact_email"`
+	ContactPhone     string         `json:"contact_phone"`
+	BusinessLicense  string         `json:"business_license,omitempty"`
+	BrandConfig      map[string]any `json:"brand_config"`
+	RuntimeConfig    map[string]any `json:"runtime_config"`
+	SettlementConfig map[string]any `json:"settlement_config,omitempty"`
+	MemberCount      int            `json:"member_count"`
 }
 
 // enterpriseInvitationItem represents an invitation in the list response.
@@ -111,12 +110,6 @@ func HandleGetEnterprise(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		domains := queryTenantDomains(r.Context(), a, tenantID)
-		if domains == nil {
-			// Empty domains must serialize as [] rather than null.
-			domains = []domainResponse{}
-		}
-
 		resp := enterpriseResponse{
 			ID:            t.ID.String(),
 			Code:          t.Code,
@@ -126,7 +119,6 @@ func HandleGetEnterprise(a *app.App) http.HandlerFunc {
 			ContactPhone:  t.ContactPhone,
 			BrandConfig:   t.BrandConfig,
 			RuntimeConfig: t.RuntimeConfig,
-			Domains:       domains,
 		}
 
 		// Settlement data is sensitive and only returned to admins/owners.

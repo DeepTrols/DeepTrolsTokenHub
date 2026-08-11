@@ -1,7 +1,6 @@
 package console
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -23,32 +22,22 @@ type tenantListResponse struct {
 	Status       string  `json:"status"`
 	OwnerID      *string `json:"owner_id,omitempty"`
 	StatusReason string  `json:"status_reason,omitempty"`
-	MemberCount  int     `json:"member_count"`
 	CreatedAt    string  `json:"created_at"`
 }
 
-// tenantDetailResponse is the JSON shape for a single tenant with domains.
+// tenantDetailResponse is the JSON shape for a single tenant.
 type tenantDetailResponse struct {
-	ID               string           `json:"id"`
-	Code             string           `json:"code"`
-	Name             string           `json:"name"`
-	Status           string           `json:"status"`
-	OwnerID          *string          `json:"owner_id,omitempty"`
-	BrandConfig      map[string]any   `json:"brand_config,omitempty"`
-	RuntimeConfig    map[string]any   `json:"runtime_config,omitempty"`
-	SettlementConfig map[string]any   `json:"settlement_config,omitempty"`
-	StatusReason     string           `json:"status_reason,omitempty"`
-	CreatedAt        string           `json:"created_at"`
-	UpdatedAt        string           `json:"updated_at,omitempty"`
-	Domains          []domainResponse `json:"domains,omitempty"`
-}
-
-// domainResponse is the JSON shape for a tenant domain.
-type domainResponse struct {
-	ID        uuid.UUID `json:"id"`
-	Domain    string    `json:"domain"`
-	IsPrimary bool      `json:"is_primary"`
-	CreatedAt string    `json:"created_at,omitempty"`
+	ID               string         `json:"id"`
+	Code             string         `json:"code"`
+	Name             string         `json:"name"`
+	Status           string         `json:"status"`
+	OwnerID          *string        `json:"owner_id,omitempty"`
+	BrandConfig      map[string]any `json:"brand_config,omitempty"`
+	RuntimeConfig    map[string]any `json:"runtime_config,omitempty"`
+	SettlementConfig map[string]any `json:"settlement_config,omitempty"`
+	StatusReason     string         `json:"status_reason,omitempty"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at,omitempty"`
 }
 
 // createTenantRequest is the request body for HandleCreateTenant.
@@ -66,12 +55,6 @@ type updateTenantRequest struct {
 	BrandConfig  map[string]any `json:"brand_config,omitempty"`
 }
 
-// addDomainRequest is the request body for HandleAddTenantDomain.
-type addDomainRequest struct {
-	Domain    string `json:"domain"`
-	IsPrimary *bool  `json:"is_primary,omitempty"`
-}
-
 // HandleListTenants returns all tenants ordered by creation date descending.
 func HandleListTenants(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -85,30 +68,6 @@ func HandleListTenants(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// Count active members per tenant with a single aggregate query so the
-		// list can show member counts without N+1 lookups. Only active members
-		// are counted, matching the member_count returned by GET /enterprise.
-		memberCounts := make(map[uuid.UUID]int, len(tenants))
-		rows, err := a.Pool.Query(r.Context(),
-			`SELECT tenant_id, COUNT(*) FROM tenant_memberships WHERE status = 'active' GROUP BY tenant_id`)
-		if err != nil {
-			log.Printf("HandleListTenants: member count query: %v", err)
-		} else {
-			for rows.Next() {
-				var tenantID uuid.UUID
-				var n int
-				if err := rows.Scan(&tenantID, &n); err != nil {
-					log.Printf("HandleListTenants: member count scan: %v", err)
-					continue
-				}
-				memberCounts[tenantID] = n
-			}
-			rows.Close()
-			if err := rows.Err(); err != nil {
-				log.Printf("HandleListTenants: member count rows: %v", err)
-			}
-		}
-
 		response := make([]tenantListResponse, 0, len(tenants))
 		for _, t := range tenants {
 			item := tenantListResponse{
@@ -117,7 +76,6 @@ func HandleListTenants(a *app.App) http.HandlerFunc {
 				Name:         t.Name,
 				Status:       string(t.Status),
 				StatusReason: t.StatusReason,
-				MemberCount:  memberCounts[t.ID],
 				CreatedAt:    t.CreatedAt.Format(time.RFC3339),
 			}
 			if t.OwnerID != nil {
@@ -153,8 +111,6 @@ func HandleGetTenant(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		domains := queryTenantDomains(r.Context(), a, tenantID)
-
 		detail := tenantDetailResponse{
 			ID:               tn.ID.String(),
 			Code:             tn.Code,
@@ -166,7 +122,6 @@ func HandleGetTenant(a *app.App) http.HandlerFunc {
 			StatusReason:     tn.StatusReason,
 			CreatedAt:        tn.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:        tn.UpdatedAt.Format(time.RFC3339),
-			Domains:          domains,
 		}
 		if tn.OwnerID != nil {
 			ownerStr := tn.OwnerID.String()
@@ -376,145 +331,6 @@ func HandleDeleteTenant(a *app.App) http.HandlerFunc {
 			"id":     tn.ID.String(),
 		})
 	}
-}
-
-// HandleAddTenantDomain adds a domain to a tenant.
-func HandleAddTenantDomain(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if rejectNonAdmin(w, r) {
-			return
-		}
-
-		tenantID, err := uuid.Parse(chi.URLParam(r, "id"))
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid tenant ID"})
-			return
-		}
-
-		var req addDomainRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-			return
-		}
-
-		if req.Domain == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "domain is required"})
-			return
-		}
-
-		// Verify tenant exists
-		_, err = a.Tenants.FindByID(r.Context(), tenantID)
-		if err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Tenant not found"})
-			return
-		}
-
-		isPrimary := false
-		if req.IsPrimary != nil {
-			isPrimary = *req.IsPrimary
-		}
-
-		domainID := uuid.New()
-		now := time.Now().UTC()
-
-		_, err = a.Pool.Exec(r.Context(),
-			`INSERT INTO tenant_domains (id, tenant_id, domain, is_primary, created_at)
-			 VALUES ($1, $2, $3, $4, $5)`,
-			domainID, tenantID, req.Domain, isPrimary, now,
-		)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to add domain"})
-			return
-		}
-
-		writeJSON(w, http.StatusCreated, map[string]interface{}{
-			"data": domainResponse{
-				ID:        domainID,
-				Domain:    req.Domain,
-				IsPrimary: isPrimary,
-				CreatedAt: now.Format(time.RFC3339),
-			},
-		})
-	}
-}
-
-// HandleRemoveTenantDomain removes a domain from a tenant.
-func HandleRemoveTenantDomain(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if rejectNonAdmin(w, r) {
-			return
-		}
-
-		tenantID, err := uuid.Parse(chi.URLParam(r, "id"))
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid tenant ID"})
-			return
-		}
-
-		domainID, err := uuid.Parse(chi.URLParam(r, "domainId"))
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid domain ID"})
-			return
-		}
-
-		// Verify tenant exists
-		_, err = a.Tenants.FindByID(r.Context(), tenantID)
-		if err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Tenant not found"})
-			return
-		}
-
-		// Verify domain exists and belongs to tenant
-		var count int
-		err = a.Pool.QueryRow(r.Context(),
-			`SELECT COUNT(*) FROM tenant_domains WHERE id = $1 AND tenant_id = $2`,
-			domainID, tenantID,
-		).Scan(&count)
-		if err != nil || count == 0 {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Domain not found"})
-			return
-		}
-
-		_, err = a.Pool.Exec(r.Context(),
-			`DELETE FROM tenant_domains WHERE id = $1 AND tenant_id = $2`,
-			domainID, tenantID,
-		)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to remove domain"})
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]string{
-			"status": "removed",
-			"id":     domainID.String(),
-		})
-	}
-}
-
-// queryTenantDomains fetches all domains for a tenant.
-func queryTenantDomains(ctx context.Context, a *app.App, tenantID uuid.UUID) []domainResponse {
-	rows, err := a.Pool.Query(ctx,
-		`SELECT id, domain, is_primary, created_at FROM tenant_domains WHERE tenant_id = $1 ORDER BY created_at ASC`,
-		tenantID,
-	)
-	if err != nil {
-		log.Printf("queryTenantDomains: query error: %v", err)
-		return nil
-	}
-	defer rows.Close()
-
-	var domains []domainResponse
-	for rows.Next() {
-		var d domainResponse
-		var createdAt time.Time
-		if err := rows.Scan(&d.ID, &d.Domain, &d.IsPrimary, &createdAt); err != nil {
-			log.Printf("queryTenantDomains: scan error: %v", err)
-			return nil
-		}
-		d.CreatedAt = createdAt.Format(time.RFC3339)
-		domains = append(domains, d)
-	}
-	return domains
 }
 
 // isValidTenantStatus returns true if the status is one of the defined TenantStatus values.

@@ -2,7 +2,6 @@ package tenant
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/deeptrols/api/internal/domain"
@@ -22,36 +21,6 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 }
 
 var _ Repository = (*PostgresRepository)(nil)
-
-// FindByDomain looks up a tenant via the tenant_domains table.
-// A domain bound to no tenant is NOT an error: it returns (nil, nil) so the
-// caller can distinguish "no tenant bound" from a genuine DB failure.
-func (r *PostgresRepository) FindByDomain(ctx context.Context, domain string) (*domain.Tenant, error) {
-	const query = `
-		SELECT t.id, t.code, t.name, t.status, t.owner_id,
-			COALESCE(t.brand_config::text, '{}'),
-			COALESCE(t.runtime_config::text, '{}'),
-			COALESCE(t.settlement_config::text, '{}'),
-			COALESCE(t.status_reason, ''),
-			COALESCE(t.credit_code, ''),
-			COALESCE(t.contact_email, ''),
-			COALESCE(t.contact_phone, ''),
-			COALESCE(t.business_license, ''),
-			t.created_at, t.updated_at
-		FROM tenants t
-		JOIN tenant_domains d ON d.tenant_id = t.id
-		WHERE d.domain = $1
-	`
-	t, err := scanTenant(r.pool.QueryRow(ctx, query, domain))
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Not a DB failure — this domain simply has no tenant bound.
-			return nil, nil
-		}
-		return nil, err
-	}
-	return t, nil
-}
 
 // FindByID retrieves a tenant by its primary key.
 func (r *PostgresRepository) FindByID(ctx context.Context, id uuid.UUID) (*domain.Tenant, error) {

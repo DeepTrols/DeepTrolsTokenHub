@@ -52,14 +52,14 @@ func HandleGetProfile(a *app.App) http.HandlerFunc {
 
 		resp := profileResponse{
 			User: meResponse{
-				ID:          dbUser.ID.String(),
-				Email:       dbUser.Email,
-				Name:        dbUser.DisplayName,
-				Role:        dbUser.Role,
-				Status:      string(dbUser.Status),
-				UserType:    string(dbUser.UserType),
-				Phone:       dbUser.Phone,
-				AvatarURL:   dbUser.AvatarURL,
+				ID:        dbUser.ID.String(),
+				Email:     dbUser.Email,
+				Name:      dbUser.DisplayName,
+				Role:      dbUser.Role,
+				Status:    string(dbUser.Status),
+				UserType:  string(dbUser.UserType),
+				Phone:     dbUser.Phone,
+				AvatarURL: dbUser.AvatarURL,
 			},
 		}
 

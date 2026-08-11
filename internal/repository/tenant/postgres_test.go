@@ -10,52 +10,10 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestFindByDomain(t *testing.T) {
-	repo := NewPostgresRepository(testutil.SetupPool(t))
-	ctx := context.Background()
-	testutil.TruncateTables(t, repo.pool, "tenant_domains", "tenants")
-
-	tenantID := uuid.New()
-	code := "domain-tenant-" + uuid.New().String()[:8]
-	tenantDomain := code + ".example.com"
-	_, err := repo.pool.Exec(ctx, `
-		INSERT INTO tenants (id, code, name, status) VALUES ($1, $2, $3, $4)
-	`, tenantID, code, code+" name", domain.TenantStatusActive)
-	if err != nil {
-		t.Fatalf("seed tenant: %v", err)
-	}
-	_, err = repo.pool.Exec(ctx, `
-		INSERT INTO tenant_domains (id, tenant_id, domain, is_primary) VALUES ($1, $2, $3, $4)
-	`, uuid.New(), tenantID, tenantDomain, true)
-	if err != nil {
-		t.Fatalf("seed domain: %v", err)
-	}
-
-	t.Run("finds tenant by domain", func(t *testing.T) {
-		found, err := repo.FindByDomain(ctx, tenantDomain)
-		if err != nil {
-			t.Fatalf("FindByDomain: %v", err)
-		}
-		if found.ID != tenantID {
-			t.Errorf("ID = %s, want %s", found.ID, tenantID)
-		}
-	})
-
-	t.Run("returns nil tenant for unbound domain", func(t *testing.T) {
-		found, err := repo.FindByDomain(ctx, "unknown.example.com")
-		if err != nil {
-			t.Fatalf("FindByDomain unbound domain: %v", err)
-		}
-		if found != nil {
-			t.Errorf("expected nil tenant, got %+v", found)
-		}
-	})
-}
-
 func TestTenantCRUD(t *testing.T) {
 	repo := NewPostgresRepository(testutil.SetupPool(t))
 	ctx := context.Background()
-	testutil.TruncateTables(t, repo.pool, "tenant_domains", "tenants")
+	testutil.TruncateTables(t, repo.pool, "tenants")
 
 	code := "crud-tenant-" + uuid.New().String()[:8]
 	tenant := &domain.Tenant{
@@ -134,7 +92,7 @@ func TestTenantCRUD(t *testing.T) {
 func TestTenantList(t *testing.T) {
 	repo := NewPostgresRepository(testutil.SetupPool(t))
 	ctx := context.Background()
-	testutil.TruncateTables(t, repo.pool, "tenant_domains", "tenants")
+	testutil.TruncateTables(t, repo.pool, "tenants")
 
 	for i := 0; i < 2; i++ {
 		code := "list-tenant-" + uuid.New().String()[:8]
