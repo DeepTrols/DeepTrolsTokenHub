@@ -7,13 +7,34 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+type AccountType = "personal" | "enterprise";
+
+/** Copy + register-link target differ per account type; the login form is shared. */
+const ACCOUNT_COPY: Record<AccountType, { description: string; accountPlaceholder: string; registerText: string; registerTarget: string }> = {
+  personal: {
+    description: "AI 模型聚合平台 · 管理控制台",
+    accountPlaceholder: "请输入管理员账号",
+    registerText: "还没有账号？",
+    registerTarget: "/register?type=personal",
+  },
+  enterprise: {
+    description: "企业 AI 模型聚合平台 · 管理控制台",
+    accountPlaceholder: "请输入企业管理员账号",
+    registerText: "还没有企业账号？",
+    registerTarget: "/register?type=enterprise",
+  },
+};
+
 export default function Login() {
   const navigate = useNavigate();
   const auth = useAuth();
+  const [accountType, setAccountType] = useState<AccountType>("personal");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const copy = ACCOUNT_COPY[accountType];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +61,24 @@ export default function Login() {
             <Cpu size={28} className="text-primary" />
           </div>
           <CardTitle className="text-2xl">DeepTrols</CardTitle>
-          <CardDescription>AI 模型聚合平台 · 管理控制台</CardDescription>
+          <CardDescription>{copy.description}</CardDescription>
+          <div className="mx-auto mt-4 inline-flex rounded-lg bg-muted p-1" role="group" aria-label="账号类型">
+            {(["personal", "enterprise"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setAccountType(t)}
+                aria-pressed={accountType === t}
+                className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                  accountType === t
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t === "personal" ? "个人" : "企业"}
+              </button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -51,7 +89,7 @@ export default function Login() {
                 type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="请输入管理员账号"
+                placeholder={copy.accountPlaceholder}
                 required
               />
             </div>
@@ -74,8 +112,8 @@ export default function Login() {
             </Button>
           </form>
           <p className="text-center text-xs text-muted-foreground mt-6">
-            还没有账号？{" "}
-            <Link to="/register" className="text-primary hover:underline">
+            {copy.registerText}{" "}
+            <Link to={copy.registerTarget} className="text-primary hover:underline">
               立即注册
             </Link>
           </p>
