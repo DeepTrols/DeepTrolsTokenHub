@@ -338,3 +338,187 @@ func TestHandleCreateQuotaPool_InvalidTenantID(t *testing.T) {
 		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
 	}
 }
+
+// =============================================================================
+// HandleUpdateQuotaPool Tests
+// =============================================================================
+
+func seedQuotaPoolHandler(t *testing.T, a *app.App, tenantID uuid.UUID, total int64) uuid.UUID {
+	t.Helper()
+	poolID := uuid.New()
+	_, err := a.Pool.Exec(context.Background(),
+		`INSERT INTO quota_pools (id, tenant_id, dimension, total_amount, allocated_amount, used_amount, unit_name, created_at, updated_at)
+		 VALUES ($1, $2, 'token', $3, 0, 0, 'token', NOW(), NOW())`,
+		poolID, tenantID, total,
+	)
+	if err != nil {
+		t.Fatalf("insert quota pool: %v", err)
+	}
+	return poolID
+}
+
+func TestHandleUpdateQuotaPool_Success(t *testing.T) {
+	a := appForQuotasTest(t)
+	tenantID := uuid.New()
+	_, err := a.Pool.Exec(context.Background(),
+		`INSERT INTO tenants (id, code, name, status, created_at, updated_at)
+		 VALUES ($1, 'upd-quota', 'Update Quota Tenant', 'active', NOW(), NOW())`, tenantID)
+	if err != nil {
+		t.Fatalf("insert tenant: %v", err)
+	}
+	poolID := seedQuotaPoolHandler(t, a, tenantID, 100000)
+
+	body := strings.NewReader(`{"total_amount":250000,"unit_name":"chars","dimension":"token"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/quotas/"+poolID.String(), body)
+	req = chiRouteCtx(req, "id", poolID.String())
+	w := httptest.NewRecorder()
+	HandleUpdateQuotaPool(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	var resp struct {
+		TotalAmount int64  `json:"total_amount"`
+		UnitName    string `json:"unit_name"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.TotalAmount != 250000 || resp.UnitName != "chars" {
+		t.Errorf("resp = %+v, want total=250000 unit=chars", resp)
+	}
+}
+
+func TestHandleUpdateQuotaPool_NotFound(t *testing.T) {
+	a := appForQuotasTest(t)
+
+	poolID := uuid.New().String()
+	body := strings.NewReader(`{"total_amount":1000,"unit_name":"token","dimension":"token"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/quotas/"+poolID, body)
+	req = chiRouteCtx(req, "id", poolID)
+	w := httptest.NewRecorder()
+	HandleUpdateQuotaPool(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+}
+
+// Shrinking a pool below what is already allocated must surface as a 400 with a
+// readable message, not a generic 500.
+func TestHandleUpdateQuotaPool_BelowAllocatedRejected(t *testing.T) {
+	a := appForQuotasTest(t)
+	ctx := context.Background()
+
+	tenantID := uuid.New()
+	if _, err := a.Pool.Exec(ctx,
+		`INSERT INTO tenants (id, code, name, status, created_at, updated_at)
+		 VALUES ($1, 'upd-quota-2', 'Update Quota Tenant 2', 'active', NOW(), NOW())`, tenantID); err != nil {
+		t.Fatalf("insert tenant: %v", err)
+	}
+	poolID := seedQuotaPoolHandler(t, a, tenantID, 100000)
+	userID := uuid.New()
+	if _, err := a.Pool.Exec(ctx,
+		`INSERT INTO users (id, email, password_hash, display_name, status, created_at, updated_at)
+		 VALUES ($1, 'upd-quota@test.com', 'x', 'Upd Quota User', 'active', NOW(), NOW())`, userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	allocReq := httptest.NewRequest(http.MethodPost, "/api/admin/quotas/"+poolID.String()+"/allocate",
+		strings.NewReader(`{"user_id":"`+userID.String()+`","amount":60000}`))
+	allocReq = chiRouteCtx(allocReq, "id", poolID.String())
+	aw := httptest.NewRecorder()
+	HandleAllocateQuota(a).ServeHTTP(aw, allocReq)
+	if aw.Code != http.StatusCreated {
+		t.Fatalf("seed allocate status = %d, want 201, body: %s", aw.Code, aw.Body.String())
+	}
+
+	body := strings.NewReader(`{"total_amount":50000,"unit_name":"token","dimension":"token"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/quotas/"+poolID.String(), body)
+	req = chiRouteCtx(req, "id", poolID.String())
+	w := httptest.NewRecorder()
+	HandleUpdateQuotaPool(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "allocated") {
+		t.Errorf("body should mention allocated amount, got: %s", w.Body.String())
+	}
+}
+
+func TestHandleUpdateQuotaPool_InvalidPoolID(t *testing.T) {
+	a := appForQuotasTest(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/quotas/not-a-uuid",
+		strings.NewReader(`{"total_amount":1000,"unit_name":"token","dimension":"token"}`))
+	req = chiRouteCtx(req, "id", "not-a-uuid")
+	w := httptest.NewRecorder()
+	HandleUpdateQuotaPool(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+// =============================================================================
+// HandleDeleteQuotaPool Tests
+// =============================================================================
+
+func TestHandleDeleteQuotaPool_Success(t *testing.T) {
+	a := appForQuotasTest(t)
+	tenantID := uuid.New()
+	_, err := a.Pool.Exec(context.Background(),
+		`INSERT INTO tenants (id, code, name, status, created_at, updated_at)
+		 VALUES ($1, 'del-quota', 'Delete Quota Tenant', 'active', NOW(), NOW())`, tenantID)
+	if err != nil {
+		t.Fatalf("insert tenant: %v", err)
+	}
+	poolID := seedQuotaPoolHandler(t, a, tenantID, 100000)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/quotas/"+poolID.String(), nil)
+	req = chiRouteCtx(req, "id", poolID.String())
+	w := httptest.NewRecorder()
+	HandleDeleteQuotaPool(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"status":"deleted"`) {
+		t.Errorf("body = %s, want status deleted", w.Body.String())
+	}
+
+	// Pool is gone from the list.
+	var count int
+	_ = a.Pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM quota_pools WHERE id = $1`, poolID).Scan(&count)
+	if count != 0 {
+		t.Errorf("quota_pools rows = %d, want 0 after delete", count)
+	}
+}
+
+func TestHandleDeleteQuotaPool_NotFound(t *testing.T) {
+	a := appForQuotasTest(t)
+
+	poolID := uuid.New().String()
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/quotas/"+poolID, nil)
+	req = chiRouteCtx(req, "id", poolID)
+	w := httptest.NewRecorder()
+	HandleDeleteQuotaPool(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+}
+
+func TestHandleDeleteQuotaPool_InvalidPoolID(t *testing.T) {
+	a := appForQuotasTest(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/quotas/not-a-uuid", nil)
+	req = chiRouteCtx(req, "id", "not-a-uuid")
+	w := httptest.NewRecorder()
+	HandleDeleteQuotaPool(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}

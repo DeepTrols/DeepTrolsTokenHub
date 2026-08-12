@@ -137,6 +137,93 @@ func HandleCreateQuotaPool(a *app.App) http.HandlerFunc {
 	}
 }
 
+// HandleUpdateQuotaPool updates the editable fields of a quota pool: total
+// amount, unit, and dimension. The pool's tenant/model scope is immutable — a
+// pool meant for one model must never silently become tenant-wide by editing
+// its scope.
+func HandleUpdateQuotaPool(a *app.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		poolID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid pool ID"})
+			return
+		}
+
+		var req struct {
+			TotalAmount int64  `json:"total_amount"`
+			UnitName    string `json:"unit_name"`
+			Dimension   string `json:"dimension"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+			return
+		}
+		if req.TotalAmount <= 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "total_amount must be positive"})
+			return
+		}
+		if req.Dimension == "" {
+			req.Dimension = "token"
+		}
+		if req.UnitName == "" {
+			req.UnitName = "token"
+		}
+
+		pool, err := a.Quotas.UpdatePool(r.Context(), poolID, req.TotalAmount, req.UnitName, req.Dimension)
+		if err != nil {
+			if errors.Is(err, quota.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "Quota pool not found"})
+				return
+			}
+			if errors.Is(err, quota.ErrConstraintViolation) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "total_amount cannot be below the already allocated amount"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update quota pool"})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"id":               pool.ID.String(),
+			"total_amount":     pool.TotalAmount,
+			"allocated_amount": pool.AllocatedAmount,
+			"used_amount":      pool.UsedAmount,
+			"unit_name":        pool.UnitName,
+			"dimension":        pool.Dimension,
+		})
+	}
+}
+
+// HandleDeleteQuotaPool permanently removes a quota pool together with its
+// allocations and ledger entries.
+func HandleDeleteQuotaPool(a *app.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		poolID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid pool ID"})
+			return
+		}
+
+		if err := a.Quotas.DeletePool(r.Context(), poolID); err != nil {
+			if errors.Is(err, quota.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "Quota pool not found"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete quota pool"})
+			return
+		}
+
+		// 200 with a JSON body (not 204): the console frontend's request()
+		// helper always reads res.json(), and a bodyless 204 makes it reject,
+		// so a successful delete would be reported as an error. Matches
+		// HandleDeleteTenant's convention.
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status": "deleted",
+			"id":     poolID.String(),
+		})
+	}
+}
+
 // HandleAllocateQuota allocates quota from a pool to a user. The capacity check,
 // allocation upsert, pool counter, and ledger entry all happen atomically in the
 // repository, so concurrent allocations can never oversubscribe a pool.

@@ -1439,6 +1439,37 @@ func (m *mockQuotaRepoForChat) Restore(ctx context.Context, allocationID uuid.UU
 	}, nil
 }
 
+// The remaining interface methods are not exercised by gateway tests; stubs
+// satisfy quota.Repository as the interface grows.
+
+func (m *mockQuotaRepoForChat) FindPool(ctx context.Context, poolID uuid.UUID) (*domain.QuotaPool, error) {
+	return nil, quota.ErrNotFound
+}
+
+func (m *mockQuotaRepoForChat) FindPoolsByTenant(ctx context.Context, tenantID uuid.UUID) ([]domain.QuotaPool, error) {
+	return nil, nil
+}
+
+func (m *mockQuotaRepoForChat) FindAllocationsByTenant(ctx context.Context, tenantID uuid.UUID) ([]domain.QuotaAllocation, error) {
+	return nil, nil
+}
+
+func (m *mockQuotaRepoForChat) Allocate(ctx context.Context, poolID, userID uuid.UUID, amount int64, idempotencyKey string) (*domain.QuotaAllocation, error) {
+	return nil, quota.ErrNotFound
+}
+
+func (m *mockQuotaRepoForChat) FindLedgerByAllocation(ctx context.Context, allocationID uuid.UUID, limit, offset int) ([]domain.QuotaLedgerEntry, error) {
+	return nil, nil
+}
+
+func (m *mockQuotaRepoForChat) UpdatePool(ctx context.Context, poolID uuid.UUID, totalAmount int64, unitName, dimension string) (*domain.QuotaPool, error) {
+	return nil, quota.ErrNotFound
+}
+
+func (m *mockQuotaRepoForChat) DeletePool(ctx context.Context, poolID uuid.UUID) error {
+	return quota.ErrNotFound
+}
+
 var _ quota.Repository = (*mockQuotaRepoForChat)(nil)
 
 // ============================================================================

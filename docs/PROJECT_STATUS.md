@@ -66,7 +66,7 @@
 | 渠道管理 | CRUD + 实例管理（添加/删除）+ 健康/权重 |
 | 路由策略 | CRUD + 4 种 fallback 策略 |
 | 租户管理 | CRUD + 域名管理 + 5 状态状态机 |
-| 配额管理 | 池创建 + 用户分配 + 账簿查询 |
+| 配额管理 | 池 CRUD（创建/编辑/删除）+ 用户分配 + 账簿查询 |
 | 用户管理 | 列表 + 创建 + 角色/状态编辑 + 删除 |
 | 成本分析 | 按模型成本汇总 + 加价率设置 |
 | 对账管理 | 查看对账运行记录与差异 |
@@ -343,3 +343,18 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 **上线运维要点**：`DELETE /api/admin/tenants/{id}` 路由随本次 commit 才注册，**必须重启 API 进程**才能生效——旧二进制会 404，前端 `catch {}` 吞错、列表不刷新，表现为「点击删除界面仍有显示」。已实测重启后：登录 → 建临时租户 → DELETE 200 `{"status":"deleted"}` → 列表出现次数 0。
 
 **企业域名清理（已处理）**：确认不需要企业域名后，将 `tenant_domains` 从线上库彻底 DROP（应用现成迁移 000007，`migrate up`），删除 RESTRICT 外键隐患；同步移除 `internal/domain/tenant.go` 中无引用的死代码 `TenantDomain` 结构体。清理中发现线上库 `schema_migrations` 仅记录到 v6（000007/000008 均未登记）：000008 的唯一约束 `quota_allocations_pool_user_unique` 实际已存在于库中，迁移失败置 dirty，遂 `migrate force 8` 对齐版本（8|f）。后续新迁移可直接 `migrate up` 正常执行。
+
+### 9.7 配额池：编辑 + 删除（补全 CRUD）
+
+**背景**：配额管理页面只有「创建 + 分配」，缺修改与删除（用户反馈「配额管理的CURD有问题，没有删除修改的功能」）。后端只有 `GET/POST /quotas` 与 `POST /quotas/{id}/allocate`，无 `PUT/DELETE` 路由。
+
+**变更**（本次 commit）：
+- `quota.Repository` 新增 `UpdatePool` / `DeletePool` + 哨兵 `ErrConstraintViolation`
+- `PostgresRepository.UpdatePool` 事务内 `SELECT ... FOR UPDATE` 锁定池行，拒绝 `total_amount < allocated_amount`（防 TOCTOU 超卖）；可编辑字段仅 `total_amount/unit_name/dimension`，作用域（tenant/model）不可变
+- `PostgresRepository.DeletePool` 单事务叶子先删级联：`quota_ledger → quota_allocations → quota_pools`（对齐租户硬删除模式）
+- 新增 handler `HandleUpdateQuotaPool` / `HandleDeleteQuotaPool`，注册 `PUT/DELETE /quotas/{id}`
+- **DELETE 返回 200 + `{"status":"deleted"}` 而非 204**：前端 `request()` 恒读 `res.json()`，204 无 body 会让成功删除被误报为错误（实测复现 → 修复，对齐 `HandleDeleteTenant` 惯例）
+- 前端 `QuotaManagement.tsx`：操作列新增「编辑」「删除」按钮 + 编辑对话框（预填、新总量不得低于已分配提示）+ 删除确认弹窗（级联警示文案）；约束拒绝（400）经 `toast.error` 透出，不静默失败
+- 修复既有测试包 mock 未满足增长后的 `quota.Repository` 接口（billing `mockQuotaRepo` / gateway `mockQuotaRepoForChat` 补 7 个 stub）
+
+**验证**：`go build ./...` · `go vet ./...` · gofmt clean；repo/handler/service/gateway 四个包测试全绿；前端 `tsc --noEmit` + vitest 225 例全过；浏览器 E2E：编辑 5.0M→6.0M 刷新保留、新总量低于已分配返回 400 带 toast、删除 3 池→1 池级联落库、列表逐次刷新。

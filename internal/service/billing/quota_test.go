@@ -51,6 +51,38 @@ func (m *mockQuotaRepo) Restore(ctx context.Context, allocationID uuid.UUID, amo
 	return nil, nil
 }
 
+// The remaining interface methods are not exercised by QuotaChecker tests; they
+// exist only to satisfy quota.Repository as the interface grows. Stub values
+// keep the assertion compiling without dead behaviour to maintain.
+
+func (m *mockQuotaRepo) FindPool(ctx context.Context, poolID uuid.UUID) (*domain.QuotaPool, error) {
+	return nil, quota.ErrNotFound
+}
+
+func (m *mockQuotaRepo) FindPoolsByTenant(ctx context.Context, tenantID uuid.UUID) ([]domain.QuotaPool, error) {
+	return nil, nil
+}
+
+func (m *mockQuotaRepo) FindAllocationsByTenant(ctx context.Context, tenantID uuid.UUID) ([]domain.QuotaAllocation, error) {
+	return nil, nil
+}
+
+func (m *mockQuotaRepo) Allocate(ctx context.Context, poolID, userID uuid.UUID, amount int64, idempotencyKey string) (*domain.QuotaAllocation, error) {
+	return nil, quota.ErrNotFound
+}
+
+func (m *mockQuotaRepo) FindLedgerByAllocation(ctx context.Context, allocationID uuid.UUID, limit, offset int) ([]domain.QuotaLedgerEntry, error) {
+	return nil, nil
+}
+
+func (m *mockQuotaRepo) UpdatePool(ctx context.Context, poolID uuid.UUID, totalAmount int64, unitName, dimension string) (*domain.QuotaPool, error) {
+	return nil, quota.ErrNotFound
+}
+
+func (m *mockQuotaRepo) DeletePool(ctx context.Context, poolID uuid.UUID) error {
+	return quota.ErrNotFound
+}
+
 var _ quota.Repository = (*mockQuotaRepo)(nil)
 
 // ============================================================================

@@ -430,6 +430,95 @@ func (r *PostgresRepository) FindLedgerByAllocation(ctx context.Context, allocat
 	return entries, rows.Err()
 }
 
+// UpdatePool modifies the editable fields of a quota pool. The pool row is
+// locked so the allocated-capacity check races safely with a concurrent
+// allocation: shrinking total_amount below what is already allocated must be
+// rejected atomically, not after a TOCTOU window.
+func (r *PostgresRepository) UpdatePool(ctx context.Context, poolID uuid.UUID, totalAmount int64, unitName, dimension string) (*domain.QuotaPool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("quota update pool begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var allocatedAmount int64
+	const lockPool = `
+		SELECT allocated_amount FROM quota_pools
+		WHERE id = $1
+		FOR UPDATE
+	`
+	if err := tx.QueryRow(ctx, lockPool, poolID).Scan(&allocatedAmount); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("quota update pool lock: %w", err)
+	}
+	if totalAmount < allocatedAmount {
+		return nil, fmt.Errorf("quota update pool: %w: total=%d allocated=%d", ErrConstraintViolation, totalAmount, allocatedAmount)
+	}
+
+	const update = `
+		UPDATE quota_pools SET
+			total_amount = $1, unit_name = $2, dimension = $3, updated_at = NOW()
+		WHERE id = $4
+		RETURNING id, tenant_id, model_id, dimension, total_amount,
+		          allocated_amount, used_amount, unit_name, created_at, updated_at
+	`
+	var p domain.QuotaPool
+	if err := tx.QueryRow(ctx, update, totalAmount, unitName, dimension, poolID).Scan(
+		&p.ID, &p.TenantID, &p.ModelID, &p.Dimension, &p.TotalAmount,
+		&p.AllocatedAmount, &p.UsedAmount, &p.UnitName, &p.CreatedAt, &p.UpdatedAt,
+	); err != nil {
+		return nil, fmt.Errorf("quota update pool: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("quota update pool commit: %w", err)
+	}
+	return &p, nil
+}
+
+// DeletePool permanently removes a quota pool and its dependent rows in one
+// transaction. quota_ledger -> quota_allocations -> quota_pools is deleted
+// leaf-first because the FK constraints carry no ON DELETE action (RESTRICT).
+func (r *PostgresRepository) DeletePool(ctx context.Context, poolID uuid.UUID) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("quota delete pool begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Lock the pool row before touching dependents so a concurrent Allocate
+	// (which locks the same row via FOR UPDATE) cannot slip an allocation into
+	// the gap between the cascade DELETEs and abort the pool delete with an FK
+	// violation. The lock also makes ErrNotFound deterministic up front: a
+	// missing pool is reported before any dependent DELETE runs.
+	const lockPool = `SELECT id FROM quota_pools WHERE id = $1 FOR UPDATE`
+	var lockedID uuid.UUID
+	if err := tx.QueryRow(ctx, lockPool, poolID).Scan(&lockedID); err != nil {
+		if err == pgx.ErrNoRows {
+			return ErrNotFound
+		}
+		return fmt.Errorf("quota delete pool lock: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM quota_ledger WHERE allocation_id IN (
+			SELECT id FROM quota_allocations WHERE pool_id = $1
+		)`, poolID); err != nil {
+		return fmt.Errorf("quota delete pool ledger: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM quota_allocations WHERE pool_id = $1`, poolID); err != nil {
+		return fmt.Errorf("quota delete pool allocations: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM quota_pools WHERE id = $1`, poolID); err != nil {
+		return fmt.Errorf("quota delete pool: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------

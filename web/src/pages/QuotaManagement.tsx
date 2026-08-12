@@ -1,8 +1,9 @@
+import { toast } from "sonner";
 import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
 import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { useState } from "react";
 import { useAdminQuery, useAdminMutation } from "../lib/hooks/use-api";
-import { Plus, Wallet, Users } from "lucide-react";
+import { Pencil, Plus, Trash2, Users, Wallet } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -52,12 +53,19 @@ export default function QuotaManagement() {
 
   const createMut = useAdminMutation<unknown, Record<string, unknown>>("post", "/quotas");
   const allocateMut = useAdminMutation<unknown, { poolId: string } & Record<string, unknown>>("post", (v) => `/quotas/${v.poolId}/allocate`);
+  // 编辑/删除：poolId 只用于拼路径；PUT 的 body 会带上 poolId，handler 按需解码 total_amount/unit_name/dimension，多余字段忽略。
+  const updateMut = useAdminMutation<unknown, { poolId: string } & Record<string, unknown>>("put", (v) => `/quotas/${v.poolId}`, "/quotas");
+  const deleteMut = useAdminMutation<unknown, { poolId: string }>("delete", (v) => `/quotas/${v.poolId}`, "/quotas");
 
   const [showCreate, setShowCreate] = useState(false);
   const [showAllocate, setShowAllocate] = useState(false);
   const [allocPool, setAllocPool] = useState<QuotaPool | null>(null);
   const [newPool, setNewPool] = useState({ tenant_id: "", model_id: "", total_amount: 1000000, unit_name: "token", dimension: "token" });
   const [alloc, setAlloc] = useState({ user_id: "", amount: 10000 });
+  const [showEdit, setShowEdit] = useState(false);
+  const [editPool, setEditPool] = useState<QuotaPool | null>(null);
+  const [editForm, setEditForm] = useState({ total_amount: 0, unit_name: "token", dimension: "token" });
+  const [delPool, setDelPool] = useState<QuotaPool | null>(null);
 
   const handleCreate = async () => {
     await createMut.mutateAsync({
@@ -74,6 +82,27 @@ export default function QuotaManagement() {
     if (!allocPool) return;
     await allocateMut.mutateAsync({ poolId: allocPool.id, user_id: alloc.user_id, amount: alloc.amount });
     setShowAllocate(false); setAllocPool(null); refetch();
+  };
+
+  const handleUpdate = async () => {
+    if (!editPool) return;
+    try {
+      await updateMut.mutateAsync({ poolId: editPool.id, ...editForm });
+      setShowEdit(false); setEditPool(null); refetch();
+    } catch (err) {
+      // 后端 400（如新总量低于已分配）会带明确错误信息，必须透出给管理员而不是静默失败。
+      toast.error(err instanceof Error ? err.message : "更新配额池失败");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!delPool) return;
+    try {
+      await deleteMut.mutateAsync({ poolId: delPool.id });
+      setDelPool(null); refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除配额池失败");
+    }
   };
 
   const totalQuota = pools.reduce((s, p) => s + p.total_amount, 0);
@@ -108,7 +137,13 @@ export default function QuotaManagement() {
                 <TableCell className="font-mono text-xs">{fmtNum(p.allocated_amount)}</TableCell>
                 <TableCell className="font-mono text-xs">{fmtNum(p.used_amount)}</TableCell>
                 <TableCell><div className="flex items-center gap-2"><div className="w-20 h-2 bg-muted rounded-full overflow-hidden"><div className={`h-full rounded-full ${pctColor(pct)}`} style={{ width: `${pct}%` }} /></div><span className="text-xs text-muted-foreground">{pct}%</span></div></TableCell>
-                <TableCell className="text-right"><Button variant="outline" size="sm" onClick={() => { setAllocPool(p); setAlloc({ user_id: "", amount: 10000 }); setShowAllocate(true); }}><Users size={12} className="mr-1" />分配</Button></TableCell>
+                <TableCell className="text-right">
+                  <div className="flex gap-1 justify-end">
+                    <Button variant="outline" size="sm" onClick={() => { setEditPool(p); setEditForm({ total_amount: p.total_amount, unit_name: p.unit_name, dimension: p.dimension }); setShowEdit(true); }}><Pencil size={12} className="mr-1" />编辑</Button>
+                    <Button variant="outline" size="sm" onClick={() => { setAllocPool(p); setAlloc({ user_id: "", amount: 10000 }); setShowAllocate(true); }}><Users size={12} className="mr-1" />分配</Button>
+                    <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => setDelPool(p)}><Trash2 size={12} className="mr-1" />删除</Button>
+                  </div>
+                </TableCell>
               </TableRow>;
             })}
           </TableBody>
@@ -158,6 +193,29 @@ export default function QuotaManagement() {
             <div className="space-y-2"><Label>分配数量</Label><Input type="number" min={1} value={alloc.amount} onChange={e => setAlloc({ ...alloc, amount: Number(e.target.value) })} /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setShowAllocate(false)}>取消</Button><Button onClick={handleAllocate} disabled={allocateMut.isPending}>{allocateMut.isPending ? "分配中..." : "确认分配"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Pool Dialog */}
+      <Dialog open={showEdit} onOpenChange={setShowEdit}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>编辑配额池</DialogTitle><DialogDescription>{editPool ? `调整 "${editPool.tenant_name || editPool.model_code || editPool.id}" 的总量与单位（作用域不可修改）` : ""}</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label>总量 *</Label><Input type="number" min={1} value={editForm.total_amount} onChange={e => setEditForm({ ...editForm, total_amount: Number(e.target.value) })} /></div>
+            <div className="space-y-2"><Label>单位</Label><Input value={editForm.unit_name} onChange={e => setEditForm({ ...editForm, unit_name: e.target.value })} placeholder="token" /></div>
+            <div className="space-y-2"><Label>维度</Label><Input value={editForm.dimension} onChange={e => setEditForm({ ...editForm, dimension: e.target.value })} placeholder="token" /></div>
+            <p className="text-xs text-muted-foreground">新总量不能低于已分配数量（{editPool ? editPool.allocated_amount : 0}）。</p>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setShowEdit(false)}>取消</Button><Button onClick={handleUpdate} disabled={editForm.total_amount <= 0 || updateMut.isPending}>{updateMut.isPending ? "保存中..." : "保存"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Pool Confirm Dialog */}
+      <Dialog open={delPool !== null} onOpenChange={() => setDelPool(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>删除配额池</DialogTitle><DialogDescription>{delPool ? `"${delPool.tenant_name || delPool.model_code || delPool.id}"` : ""}</DialogDescription></DialogHeader>
+          <p className="text-sm text-muted-foreground">删除后该配额池及其所有用户分配、配额台账记录将被永久移除，此操作不可撤销。</p>
+          <DialogFooter><Button variant="outline" onClick={() => setDelPool(null)}>取消</Button><Button variant="destructive" onClick={handleDelete} disabled={deleteMut.isPending}>{deleteMut.isPending ? "删除中..." : "确认删除"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

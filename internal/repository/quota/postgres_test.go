@@ -738,3 +738,122 @@ func TestConsume_UpdatesPoolUsedAmount(t *testing.T) {
 		t.Errorf("pool used_amount = %d, want 500", poolUsed)
 	}
 }
+
+func TestUpdatePool_Success(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	tenantID := seedQuotaTenant(t, ctx, repo)
+	poolID := seedQuotaPool(t, ctx, repo, tenantID, 100000)
+
+	pool, err := repo.UpdatePool(ctx, poolID, 250000, "chars", "token")
+	if err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	if pool.TotalAmount != 250000 {
+		t.Errorf("TotalAmount = %d, want 250000", pool.TotalAmount)
+	}
+	if pool.UnitName != "chars" {
+		t.Errorf("UnitName = %s, want chars", pool.UnitName)
+	}
+	if pool.Dimension != "token" {
+		t.Errorf("Dimension = %s, want token", pool.Dimension)
+	}
+
+	// Persisted, not just returned.
+	got, err := repo.FindPool(ctx, poolID)
+	if err != nil {
+		t.Fatalf("FindPool after update: %v", err)
+	}
+	if got.TotalAmount != 250000 || got.UnitName != "chars" {
+		t.Errorf("persisted pool = %+v, want total=250000 unit=chars", got)
+	}
+}
+
+func TestUpdatePool_NotFound(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	_, err := repo.UpdatePool(ctx, uuid.New(), 250000, "token", "token")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got: %v", err)
+	}
+}
+
+func TestUpdatePool_BelowAllocatedRejected(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	tenantID := seedQuotaTenant(t, ctx, repo)
+	poolID := seedQuotaPool(t, ctx, repo, tenantID, 100000)
+
+	// Allocate 60k so shrinking the pool below 60k must be rejected.
+	userID := seedQuotaUser(t, ctx, repo.pool)
+	if _, err := repo.Allocate(ctx, poolID, userID, 60000, "idem-update-below"); err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+
+	if _, err := repo.UpdatePool(ctx, poolID, 50000, "token", "token"); !errors.Is(err, ErrConstraintViolation) {
+		t.Fatalf("expected ErrConstraintViolation, got: %v", err)
+	}
+
+	// Pool unchanged after the rejected shrink.
+	got, _ := repo.FindPool(ctx, poolID)
+	if got.TotalAmount != 100000 {
+		t.Errorf("TotalAmount = %d, want 100000 (unchanged)", got.TotalAmount)
+	}
+}
+
+func TestDeletePool_CascadesLedgerAndAllocations(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	tenantID := seedQuotaTenant(t, ctx, repo)
+	userID := seedQuotaUser(t, ctx, repo.pool)
+	poolID := seedQuotaPool(t, ctx, repo, tenantID, 100000)
+
+	alloc, err := repo.Allocate(ctx, poolID, userID, 50000, "idem-delete-alloc")
+	if err != nil {
+		t.Fatalf("Allocate: %v", err)
+	}
+	if _, err := repo.Consume(ctx, alloc.ID, 10000, "idem-delete-consume"); err != nil {
+		t.Fatalf("Consume: %v", err)
+	}
+
+	if err := repo.DeletePool(ctx, poolID); err != nil {
+		t.Fatalf("DeletePool: %v", err)
+	}
+
+	// Pool gone.
+	if _, err := repo.FindPool(ctx, poolID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after delete, got: %v", err)
+	}
+
+	// Allocation gone.
+	var allocCount int
+	_ = repo.pool.QueryRow(ctx, `SELECT COUNT(*) FROM quota_allocations WHERE id = $1`, alloc.ID).Scan(&allocCount)
+	if allocCount != 0 {
+		t.Errorf("quota_allocations rows = %d, want 0 (cascaded)", allocCount)
+	}
+
+	// Ledger gone.
+	var ledgerCount int
+	_ = repo.pool.QueryRow(ctx, `SELECT COUNT(*) FROM quota_ledger WHERE allocation_id = $1`, alloc.ID).Scan(&ledgerCount)
+	if ledgerCount != 0 {
+		t.Errorf("quota_ledger rows = %d, want 0 (cascaded)", ledgerCount)
+	}
+}
+
+func TestDeletePool_NotFound(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, truncateQuota...)
+
+	if err := repo.DeletePool(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got: %v", err)
+	}
+}

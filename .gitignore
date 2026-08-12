@@ -39,6 +39,10 @@ tmp/
 # Runtime logs
 api.log
 
+# Local tool caches (never commit)
+web/.impeccable/hook.cache.json
+web/tsconfig.tsbuildinfo
+
 # Vite temp
 web/vite.config.ts.timestamp-*
 

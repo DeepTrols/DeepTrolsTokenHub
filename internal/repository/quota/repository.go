@@ -8,11 +8,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// ErrNotFound is returned when no allocation exists for the given criteria.
-var ErrNotFound = errors.New("quota: allocation not found")
+// ErrNotFound is returned when the requested quota entity (allocation, pool,
+// or ledger row) does not exist.
+var ErrNotFound = errors.New("quota: not found")
 
 // ErrInsufficientQuota is returned when the remaining quota is insufficient.
 var ErrInsufficientQuota = errors.New("quota: insufficient remaining quota")
+
+// ErrConstraintViolation is returned when an update would violate a business
+// invariant, e.g. shrinking a pool's total below what is already allocated.
+var ErrConstraintViolation = errors.New("quota: update violates business constraint")
 
 // Repository defines the data access interface for quota operations.
 type Repository interface {
@@ -54,4 +59,14 @@ type Repository interface {
 	// FindLedgerByAllocation returns the ledger entries for an allocation, newest
 	// first, bounded by limit/offset.
 	FindLedgerByAllocation(ctx context.Context, allocationID uuid.UUID, limit, offset int) ([]domain.QuotaLedgerEntry, error)
+
+	// UpdatePool modifies the editable fields of a quota pool. Returns
+	// ErrNotFound when the pool does not exist and ErrConstraintViolation when
+	// the new total_amount would drop below the currently allocated amount.
+	UpdatePool(ctx context.Context, poolID uuid.UUID, totalAmount int64, unitName, dimension string) (*domain.QuotaPool, error)
+
+	// DeletePool permanently removes a quota pool and its allocations and ledger
+	// entries in one transaction (leaf-first cascade). Returns ErrNotFound when
+	// the pool does not exist.
+	DeletePool(ctx context.Context, poolID uuid.UUID) error
 }

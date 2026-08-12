@@ -160,6 +160,8 @@ func main() {
 
 		r.Get("/quotas", console.HandleListQuotaPools(application))
 		r.Post("/quotas", console.HandleCreateQuotaPool(application))
+		r.Put("/quotas/{id}", console.HandleUpdateQuotaPool(application))
+		r.Delete("/quotas/{id}", console.HandleDeleteQuotaPool(application))
 		r.Post("/quotas/{id}/allocate", console.HandleAllocateQuota(application))
 		r.Get("/quota-ledger", console.HandleQuotaLedger(application))
 		r.Get("/reconciliation", console.HandleListReconciliationRuns(application))
