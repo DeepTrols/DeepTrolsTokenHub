@@ -88,5 +88,5 @@ cd web && npm install && npm run dev
 
 - `docs/AI聚合平台_产品需求文档_PRD.md` — 产品需求文档
 - `docs/AI聚合网关_完整文档.md` — 完整架构文档
-- `.claude/plans/mvp-core-platform.plan.md` — MVP 实施计划
+- `docs/DEEPTROLS_完整功能清单.md` — 架构对照实现清单
 - `docs/PROJECT_STATUS.md` — 项目进度与变更记录

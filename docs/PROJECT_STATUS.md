@@ -223,6 +223,8 @@
 
 ## 八、2026-08-10 四用户类型 Phase 2 完成记录
 
+> ⚠️ **本节为历史快照，部分内容已被 2026-08-11/12 重构取代**：企业设置（EnterpriseSettings）、团队邀请、转让所有权已在 `b85d4fa` / `04dbe7b` 中删除；企业/团队能力改为「平台租户 + 子账号 + 配额分配」模型，见第九节。
+
 > 四类用户（系统管理员 / 企业管理员 / 企业成员 / 个人用户）前后端完整落地。个人用户与企业成员共享控制台基础能力；企业管理员额外获得企业设置 + 团队管理；系统管理员拥有全局管理后台。
 
 ### 后端新增/扩展
@@ -280,3 +282,45 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 **未采纳项（记录）：**
 - `M-4`：建议把租户鉴权从「每 handler 显式调用」上移到路由级中间件。当前各 handler 均已独立正确调用 `isTenantAdmin/isTenantOwner`，且既有审计已确认无越权；统一中间件属防御性重构，列为后续优化。
 - `L-3`：`HandleRemoveMember` 未校验目标状态——删除已离开成员的陈旧记录本身幂等无害，保留现状。
+
+
+## 九、2026-08-11/12 企业/团队体系重构 + 配额池修复记录
+
+> 企业/团队能力不再走「独立企业设置 + 邀请 + 转让所有权」路径，改为 **平台租户 + 子账号 + 配额分配** 的简化模型。本节取代第八节中关于企业设置/邀请/转让的描述（见第八节 ⚠️ 标注）。
+
+### 9.1 后端变更
+
+| # | 变更 | 提交 |
+|---|------|------|
+| 1 | 删除 enterprise 端点、invitation、transfer-ownership（及对应 handler/repository） | `b85d4fa` |
+| 2 | 删除 EnterpriseSettings，重做 TeamManagement（子账号 + 配额分配） | `04dbe7b` |
+| 3 | 新增子账号创建 + team quota 分配端点 + quota repository（pool/allocation/ledger 三层账） | `62f513c` |
+| 4 | 平台租户（`deeptrols-platform`）配额池：系统管理员可创建/分配池 | 平台 bootstrap |
+
+### 9.2 配额池 CRUD 修复
+
+| # | 现象 | 根因 | 修复 |
+|---|------|------|------|
+| 1 | 配额池列表 500 | 租户级池 `model_id` 为 NULL，pgx 扫描 NULL UUID→string 报错 | `quotas.go` 查询用 `COALESCE(qp.model_id::text,'')` |
+| 2 | 创建对话框要求手填租户 UUID | 前端把 tenant_id 当自由输入 | `QuotaManagement.tsx` 改为租户下拉，未选租户禁用提交；`total_amount`/`amount` 加 `min={1}` |
+| 3 | 分配重试会重复发配额 | 幂等键每次请求新 UUID | 幂等键改为确定性 `(pool,user,amount)`（`quotas.go` / `team_quotas.go`），重试回放同一条分配记录 |
+| 4 | 非法 model_id/tenant_id 落到 500 | handler 未在入口校验 | create 前校验 UUID（400 早退）；配额账簿 `allocation_id` 校验 |
+
+### 9.3 新增测试（console 包）
+
+- `TestHandleListQuotaPools_WithNullModel` — NULL model_id 列表不 500
+- `TestHandleCreateQuotaPool_RequiresTenantID` / `_RequiresTenantID_EmptyString` / `_InvalidModelID` / `_InvalidTenantID` — 输入校验 400
+- `TestHandleAllocateQuota_RetryIsIdempotent` — 重试分配只入账一次
+
+### 9.4 验证
+
+- `go build ./...` · `go vet ./...` ✅
+- console handler + quota repository 测试全绿
+- `npx tsc --noEmit` ✅
+- 浏览器 E2E：列表加载 3 个池无 500；创建「新龙科技 1.0M」池后 3→4；创建对话框租户必选、分配成功
+- 提交 `a3c2baa`（含本重构相关 3 提交），推送 origin/main
+
+### 9.5 状态更新
+
+- 配额管理（控制台）已由「只读」升级为「创建 + 分配」（对应功能清单第八篇）
+- AI 配额池（三层账 + 幂等）✅ 已实现（对应功能清单第五篇，原 ❌）
