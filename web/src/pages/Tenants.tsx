@@ -39,6 +39,7 @@ interface TenantData {
   name: string;
   status: string;
   status_reason?: string;
+  owner_id?: string;
   created_at: string;
 }
 
@@ -130,11 +131,13 @@ export default function Tenants() {
     }
   };
 
-  // 创建企业
+  // 创建企业（可同步预配负责人账号，避免新企业无人可用）
   const [createOpen, setCreateOpen] = useState(false);
   const [nm, setNm] = useState("");
   const [cd, setCd] = useState("");
-  const cM = useAdminMutation<unknown, { name: string; code: string }>(
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const cM = useAdminMutation<unknown, { name: string; code: string; owner_email?: string; owner_password?: string }>(
     "post",
     "/tenants",
     "/tenants",
@@ -142,10 +145,21 @@ export default function Tenants() {
   const create = async () => {
     if (!nm.trim() || !cd.trim()) return;
     try {
-      await cM.mutateAsync({ name: nm.trim(), code: cd.trim() });
+      const payload: { name: string; code: string; owner_email?: string; owner_password?: string } = {
+        name: nm.trim(),
+        code: cd.trim(),
+      };
+      // 负责人邮箱/密码成对提供时才预配 owner；仅填其一则交由服务端 400。
+      if (ownerEmail.trim()) {
+        payload.owner_email = ownerEmail.trim();
+        payload.owner_password = ownerPassword;
+      }
+      await cM.mutateAsync(payload);
       setCreateOpen(false);
       setNm("");
       setCd("");
+      setOwnerEmail("");
+      setOwnerPassword("");
     } catch {
       /* 冲突/校验错误由列表状态反映 */
     }
@@ -178,6 +192,8 @@ export default function Tenants() {
             onClick={() => {
               setNm("");
               setCd("");
+              setOwnerEmail("");
+              setOwnerPassword("");
               setCreateOpen(true);
             }}
           >
@@ -218,6 +234,7 @@ export default function Tenants() {
               <TableRow>
                 <TableHead>企业</TableHead>
                 <TableHead>编码</TableHead>
+                <TableHead>企业 ID</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>创建时间</TableHead>
                 <TableHead className="text-right">操作</TableHead>
@@ -226,7 +243,7 @@ export default function Tenants() {
             <TableBody>
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={6}>
                     <EmptyState icon={Building2} title={q ? "未找到" : "暂无企业"} />
                   </TableCell>
                 </TableRow>
@@ -240,6 +257,14 @@ export default function Tenants() {
                     </TableCell>
                     <TableCell>
                       <code className="text-xs">{t.code}</code>
+                    </TableCell>
+                    <TableCell>
+                      <code
+                        className="text-xs text-muted-foreground"
+                        title={t.id}
+                      >
+                        {t.id.slice(0, 8)}
+                      </code>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1 items-start">
@@ -357,7 +382,26 @@ export default function Tenants() {
               <Label>企业编码 *</Label>
               <Input value={cd} onChange={(e) => setCd(e.target.value)} placeholder="唯一编码，如 acme-corp" />
             </div>
-            <p className="text-xs text-muted-foreground">新企业创建后为待审核状态，需审核通过后方可使用。</p>
+            <div className="space-y-2">
+              <Label>负责人邮箱（可选）</Label>
+              <Input
+                value={ownerEmail}
+                onChange={(e) => setOwnerEmail(e.target.value)}
+                placeholder="ceo@example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>初始密码（可选）</Label>
+              <Input
+                type="password"
+                value={ownerPassword}
+                onChange={(e) => setOwnerPassword(e.target.value)}
+                placeholder="至少 8 位，与邮箱成对填写"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              新企业创建后为待审核状态，需审核通过后方可使用。填写负责人邮箱+初始密码后，将同时创建该负责人账号并设为企业 owner。
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>

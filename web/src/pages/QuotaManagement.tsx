@@ -9,11 +9,24 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface QuotaPool {
   id: string; tenant_id: string; tenant_name: string; model_id: string; model_code: string;
   model_name: string; dimension: string; total_amount: number; allocated_amount: number;
   used_amount: number; unit_name: string;
+}
+
+interface TenantOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
+interface ModelOption {
+  id: string;
+  code: string;
+  display_name: string;
 }
 
 function fmtNum(n: number): string {
@@ -30,6 +43,12 @@ export default function QuotaManagement() {
   const { data: quotaData, isLoading, isError, error, refetch } = useAdminQuery<{ data: QuotaPool[]; total: number }>("/quotas");
   const pools = Array.isArray(quotaData?.data) ? quotaData.data : [];
   const loadError = isError ? (error instanceof Error ? error.message : String(error)) : "";
+
+  // 创建配额池需要从租户/模型目录选择作用域，而不是让管理员手填 UUID。
+  const { data: tenantsData } = useAdminQuery<{ data: TenantOption[]; total: number }>("/tenants");
+  const { data: modelsData } = useAdminQuery<{ data: ModelOption[]; total: number }>("/models");
+  const tenants = tenantsData?.data ?? [];
+  const models = modelsData?.data ?? [];
 
   const createMut = useAdminMutation<unknown, Record<string, unknown>>("post", "/quotas");
   const allocateMut = useAdminMutation<unknown, { poolId: string } & Record<string, unknown>>("post", (v) => `/quotas/${v.poolId}/allocate`);
@@ -98,9 +117,30 @@ export default function QuotaManagement() {
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>
           <DialogHeader><DialogTitle>创建配额池</DialogTitle><DialogDescription>创建租户或模型级别的 Token 配额池</DialogDescription></DialogHeader>
+          {(!tenantsData || !modelsData) && (
+            <p className="text-xs text-muted-foreground">加载租户/模型目录中...</p>
+          )}
           <div className="space-y-4">
-            <div className="space-y-2"><Label>租户 ID (可选)</Label><Input value={newPool.tenant_id} onChange={e => setNewPool({ ...newPool, tenant_id: e.target.value })} placeholder="留空 = 全局池" /></div>
-            <div className="space-y-2"><Label>模型 ID (可选)</Label><Input value={newPool.model_id} onChange={e => setNewPool({ ...newPool, model_id: e.target.value })} placeholder="留空 = 所有模型" /></div>
+            <div className="space-y-2">
+              <Label>租户</Label>
+              <Select value={newPool.tenant_id || "none"} onValueChange={(v) => setNewPool({ ...newPool, tenant_id: v === "none" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="留空 = 全局池" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">留空 = 全局池</SelectItem>
+                  {tenants.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}（{t.code}）</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>模型</Label>
+              <Select value={newPool.model_id || "none"} onValueChange={(v) => setNewPool({ ...newPool, model_id: v === "none" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="留空 = 所有模型" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">留空 = 所有模型</SelectItem>
+                  {models.map((m) => <SelectItem key={m.id} value={m.id}>{m.display_name || m.code}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2"><Label>总量</Label><Input type="number" value={newPool.total_amount} onChange={e => setNewPool({ ...newPool, total_amount: Number(e.target.value) })} /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>取消</Button><Button onClick={handleCreate} disabled={createMut.isPending}>{createMut.isPending ? "创建中..." : "创建"}</Button></DialogFooter>
