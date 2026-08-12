@@ -120,6 +120,50 @@ func (r *PostgresRepository) List(ctx context.Context) ([]domain.Tenant, error) 
 	return tenants, rows.Err()
 }
 
+// Delete permanently removes the tenant and every tenant-owned row in one
+// transaction. The dependent tables are deleted leaf-first because the FK
+// constraints on quota_allocations/ledger and tenant_models carry no ON DELETE
+// action (RESTRICT). tenant_memberships and tenant_invitations cascade
+// automatically. Rows that only carry a bare tenant_id (api_keys, wallets,
+// usage_logs, channels, route_policies, model_pricing, audit_logs) are left
+// untouched so billing/usage evidence survives the tenant's removal.
+func (r *PostgresRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("tenant delete begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// quota_ledger -> quota_allocations -> quota_pools, leaf-first.
+	if _, err := tx.Exec(ctx, `DELETE FROM quota_ledger WHERE allocation_id IN (
+		SELECT qa.id FROM quota_allocations qa
+		JOIN quota_pools qp ON qa.pool_id = qp.id
+		WHERE qp.tenant_id = $1
+	)`, id); err != nil {
+		return fmt.Errorf("tenant delete quota_ledger: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM quota_allocations WHERE pool_id IN (
+		SELECT qp.id FROM quota_pools qp WHERE qp.tenant_id = $1
+	)`, id); err != nil {
+		return fmt.Errorf("tenant delete quota_allocations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM quota_pools WHERE tenant_id = $1`, id); err != nil {
+		return fmt.Errorf("tenant delete quota_pools: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM tenant_models WHERE tenant_id = $1`, id); err != nil {
+		return fmt.Errorf("tenant delete tenant_models: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM tenants WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("tenant delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit(ctx)
+}
+
 // --- helpers ---
 
 const tenantSelectClause = `

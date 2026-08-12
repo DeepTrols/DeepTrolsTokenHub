@@ -604,11 +604,11 @@ func TestHandleDeleteTenant_NotFound(t *testing.T) {
 	}
 }
 
-func TestHandleDeleteTenant_Success(t *testing.T) {
+func TestHandleDeleteTenant_HardDelete(t *testing.T) {
 	a := appForTenantsTest(t)
 	user := seedUserForTenantsTest(t, a, "admin-del@tens.com", "pass", "Admin Del")
 
-	tn := seedTenantForTest(t, a, "terminate-me", "Terminate Me", domain.TenantStatusActive)
+	tn := seedTenantForTest(t, a, "delete-me", "Delete Me", domain.TenantStatusActive)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/"+tn.ID.String(), nil)
 	req = chiRouteCtx(req, "id", tn.ID.String())
@@ -622,16 +622,9 @@ func TestHandleDeleteTenant_Success(t *testing.T) {
 		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
 	}
 
-	// Verify terminated in DB
-	terminated, err := a.Tenants.FindByID(context.Background(), tn.ID)
-	if err != nil {
-		t.Fatalf("FindByID: %v", err)
-	}
-	if terminated.Status != domain.TenantStatusTerminated {
-		t.Errorf("status = %s, want %s", terminated.Status, domain.TenantStatusTerminated)
-	}
-	if terminated.StatusReason != "admin action" {
-		t.Errorf("status_reason = %s, want 'admin action'", terminated.StatusReason)
+	// Verify the tenant row is permanently gone (hard delete, not a status flip).
+	if _, err := a.Tenants.FindByID(context.Background(), tn.ID); err == nil {
+		t.Error("expected tenant to be deleted, but FindByID succeeded")
 	}
 }
 
@@ -660,6 +653,100 @@ func TestHandleDeleteTenant_PlatformTenant_Forbidden(t *testing.T) {
 	}
 	if kept.Status != domain.TenantStatusActive {
 		t.Errorf("status = %s, want %s (platform tenant must stay active)", kept.Status, domain.TenantStatusActive)
+	}
+}
+
+func TestHandleDeleteTenant_CascadeCleanup(t *testing.T) {
+	a := appForTenantsTest(t)
+	user := seedUserForTenantsTest(t, a, "admin-cascade@tens.com", "pass", "Admin Cascade")
+	tn := seedTenantForTest(t, a, "cascade-me", "Cascade Me", domain.TenantStatusActive)
+	ctx := context.Background()
+
+	// Seed dependent rows that must be removed together with the tenant.
+	seedMembershipForTenantsTest(t, a, tn.ID, user.ID, domain.MembershipRoleOwner, domain.MembershipStatusActive)
+
+	modelID := uuid.New()
+	if _, err := a.Pool.Exec(ctx,
+		`INSERT INTO models (id, code, provider, category) VALUES ($1, 'cascade-model', 'test', 'chat')`,
+		modelID); err != nil {
+		t.Fatalf("insert model: %v", err)
+	}
+	if _, err := a.Pool.Exec(ctx,
+		`INSERT INTO tenant_models (id, tenant_id, model_id) VALUES ($1, $2, $3)`,
+		uuid.New(), tn.ID, modelID); err != nil {
+		t.Fatalf("insert tenant_model: %v", err)
+	}
+
+	poolID := uuid.New()
+	if _, err := a.Pool.Exec(ctx,
+		`INSERT INTO quota_pools (id, tenant_id, dimension, unit_name) VALUES ($1, $2, 'token', 'token')`,
+		poolID, tn.ID); err != nil {
+		t.Fatalf("insert quota pool: %v", err)
+	}
+	allocID := uuid.New()
+	if _, err := a.Pool.Exec(ctx,
+		`INSERT INTO quota_allocations (id, pool_id, user_id, allocated_amount) VALUES ($1, $2, $3, 1000)`,
+		allocID, poolID, user.ID); err != nil {
+		t.Fatalf("insert quota allocation: %v", err)
+	}
+	if _, err := a.Pool.Exec(ctx,
+		`INSERT INTO quota_ledger (id, allocation_id, idempotency_key, action, amount, balance_after) VALUES ($1, $2, $3, 'grant', 1000, 1000)`,
+		uuid.New(), allocID, uuid.New().String()); err != nil {
+		t.Fatalf("insert quota ledger: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/"+tn.ID.String(), nil)
+	req = chiRouteCtx(req, "id", tn.ID.String())
+	req = setAdminCtxForTenants(req, user.ID.String())
+	w := httptest.NewRecorder()
+	HandleDeleteTenant(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	// Tenant row gone.
+	if _, err := a.Tenants.FindByID(ctx, tn.ID); err == nil {
+		t.Error("expected tenant to be deleted, but FindByID succeeded")
+	}
+
+	// All tenant-owned rows gone.
+	assertTenantCount := func(query string, want int, desc string) {
+		var n int
+		if err := a.Pool.QueryRow(ctx, query, tn.ID).Scan(&n); err != nil {
+			t.Fatalf("%s: %v", desc, err)
+		}
+		if n != want {
+			t.Errorf("%s: got %d rows, want %d", desc, n, want)
+		}
+	}
+	assertTenantCount(`SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id = $1`, 0, "tenant_memberships")
+	assertTenantCount(`SELECT COUNT(*) FROM tenant_models WHERE tenant_id = $1`, 0, "tenant_models")
+	assertTenantCount(`SELECT COUNT(*) FROM quota_pools WHERE tenant_id = $1`, 0, "quota_pools")
+
+	var allocCount int
+	if err := a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM quota_allocations WHERE pool_id = $1`, poolID).Scan(&allocCount); err != nil {
+		t.Fatalf("quota_allocations count: %v", err)
+	}
+	if allocCount != 0 {
+		t.Errorf("quota_allocations: got %d rows, want 0", allocCount)
+	}
+
+	var ledgerCount int
+	if err := a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM quota_ledger WHERE allocation_id = $1`, allocID).Scan(&ledgerCount); err != nil {
+		t.Fatalf("quota_ledger count: %v", err)
+	}
+	if ledgerCount != 0 {
+		t.Errorf("quota_ledger: got %d rows, want 0", ledgerCount)
+	}
+
+	// The global model row is NOT tenant-owned and must survive.
+	var modelCount int
+	if err := a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM models WHERE id = $1`, modelID).Scan(&modelCount); err != nil {
+		t.Fatalf("models count: %v", err)
+	}
+	if modelCount != 1 {
+		t.Errorf("models: got %d rows, want 1 (global model must not be deleted)", modelCount)
 	}
 }
 

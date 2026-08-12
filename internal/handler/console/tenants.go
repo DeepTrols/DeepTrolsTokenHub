@@ -13,6 +13,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
+	"github.com/deeptrols/api/internal/repository/tenant"
 	"github.com/deeptrols/api/internal/repository/user"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -481,7 +482,8 @@ func HandleUpdateTenant(a *app.App) http.HandlerFunc {
 	}
 }
 
-// HandleDeleteTenant terminates a tenant by setting status to "terminated".
+// HandleDeleteTenant permanently deletes a tenant and all tenant-owned rows
+// (quota pools/allocations/ledger, models, memberships, invitations).
 func HandleDeleteTenant(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if rejectNonAdmin(w, r) {
@@ -500,22 +502,28 @@ func HandleDeleteTenant(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// The platform tenant is bootstrap-owned; it must not be terminable.
+		// The platform tenant is bootstrap-owned; it must not be deletable.
 		if rejectPlatformTenantMutation(w, tn) {
 			return
 		}
 
-		tn.Status = domain.TenantStatusTerminated
-		tn.StatusReason = "admin action"
-		tn.UpdatedAt = time.Now().UTC()
+		// The admin audit middleware records only the tenant UUID; the operator
+		// log must carry the human-readable identity since the row is about to
+		// be permanently removed.
+		log.Printf("HandleDeleteTenant: deleting tenant code=%s name=%s id=%s", tn.Code, tn.Name, tn.ID)
 
-		if err := a.Tenants.Update(r.Context(), tn); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to terminate tenant"})
+		if err := a.Tenants.Delete(r.Context(), tn.ID); err != nil {
+			if errors.Is(err, tenant.ErrNotFound) {
+				// Row vanished between FindByID and Delete; treat as already gone.
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "Tenant not found"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete tenant"})
 			return
 		}
 
 		writeJSON(w, http.StatusOK, map[string]string{
-			"status": "terminated",
+			"status": "deleted",
 			"id":     tn.ID.String(),
 		})
 	}

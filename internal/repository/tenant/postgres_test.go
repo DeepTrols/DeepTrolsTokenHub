@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -85,6 +86,21 @@ func TestTenantCRUD(t *testing.T) {
 		err := repo.Create(ctx, dup)
 		if err == nil {
 			t.Error("expected error for duplicate tenant code")
+		}
+	})
+
+	t.Run("deletes tenant", func(t *testing.T) {
+		if err := repo.Delete(ctx, tenant.ID); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+		if _, err := repo.FindByID(ctx, tenant.ID); err == nil {
+			t.Error("tenant still exists after Delete")
+		}
+	})
+
+	t.Run("delete nonexistent returns ErrNotFound", func(t *testing.T) {
+		if err := repo.Delete(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
+			t.Errorf("expected ErrNotFound, got %v", err)
 		}
 	})
 }

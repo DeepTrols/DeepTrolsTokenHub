@@ -324,3 +324,18 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - 配额管理（控制台）已由「只读」升级为「创建 + 分配」（对应功能清单第八篇）
 - AI 配额池（三层账 + 幂等）✅ 已实现（对应功能清单第五篇，原 ❌）
+
+### 9.6 企业管理：终止 → 真实删除
+
+**背景**：企业管理（`Tenants.tsx`）原「终止」按钮实际是软终止——`DELETE /api/admin/tenants/{id}` 只把 `status` 置为 `terminated`，租户行仍留在列表（用户反馈「界面还是有数据」）。
+
+**变更**（本次 commit）：
+- `tenant.Repository` 新增 `Delete(ctx, id)`（返回包级哨兵 `tenant.ErrNotFound`，对齐 wallet/quota 惯例）
+- `PostgresRepository.Delete` 单事务级联硬删：`quota_ledger → quota_allocations → quota_pools → tenant_models → tenants`（叶子先删，规避 RESTRICT）；`tenant_memberships`/`tenant_invitations` 由 ON DELETE CASCADE 自动清理；`api_keys/wallets/usage_logs/channels/route_policies/model_pricing/audit_logs` 的裸 `tenant_id` 无 FK，**保留不动**以保全计费/用量证据
+- `HandleDeleteTenant` 由状态翻转改为真删除：保持 admin 校验（401）/404/平台租户保护（403）；删除前将租户 code/name 写入操作日志（审计中间件只记 UUID，硬删除后无法还原身份）
+- 前端：`terminate` → `delete`，按钮改「删除」，**所有状态行**（含 terminated/rejected/pending_review）均可删除；删除确认弹窗隐藏原因输入、文案改为「删除后该企业及其成员、配额、模型配置将被永久移除，此操作不可撤销。」，确认按钮为「确认删除」
+- 测试：`TestHandleDeleteTenant_HardDelete`（行消失）、`TestHandleDeleteTenant_CascadeCleanup`（成员/模型/配额三级依赖全清 + 全局模型保留）、仓库层 `Delete`/`ErrNotFound` 子测试
+
+**验证**：`go build ./...` · gofmt clean · `go test -p 1 ./internal/repository/tenant/ ./internal/handler/console/` 全绿 · `npx tsc --noEmit` ✅
+
+**安全评审备注（遗留建议，非本次阻塞）**：`/api/admin` 路由组整体无速率限制（登录/网关/团队均有，仅 admin 组缺失），建议后续加 admin 限流；审计中间件 `recordAudit` 不落 `old_value`，硬删除审计建议后续扩展为记录被删租户身份。

@@ -51,14 +51,14 @@ const STATUS_META: Record<string, { label: string; variant: "success" | "destruc
   rejected: { label: "已拒绝", variant: "outline" },
 };
 
-type LifecycleAction = "approve" | "reject" | "suspend" | "reactivate" | "terminate";
+type LifecycleAction = "approve" | "reject" | "suspend" | "reactivate" | "delete";
 
 const ACTION_LABEL: Record<LifecycleAction, string> = {
   approve: "审核通过",
   reject: "拒绝",
   suspend: "停用",
   reactivate: "启用",
-  terminate: "终止",
+  delete: "删除",
 };
 
 export default function Tenants() {
@@ -81,7 +81,7 @@ export default function Tenants() {
     );
   }, [tenants, q]);
 
-  // 生命周期变更：状态更新走 PUT，终止走 DELETE（服务端置为 terminated）。
+  // 生命周期变更：状态更新走 PUT，删除走 DELETE（服务端硬删除行与关联数据）。
   const uM = useAdminMutation<unknown, { id: string; status: string; status_reason?: string }>(
     "put",
     (v) => "/tenants/" + v.id,
@@ -97,11 +97,11 @@ export default function Tenants() {
   const [reason, setReason] = useState("");
 
   const runTransition = async (t: TenantData, action: LifecycleAction, r?: string) => {
-    if (action === "terminate") {
+    if (action === "delete") {
       await dM.mutateAsync({ id: t.id });
       return;
     }
-    const next: Record<Exclude<LifecycleAction, "terminate">, string> = {
+    const next: Record<Exclude<LifecycleAction, "delete">, string> = {
       approve: "active",
       reject: "rejected",
       suspend: "suspended",
@@ -125,7 +125,9 @@ export default function Tenants() {
     const { tenant, action } = pendingAction;
     setPendingAction(null);
     try {
-      await runTransition(tenant, action, reason.trim() || undefined);
+      // 硬删除不接收原因；仅状态变更类操作带原因。
+      const r = action === "delete" ? undefined : reason.trim() || undefined;
+      await runTransition(tenant, action, r);
     } catch {
       /* 错误由 refetch 后的列表状态反映 */
     }
@@ -288,6 +290,10 @@ export default function Tenants() {
                             <Button variant="outline" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "reject")}>
                               拒绝
                             </Button>
+                            <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "delete")}>
+                              <Trash2 size={14} className="mr-1" />
+                              删除
+                            </Button>
                           </>
                         )}
                         {t.status === "active" && (
@@ -296,9 +302,9 @@ export default function Tenants() {
                               <Pause size={14} className="mr-1" />
                               停用
                             </Button>
-                            <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "terminate")}>
+                            <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "delete")}>
                               <Trash2 size={14} className="mr-1" />
-                              终止
+                              删除
                             </Button>
                           </>
                         )}
@@ -308,11 +314,17 @@ export default function Tenants() {
                               <Play size={14} className="mr-1" />
                               启用
                             </Button>
-                            <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "terminate")}>
+                            <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "delete")}>
                               <Trash2 size={14} className="mr-1" />
-                              终止
+                              删除
                             </Button>
                           </>
+                        )}
+                        {(t.status === "terminated" || t.status === "rejected") && (
+                          <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "delete")}>
+                            <Trash2 size={14} className="mr-1" />
+                            删除
+                          </Button>
                         )}
                       </div>
                     </TableCell>
@@ -324,7 +336,7 @@ export default function Tenants() {
         </Card>
       </SectionPageLayout.Content>
 
-      {/* 状态变更确认（拒绝 / 停用 / 终止） */}
+      {/* 操作确认（拒绝 / 停用 / 删除） */}
       <Dialog open={pendingAction !== null} onOpenChange={() => setPendingAction(null)}>
         <DialogContent>
           <DialogHeader>
@@ -334,17 +346,19 @@ export default function Tenants() {
           </DialogHeader>
           {pendingAction && (
             <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>原因（可选）</Label>
-                <Input
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder={pendingAction.action === "terminate" ? "填写终止原因" : "填写操作原因"}
-                />
-              </div>
+              {pendingAction.action !== "delete" && (
+                <div className="space-y-2">
+                  <Label>原因（可选）</Label>
+                  <Input
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="填写操作原因"
+                  />
+                </div>
+              )}
               <p className="text-sm text-muted-foreground">
-                {pendingAction.action === "terminate"
-                  ? "终止后该企业将无法继续使用平台服务，此操作不可撤销。"
+                {pendingAction.action === "delete"
+                  ? "删除后该企业及其成员、配额、模型配置将被永久移除，此操作不可撤销。"
                   : "确认后企业状态将更新。"}
               </p>
             </div>
@@ -355,13 +369,13 @@ export default function Tenants() {
             </Button>
             <Button
               variant={
-                pendingAction?.action === "reject" || pendingAction?.action === "terminate"
+                pendingAction?.action === "reject" || pendingAction?.action === "delete"
                   ? "destructive"
                   : "default"
               }
               onClick={confirmAction}
             >
-              确认
+              {pendingAction?.action === "delete" ? "确认删除" : "确认"}
             </Button>
           </DialogFooter>
         </DialogContent>
