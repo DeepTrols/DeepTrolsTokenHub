@@ -358,3 +358,17 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 修复既有测试包 mock 未满足增长后的 `quota.Repository` 接口（billing `mockQuotaRepo` / gateway `mockQuotaRepoForChat` 补 7 个 stub）
 
 **验证**：`go build ./...` · `go vet ./...` · gofmt clean；repo/handler/service/gateway 四个包测试全绿；前端 `tsc --noEmit` + vitest 225 例全过；浏览器 E2E：编辑 5.0M→6.0M 刷新保留、新总量低于已分配返回 400 带 toast、删除 3 池→1 池级联落库、列表逐次刷新。
+
+### 9.8 企业自助注册 + 个人/企业登录切换
+
+**背景**：登录/注册区分个人与企业账号。企业账号由企业自行注册，进入 `pending_review` 待平台管理员审核；个人走原有注册。登录表单不变，仅切换文案与注册链接目标。
+
+**变更**（本次 6 commits：`cba171d` `f67328e` `192802d` `ec58748` `6bd97a9`）：
+- 后端 `POST /api/console/auth/register/enterprise`：单事务创建 用户(enterprise/active) + 租户(pending_review) + owner 成员 + 零余额钱包；`deriveTenantCode` 防租户 code 碰撞；成功后写 auth cookie 自动登录；`/me` 返回 `tenant_status`
+- 前端登录页（`Login.tsx`）个人/企业分段切换：仅换文案 + 注册链接（`/register?type=personal|enterprise`），表单不变；注册页（`Register.tsx`）双表单：个人(昵称/邮箱/密码) / 企业(公司名/联系人/邮箱/密码)，`?type=` 初始化、切换清空已填字段，企业提交走 `registerEnterprise`
+- `PendingReviewBanner`：`tenant_status=pending_review` 时控制台各页顶部显示琥珀色「企业账号审核中」提示（`role="status"` 可读屏播报）；`auth.tsx` 新增 `AuthUser.tenant_status` / `registerEnterprise`
+- **安全加固**（security-reviewer BLOCK → 修复）：注册端点按 IP 限流（5/分钟）、`HandleRegisterEnterprise` 请求体限 8KB + company/contact 上限 255、前端 `register` 对 4xx/5xx 不再静默成功（对齐「错误不能伪装成成功」不变量）
+
+**验证**：`go build/vet` clean · `go test -p 1 ./internal/handler/console/` 全绿 · 前端 `tsc --noEmit` + vitest 237 例全过；code-reviewer APPROVE（0 CRITICAL/0 HIGH）、security-reviewer 遗留项见下。
+
+**安全评审遗留（follow-up，非本次阻塞）**：① 默认管理员密码 `deeptrols@2026` 为预置 infra（`internal/config/config.go`），建议启动时强制显式提供；② 密码策略仅最小 8 位，无复杂度要求（与既有个人注册一致），复杂度为产品策略待定；③ `ConsoleAuth`/`GatewayAuth` 不校验租户状态，`pending_review` 企业可进控制台但钱包零余额无法计费调用——是否在中间件层硬拦截待产品决策；④ 注册 409「Email already registered」暴露邮箱占用（标准注册 UX，与既有注册一致，已随限流缓解枚举放大）。
