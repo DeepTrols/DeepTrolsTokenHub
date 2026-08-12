@@ -3,6 +3,7 @@ package console
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -247,7 +248,9 @@ func HandleCreateUser(a *app.App) http.HandlerFunc {
 			req.DisplayName = req.Email
 		}
 
-		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		// Match the work factor used by registration, sub-account, and tenant-owner
+		// creation so no user is weaker than the rest of the platform.
+		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to hash password"})
 			return
@@ -265,7 +268,10 @@ func HandleCreateUser(a *app.App) http.HandlerFunc {
 			UpdatedAt:    now,
 		}
 		if err := a.Users.Create(r.Context(), u); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create user: " + err.Error()})
+			// Log the underlying cause server-side, never surface raw DB errors
+			// (constraint/column names) to the caller.
+			log.Printf("HandleCreateUser: create user: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create user"})
 			return
 		}
 
