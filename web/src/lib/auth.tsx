@@ -12,6 +12,16 @@ export interface AuthUser {
   tenant_id: string;
   tenant_name: string;
   tenant_role: string;
+  /** Tenant lifecycle status (pending_review/active/suspended/...). Empty for personal users. */
+  tenant_status?: string;
+}
+
+/** Payload for self-service enterprise registration. */
+export interface EnterpriseRegisterInput {
+  companyName: string;
+  contactName: string;
+  email: string;
+  password: string;
 }
 
 /** Result of a login attempt. */
@@ -26,6 +36,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<LoginResult>;
   register: (email: string, password: string, name: string) => Promise<void>;
+  registerEnterprise: (input: EnterpriseRegisterInput) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -92,6 +103,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fetchMe();
   }, [fetchMe]);
 
+  const registerEnterprise = useCallback(async (input: EnterpriseRegisterInput) => {
+    const res = await fetch("/api/console/auth/register/enterprise", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        company_name: input.companyName,
+        contact_name: input.contactName,
+        email: input.email,
+        password: input.password,
+      }),
+      credentials: "include",
+    });
+
+    if (!res.ok) {
+      let message = "企业注册失败，请稍后重试";
+      try {
+        const data = (await res.json()) as { error?: string };
+        if (data.error) message = data.error;
+      } catch {
+        // keep the generic fallback when the body is not JSON
+      }
+      throw new Error(message);
+    }
+
+    await fetchMe();
+  }, [fetchMe]);
+
   const logout = useCallback(async () => {
     await fetch("/api/console/auth/logout", {
       method: "POST",
@@ -103,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value: AuthContextValue = {
     user, isLoading,
     isAuthenticated: user !== null && !isLoading,
-    login, register, logout,
+    login, register, registerEnterprise, logout,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
