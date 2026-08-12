@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/deeptrols/api/internal/app"
@@ -33,8 +34,8 @@ func HandleListQuotaPools(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		rows, err := a.Pool.Query(ctx,
-			`SELECT qp.id, qp.tenant_id, COALESCE(t.name, ''), qp.model_id,
-			        COALESCE(m.code, ''), COALESCE(m.display_name, ''),
+			`SELECT qp.id, COALESCE(qp.tenant_id::text, ''), COALESCE(t.name, ''),
+			        COALESCE(qp.model_id::text, ''), COALESCE(m.code, ''), COALESCE(m.display_name, ''),
 			        qp.dimension, qp.total_amount, qp.allocated_amount,
 			        qp.used_amount, qp.unit_name, qp.created_at, qp.updated_at
 			 FROM quota_pools qp
@@ -93,6 +94,27 @@ func HandleCreateQuotaPool(a *app.App) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "total_amount must be positive"})
 			return
 		}
+		// tenant_id is NOT NULL in the schema; every pool belongs to one tenant.
+		// Reject a missing/invalid value here so the caller gets a 400 instead of
+		// an opaque 500 from the insert.
+		if req.TenantID == nil || *req.TenantID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tenant_id is required"})
+			return
+		}
+		if _, err := uuid.Parse(*req.TenantID); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid tenant_id"})
+			return
+		}
+		// A model_id that is present but not a valid UUID must be rejected here
+		// rather than silently becoming a tenant-wide pool (nullUUID would map
+		// it to NULL). Quota meant for one model must not silently apply to
+		// every model under the tenant.
+		if req.ModelID != nil && *req.ModelID != "" {
+			if _, err := uuid.Parse(*req.ModelID); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid model_id"})
+				return
+			}
+		}
 		if req.Dimension == "" {
 			req.Dimension = "token"
 		}
@@ -144,7 +166,12 @@ func HandleAllocateQuota(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		alloc, err := a.Quotas.Allocate(r.Context(), poolID, userID, req.Amount, "admin-allocate-"+uuid.New().String())
+		// Derive the idempotency key from (pool, user, amount): a retried request
+		// replays the recorded allocation instead of granting quota twice, while
+		// a genuinely different allocation (different user, pool, or amount)
+		// still goes through. A fresh UUID per call would defeat idempotency.
+		key := "admin-allocate:" + poolID.String() + ":" + userID.String() + ":" + strconv.FormatInt(req.Amount, 10)
+		alloc, err := a.Quotas.Allocate(r.Context(), poolID, userID, req.Amount, key)
 		if err != nil {
 			if errors.Is(err, quota.ErrInsufficientQuota) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Insufficient pool capacity"})
@@ -168,6 +195,10 @@ func HandleQuotaLedger(a *app.App) http.HandlerFunc {
 		allocID := r.URL.Query().Get("allocation_id")
 		if allocID == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "allocation_id is required"})
+			return
+		}
+		if _, err := uuid.Parse(allocID); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid allocation_id"})
 			return
 		}
 		rows, err := a.Pool.Query(r.Context(),

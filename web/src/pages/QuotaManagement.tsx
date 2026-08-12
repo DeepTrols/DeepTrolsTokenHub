@@ -62,7 +62,9 @@ export default function QuotaManagement() {
   const handleCreate = async () => {
     await createMut.mutateAsync({
       total_amount: newPool.total_amount, unit_name: newPool.unit_name, dimension: newPool.dimension,
-      ...(newPool.tenant_id ? { tenant_id: newPool.tenant_id } : {}),
+      // tenant_id is required (schema NOT NULL); the create button is disabled
+      // until it is chosen, so always send it. model_id is optional.
+      tenant_id: newPool.tenant_id,
       ...(newPool.model_id ? { model_id: newPool.model_id } : {}),
     });
     setShowCreate(false); refetch();
@@ -122,11 +124,11 @@ export default function QuotaManagement() {
           )}
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>租户</Label>
-              <Select value={newPool.tenant_id || "none"} onValueChange={(v) => setNewPool({ ...newPool, tenant_id: v === "none" ? "" : v })}>
-                <SelectTrigger><SelectValue placeholder="留空 = 全局池" /></SelectTrigger>
+              <Label>租户 *</Label>
+              {/* tenant_id 在 schema 中为 NOT NULL，每个池必须归属一个租户；留空会 500。 */}
+              <Select value={newPool.tenant_id} onValueChange={(v) => setNewPool({ ...newPool, tenant_id: v })}>
+                <SelectTrigger><SelectValue placeholder="选择租户" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">留空 = 全局池</SelectItem>
                   {tenants.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}（{t.code}）</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -141,9 +143,9 @@ export default function QuotaManagement() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2"><Label>总量</Label><Input type="number" value={newPool.total_amount} onChange={e => setNewPool({ ...newPool, total_amount: Number(e.target.value) })} /></div>
+            <div className="space-y-2"><Label>总量</Label><Input type="number" min={1} value={newPool.total_amount} onChange={e => setNewPool({ ...newPool, total_amount: Number(e.target.value) })} /></div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>取消</Button><Button onClick={handleCreate} disabled={createMut.isPending}>{createMut.isPending ? "创建中..." : "创建"}</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>取消</Button><Button onClick={handleCreate} disabled={!newPool.tenant_id || createMut.isPending}>{createMut.isPending ? "创建中..." : "创建"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -153,7 +155,7 @@ export default function QuotaManagement() {
           <DialogHeader><DialogTitle>分配配额</DialogTitle><DialogDescription>{allocPool ? `从 "${allocPool.tenant_name || allocPool.model_code || allocPool.id}" 分配配额给用户` : ""}</DialogDescription></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2"><Label>用户 ID</Label><Input value={alloc.user_id} onChange={e => setAlloc({ ...alloc, user_id: e.target.value })} placeholder="UUID" /></div>
-            <div className="space-y-2"><Label>分配数量</Label><Input type="number" value={alloc.amount} onChange={e => setAlloc({ ...alloc, amount: Number(e.target.value) })} /></div>
+            <div className="space-y-2"><Label>分配数量</Label><Input type="number" min={1} value={alloc.amount} onChange={e => setAlloc({ ...alloc, amount: Number(e.target.value) })} /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setShowAllocate(false)}>取消</Button><Button onClick={handleAllocate} disabled={allocateMut.isPending}>{allocateMut.isPending ? "分配中..." : "确认分配"}</Button></DialogFooter>
         </DialogContent>

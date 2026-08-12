@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/deeptrols/api/internal/app"
@@ -156,7 +157,11 @@ func HandleAllocateTeamQuota(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		alloc, err := a.Quotas.Allocate(ctx, poolID, userID, req.Amount, "team-allocate-"+uuid.New().String())
+		// Deterministic idempotency key from (pool, user, amount): a retried
+		// request replays the recorded allocation instead of granting quota
+		// twice, while a different amount still appends a fresh allocation.
+		key := "team-allocate:" + poolID.String() + ":" + userID.String() + ":" + strconv.FormatInt(req.Amount, 10)
+		alloc, err := a.Quotas.Allocate(ctx, poolID, userID, req.Amount, key)
 		if err != nil {
 			if errors.Is(err, quota.ErrInsufficientQuota) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{
