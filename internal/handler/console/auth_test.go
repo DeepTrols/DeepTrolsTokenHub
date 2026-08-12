@@ -14,6 +14,7 @@ import (
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	"github.com/deeptrols/api/internal/repository/membership"
+	"github.com/deeptrols/api/internal/repository/tenant"
 	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/user"
 	"github.com/google/uuid"
@@ -46,6 +47,7 @@ func appForConsoleTest(t *testing.T) *app.App {
 		Config:      cfg,
 		Users:       user.NewPostgresRepository(pool),
 		Memberships: membership.NewPostgresRepository(pool),
+		Tenants:     tenant.NewPostgresRepository(pool),
 		Healthy:     true,
 	}
 }
@@ -1288,5 +1290,465 @@ func TestRegister_ResponseContentTypeJSON(t *testing.T) {
 	ct := w.Header().Get("Content-Type")
 	if ct != "application/json" {
 		t.Errorf("Content-Type = %s, want application/json", ct)
+	}
+}
+
+// --- HandleRegisterEnterprise tests ---
+
+// registerEnterpriseForConsoleTest registers an enterprise account through the
+// handler and returns the recorder. Each test must use a unique email.
+func registerEnterpriseForConsoleTest(t *testing.T, a *app.App, body map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/console/auth/register/enterprise", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	HandleRegisterEnterprise(a).ServeHTTP(w, req)
+	return w
+}
+
+func TestRegisterEnterprise_Success(t *testing.T) {
+	// Arrange
+	a := appForConsoleTest(t)
+
+	body := map[string]string{
+		"company_name": "Acme Corp",
+		"contact_name": "Alice Zhang",
+		"email":        "enterprise@acme.com",
+		"password":     "secure-password-123",
+	}
+
+	// Act
+	w := registerEnterpriseForConsoleTest(t, a, body)
+
+	// Assert
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+	var resp registerResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if resp.Token == "" {
+		t.Fatal("response token is empty")
+	}
+	if resp.User.Email != "enterprise@acme.com" {
+		t.Errorf("User.Email = %s, want enterprise@acme.com", resp.User.Email)
+	}
+	if resp.User.Name != "Alice Zhang" {
+		t.Errorf("User.Name = %s, want Alice Zhang", resp.User.Name)
+	}
+
+	// Verify the user was created with enterprise type.
+	dbUser, err := a.Users.FindByEmail(context.Background(), "enterprise@acme.com")
+	if err != nil {
+		t.Fatalf("FindByEmail: %v", err)
+	}
+	if dbUser.UserType != domain.UserTypeEnterprise {
+		t.Errorf("user_type = %s, want enterprise", dbUser.UserType)
+	}
+	if dbUser.Status != domain.UserStatusActive {
+		t.Errorf("status = %s, want active", dbUser.Status)
+	}
+	if dbUser.DisplayName != "Alice Zhang" {
+		t.Errorf("display_name = %s, want Alice Zhang", dbUser.DisplayName)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(dbUser.PasswordHash), []byte("secure-password-123")); err != nil {
+		t.Fatalf("bcrypt verify failed: %v", err)
+	}
+}
+
+func TestRegisterEnterprise_CreatesTenantAndMembership(t *testing.T) {
+	// Arrange
+	a := appForConsoleTest(t)
+
+	body := map[string]string{
+		"company_name": "Acme Corp",
+		"contact_name": "Alice Zhang",
+		"email":        "ent-tenant@acme.com",
+		"password":     "secure-password-123",
+	}
+
+	// Act
+	w := registerEnterpriseForConsoleTest(t, a, body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	// Assert: tenant created, pending_review, owned by the new user.
+	dbUser, err := a.Users.FindByEmail(context.Background(), "ent-tenant@acme.com")
+	if err != nil {
+		t.Fatalf("FindByEmail: %v", err)
+	}
+	var tenantID, code, name, status string
+	err = a.Pool.QueryRow(context.Background(),
+		"SELECT id::text, code, name, status FROM tenants WHERE owner_id = $1", dbUser.ID,
+	).Scan(&tenantID, &code, &name, &status)
+	if err != nil {
+		t.Fatalf("tenant query: %v", err)
+	}
+	if status != string(domain.TenantStatusPendingReview) {
+		t.Errorf("tenant status = %s, want %s", status, domain.TenantStatusPendingReview)
+	}
+	if name != "Acme Corp" {
+		t.Errorf("tenant name = %s, want Acme Corp", name)
+	}
+	if code != "acme-corp" {
+		t.Errorf("tenant code = %s, want acme-corp", code)
+	}
+
+	// Assert: owner membership is active.
+	var role, mstatus string
+	err = a.Pool.QueryRow(context.Background(),
+		"SELECT role, status FROM tenant_memberships WHERE tenant_id = $1 AND user_id = $2", tenantID, dbUser.ID,
+	).Scan(&role, &mstatus)
+	if err != nil {
+		t.Fatalf("membership query: %v", err)
+	}
+	if role != "owner" {
+		t.Errorf("membership role = %s, want owner", role)
+	}
+	if mstatus != "active" {
+		t.Errorf("membership status = %s, want active", mstatus)
+	}
+}
+
+func TestRegisterEnterprise_CreatesWallet(t *testing.T) {
+	// Arrange. The fixture enables FakePayment, but an enterprise account must
+	// never receive the personal signup bonus: it starts at zero balance.
+	a := appForConsoleTest(t)
+
+	body := map[string]string{
+		"company_name": "Acme Corp",
+		"contact_name": "Alice Zhang",
+		"email":        "ent-wallet@acme.com",
+		"password":     "secure-password-123",
+	}
+
+	// Act
+	w := registerEnterpriseForConsoleTest(t, a, body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	// Assert: zero-balance wallet.
+	dbUser, err := a.Users.FindByEmail(context.Background(), "ent-wallet@acme.com")
+	if err != nil {
+		t.Fatalf("FindByEmail: %v", err)
+	}
+	var balance string
+	if err := a.Pool.QueryRow(context.Background(),
+		"SELECT balance::text FROM wallets WHERE user_id = $1", dbUser.ID).Scan(&balance); err != nil {
+		t.Fatalf("wallet query: %v", err)
+	}
+	if balance != "0.000000" {
+		t.Errorf("wallet balance = %s, want 0.000000 (enterprise gets no signup bonus)", balance)
+	}
+}
+
+func TestRegisterEnterprise_DuplicateEmail_409(t *testing.T) {
+	// Arrange
+	a := appForConsoleTest(t)
+	seedUserForConsoleTest(t, a, "dup-enterprise@acme.com", "old-password", "Existing User")
+
+	body := map[string]string{
+		"company_name": "Acme Corp",
+		"contact_name": "Alice Zhang",
+		"email":        "dup-enterprise@acme.com",
+		"password":     "secure-password-123",
+	}
+
+	// Act
+	w := registerEnterpriseForConsoleTest(t, a, body)
+
+	// Assert
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusConflict, w.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["error"] == "" {
+		t.Error("expected error message in response")
+	}
+}
+
+func TestRegisterEnterprise_MissingFields_400(t *testing.T) {
+	tests := []struct {
+		name string
+		body map[string]string
+	}{
+		{
+			name: "missing company_name",
+			body: map[string]string{
+				"contact_name": "Alice Zhang",
+				"email":        "missing-co@acme.com",
+				"password":     "secure-password-123",
+			},
+		},
+		{
+			name: "empty company_name",
+			body: map[string]string{
+				"company_name": "   ",
+				"contact_name": "Alice Zhang",
+				"email":        "empty-co@acme.com",
+				"password":     "secure-password-123",
+			},
+		},
+		{
+			name: "missing contact_name",
+			body: map[string]string{
+				"company_name": "Acme Corp",
+				"email":        "missing-contact@acme.com",
+				"password":     "secure-password-123",
+			},
+		},
+		{
+			name: "empty contact_name",
+			body: map[string]string{
+				"company_name": "Acme Corp",
+				"contact_name": "",
+				"email":        "empty-contact@acme.com",
+				"password":     "secure-password-123",
+			},
+		},
+		{
+			name: "missing email",
+			body: map[string]string{
+				"company_name": "Acme Corp",
+				"contact_name": "Alice Zhang",
+				"password":     "secure-password-123",
+			},
+		},
+		{
+			name: "missing password",
+			body: map[string]string{
+				"company_name": "Acme Corp",
+				"contact_name": "Alice Zhang",
+				"email":        "missing-pw@acme.com",
+			},
+		},
+		{
+			name: "short password",
+			body: map[string]string{
+				"company_name": "Acme Corp",
+				"contact_name": "Alice Zhang",
+				"email":        "short-pw@acme.com",
+				"password":     "short",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			a := appForConsoleTest(t)
+
+			// Act
+			w := registerEnterpriseForConsoleTest(t, a, tt.body)
+
+			// Assert
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestRegisterEnterprise_InvalidEmail_400(t *testing.T) {
+	tests := []struct {
+		name  string
+		email string
+	}{
+		{"empty email", ""},
+		{"missing @", "notanemail"},
+		{"missing domain", "user@"},
+		{"missing username", "@acme.com"},
+		{"with spaces", "user @acme.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			a := appForConsoleTest(t)
+
+			body := map[string]string{
+				"company_name": "Acme Corp",
+				"contact_name": "Alice Zhang",
+				"email":        tt.email,
+				"password":     "secure-password-123",
+			}
+
+			// Act
+			w := registerEnterpriseForConsoleTest(t, a, body)
+
+			// Assert
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d for email %q", w.Code, http.StatusBadRequest, tt.email)
+			}
+		})
+	}
+}
+
+func TestRegisterEnterprise_TenantCodeCollisionHandled(t *testing.T) {
+	// Arrange: an existing tenant already claims the derived code "acme-corp".
+	a := appForConsoleTest(t)
+	now := time.Now().UTC()
+	existing := &domain.Tenant{
+		ID:        uuid.New(),
+		Code:      "acme-corp",
+		Name:      "Acme Corp (existing)",
+		Status:    domain.TenantStatusActive,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := a.Tenants.Create(context.Background(), existing); err != nil {
+		t.Fatalf("pre-create tenant: %v", err)
+	}
+
+	body := map[string]string{
+		"company_name": "Acme Corp",
+		"contact_name": "Alice Zhang",
+		"email":        "ent-collision@acme.com",
+		"password":     "secure-password-123",
+	}
+
+	// Act
+	w := registerEnterpriseForConsoleTest(t, a, body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	// Assert: the new tenant gets a suffixed unique code.
+	dbUser, err := a.Users.FindByEmail(context.Background(), "ent-collision@acme.com")
+	if err != nil {
+		t.Fatalf("FindByEmail: %v", err)
+	}
+	var code string
+	if err := a.Pool.QueryRow(context.Background(),
+		"SELECT code FROM tenants WHERE owner_id = $1", dbUser.ID).Scan(&code); err != nil {
+		t.Fatalf("tenant code query: %v", err)
+	}
+	if code != "acme-corp-1" {
+		t.Errorf("tenant code = %s, want acme-corp-1", code)
+	}
+}
+
+func TestRegisterEnterprise_JWTIncludesTenantAndType(t *testing.T) {
+	// Arrange
+	a := appForConsoleTest(t)
+
+	body := map[string]string{
+		"company_name": "Acme Corp",
+		"contact_name": "Alice Zhang",
+		"email":        "ent-jwt@acme.com",
+		"password":     "secure-password-123",
+	}
+
+	// Act
+	w := registerEnterpriseForConsoleTest(t, a, body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	// Assert: token carries enterprise type + tenant scoping.
+	var resp registerResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	claims, err := jwtutil.ParseToken(resp.Token, a.Config.JWT.Secret)
+	if err != nil {
+		t.Fatalf("returned token is invalid: %v", err)
+	}
+	if claims.UserType != "enterprise" {
+		t.Errorf("token user_type = %s, want enterprise", claims.UserType)
+	}
+	if claims.TenantID == "" {
+		t.Error("token tenant_id is empty, want the created tenant")
+	}
+	if claims.TenantRole != "owner" {
+		t.Errorf("token tenant_role = %s, want owner", claims.TenantRole)
+	}
+}
+
+// TestHandleMe_EnterpriseTenantStatus verifies /me reports the tenant's status
+// so the frontend can render the pending_review banner.
+func TestHandleMe_EnterpriseTenantStatus(t *testing.T) {
+	// Arrange
+	a := appForConsoleTest(t)
+	w := registerEnterpriseForConsoleTest(t, a, map[string]string{
+		"company_name": "Acme Corp",
+		"contact_name": "Alice Zhang",
+		"email":        "ent-me@acme.com",
+		"password":     "secure-password-123",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("register status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+	dbUser, err := a.Users.FindByEmail(context.Background(), "ent-me@acme.com")
+	if err != nil {
+		t.Fatalf("FindByEmail: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/console/me", nil)
+	req = setUserInContext(req, dbUser.ID.String())
+	w2 := httptest.NewRecorder()
+
+	// Act
+	HandleMe(a).ServeHTTP(w2, req)
+
+	// Assert
+	if w2.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w2.Code, http.StatusOK, w2.Body.String())
+	}
+	var resp meResponse
+	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.UserType != "enterprise" {
+		t.Errorf("user_type = %s, want enterprise", resp.UserType)
+	}
+	if resp.TenantID == "" {
+		t.Error("tenant_id is empty, want the created tenant")
+	}
+	if resp.TenantName != "Acme Corp" {
+		t.Errorf("tenant_name = %s, want Acme Corp", resp.TenantName)
+	}
+	if resp.TenantRole != "owner" {
+		t.Errorf("tenant_role = %s, want owner", resp.TenantRole)
+	}
+	if resp.TenantStatus != string(domain.TenantStatusPendingReview) {
+		t.Errorf("tenant_status = %s, want %s", resp.TenantStatus, domain.TenantStatusPendingReview)
+	}
+}
+
+// TestHandleMe_PersonalHasNoTenantStatus verifies a personal account has no
+// tenant-scoped fields (tenant_status is omitted).
+func TestHandleMe_PersonalHasNoTenantStatus(t *testing.T) {
+	// Arrange
+	a := appForConsoleTest(t)
+	seedUser := seedUserForConsoleTest(t, a, "personal-me@example.com", "test-password", "Personal")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/console/me", nil)
+	req = setUserInContext(req, seedUser.ID.String())
+	w := httptest.NewRecorder()
+
+	// Act
+	HandleMe(a).ServeHTTP(w, req)
+
+	// Assert
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	var resp meResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.TenantStatus != "" {
+		t.Errorf("tenant_status = %q, want empty for a personal user", resp.TenantStatus)
+	}
+	if resp.UserType != string(domain.UserTypePersonal) {
+		t.Errorf("user_type = %s, want personal", resp.UserType)
 	}
 }

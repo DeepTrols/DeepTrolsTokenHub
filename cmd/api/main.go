@@ -80,6 +80,7 @@ func main() {
 	r.Route("/api/console", func(r chi.Router) {
 		r.Post("/auth/login", middleware.LoginRateLimit(application.RateLimiter, 5, 1*time.Minute)(console.HandleLogin(application)).ServeHTTP)
 		r.Post("/auth/register", console.HandleRegister(application))
+		r.Post("/auth/register/enterprise", console.HandleRegisterEnterprise(application))
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.ConsoleAuth(application))
