@@ -50,11 +50,3 @@ func (t Tenant) ValidTransitions() []TenantStatus {
 		return nil
 	}
 }
-
-type TenantDomain struct {
-	ID        uuid.UUID
-	TenantID  uuid.UUID
-	Domain    string
-	IsPrimary bool
-	CreatedAt time.Time
-}

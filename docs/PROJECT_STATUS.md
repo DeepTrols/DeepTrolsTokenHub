@@ -340,4 +340,6 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 **安全评审备注（遗留建议，非本次阻塞）**：`/api/admin` 路由组整体无速率限制（登录/网关/团队均有，仅 admin 组缺失），建议后续加 admin 限流；审计中间件 `recordAudit` 不落 `old_value`，硬删除审计建议后续扩展为记录被删租户身份。
 
-**上线运维要点**：`DELETE /api/admin/tenants/{id}` 路由随本次 commit 才注册，**必须重启 API 进程**才能生效——旧二进制会 404，前端 `catch {}` 吞错、列表不刷新，表现为「点击删除界面仍有显示」。已实测重启后：登录 → 建临时租户 → DELETE 200 `{"status":"deleted"}` → 列表出现次数 0。另外发现历史迁移遗留：`tenant_domains` 表在**线上库中仍存在**（0 行，`information_schema` 仍列 RESTRICT 外键，尽管 000007 声称 DROP）；当前 0 行不阻塞删除，但一旦某企业有域名记录，硬删会被 FK 挡住，建议后续单独迁移彻底 DROP 或纳入 Delete 级联范围。
+**上线运维要点**：`DELETE /api/admin/tenants/{id}` 路由随本次 commit 才注册，**必须重启 API 进程**才能生效——旧二进制会 404，前端 `catch {}` 吞错、列表不刷新，表现为「点击删除界面仍有显示」。已实测重启后：登录 → 建临时租户 → DELETE 200 `{"status":"deleted"}` → 列表出现次数 0。
+
+**企业域名清理（已处理）**：确认不需要企业域名后，将 `tenant_domains` 从线上库彻底 DROP（应用现成迁移 000007，`migrate up`），删除 RESTRICT 外键隐患；同步移除 `internal/domain/tenant.go` 中无引用的死代码 `TenantDomain` 结构体。清理中发现线上库 `schema_migrations` 仅记录到 v6（000007/000008 均未登记）：000008 的唯一约束 `quota_allocations_pool_user_unique` 实际已存在于库中，迁移失败置 dirty，遂 `migrate force 8` 对齐版本（8|f）。后续新迁移可直接 `migrate up` 正常执行。
