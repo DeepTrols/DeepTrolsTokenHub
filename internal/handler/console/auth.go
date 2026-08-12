@@ -282,6 +282,9 @@ func HandleRegister(a *app.App) http.HandlerFunc {
 // funded by the platform after the tenant is approved.
 func HandleRegisterEnterprise(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Cap the request body so a multi-megabyte payload cannot exhaust memory
+		// on this unauthenticated endpoint (also protected by per-IP rate limit).
+		r.Body = http.MaxBytesReader(w, r.Body, 8*1024)
 		var req enterpriseRegisterRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -299,8 +302,16 @@ func HandleRegisterEnterprise(a *app.App) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Company name is required"})
 			return
 		}
+		if len(req.CompanyName) > 255 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Company name is too long"})
+			return
+		}
 		if strings.TrimSpace(req.ContactName) == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Contact name is required"})
+			return
+		}
+		if len(req.ContactName) > 255 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Contact name is too long"})
 			return
 		}
 

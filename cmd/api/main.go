@@ -79,8 +79,8 @@ func main() {
 	// Console API (JWT-protected, user-facing).
 	r.Route("/api/console", func(r chi.Router) {
 		r.Post("/auth/login", middleware.LoginRateLimit(application.RateLimiter, 5, 1*time.Minute)(console.HandleLogin(application)).ServeHTTP)
-		r.Post("/auth/register", console.HandleRegister(application))
-		r.Post("/auth/register/enterprise", console.HandleRegisterEnterprise(application))
+		r.Post("/auth/register", middleware.LoginRateLimit(application.RateLimiter, 5, 1*time.Minute)(console.HandleRegister(application)).ServeHTTP)
+		r.Post("/auth/register/enterprise", middleware.LoginRateLimit(application.RateLimiter, 5, 1*time.Minute)(console.HandleRegisterEnterprise(application)).ServeHTTP)
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.ConsoleAuth(application))

@@ -94,12 +94,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchMe]);
 
   const register = useCallback(async (email: string, password: string, name: string) => {
-    await fetch("/api/console/auth/register", {
+    const res = await fetch("/api/console/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password, name }),
       credentials: "include",
     });
+
+    if (!res.ok) {
+      let message = "注册失败，请稍后重试";
+      try {
+        const data = (await res.json()) as { error?: string };
+        if (data.error) message = data.error;
+      } catch {
+        // keep the generic fallback when the body is not JSON
+      }
+      throw new Error(message);
+    }
+
     await fetchMe();
   }, [fetchMe]);
 

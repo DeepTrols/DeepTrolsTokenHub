@@ -164,6 +164,25 @@ describe("Register", () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it("displays server error and does not navigate when personal registration returns 409", async () => {
+    const user = userEvent.setup();
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ error: "Email already registered" }) });
+
+    renderRegister();
+    await user.type(screen.getByPlaceholderText("请输入昵称"), "Test User");
+    await user.type(screen.getByPlaceholderText("请输入邮箱"), "existing@example.com");
+    await user.type(screen.getByPlaceholderText("至少8位"), "password123");
+    await user.click(screen.getByRole("button", { name: /注 册/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Email already registered")).toBeInTheDocument();
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
   it("shows generic error for non-Error rejections", async () => {
     const user = userEvent.setup();
     mockFetch.mockReset();

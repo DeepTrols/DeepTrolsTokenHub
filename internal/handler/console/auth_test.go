@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -1536,6 +1537,24 @@ func TestRegisterEnterprise_MissingFields_400(t *testing.T) {
 				"contact_name": "Alice Zhang",
 				"email":        "short-pw@acme.com",
 				"password":     "short",
+			},
+		},
+		{
+			name: "company_name too long",
+			body: map[string]string{
+				"company_name": strings.Repeat("A", 256),
+				"contact_name": "Alice Zhang",
+				"email":        "long-co@acme.com",
+				"password":     "secure-password-123",
+			},
+		},
+		{
+			name: "contact_name too long",
+			body: map[string]string{
+				"company_name": "Acme Corp",
+				"contact_name": strings.Repeat("B", 256),
+				"email":        "long-contact@acme.com",
+				"password":     "secure-password-123",
 			},
 		},
 	}
