@@ -2,12 +2,14 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/repository/channel"
 	"github.com/deeptrols/api/internal/repository/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 var (
@@ -60,7 +62,19 @@ func (r *Router) RouteCandidates(ctx context.Context, identity *domain.RequestId
 
 	if identity.TenantID != nil {
 		tenantModel, err := r.models.GetTenantModel(ctx, *identity.TenantID, publicModelCode)
-		if err != nil || tenantModel == nil || !tenantModel.IsListed {
+		if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				// A tenant_models lookup failure must never widen access; fail closed.
+				return nil, ErrTenantNotAllowed
+			}
+			// pgx.ErrNoRows: no allowlist row — the tenant inherits the shared catalog.
+		} else if tenantModel == nil {
+			// Defensive: the repo contract is (model, nil) or (nil, pgx.ErrNoRows),
+			// never (nil, nil). Fail closed rather than silently widening access.
+			return nil, ErrTenantNotAllowed
+		}
+		// Only an explicit is_listed=false is a hard denial.
+		if tenantModel != nil && !tenantModel.IsListed {
 			return nil, ErrTenantNotAllowed
 		}
 	}

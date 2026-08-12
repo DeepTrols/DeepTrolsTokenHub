@@ -114,7 +114,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	candidates, err := application.Router.RouteCandidates(r.Context(), resolveAuthIdentity(r), modelName, 3)
 	if err != nil {
 		log.Printf("gateway: route error: %v", err)
-		writeError(w, http.StatusServiceUnavailable, "routing_error", "No provider channel for this model — add API key in Admin Panel")
+		writeRouteError(w, err)
 		return
 	}
 	primary := candidates[0]
@@ -325,7 +325,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	routeResult, err := application.Router.Route(r.Context(), identity, modelName)
 	if err != nil {
 		log.Printf("gateway: stream route error: %v", err)
-		writeError(w, http.StatusServiceUnavailable, "routing_error", "No provider channel for this model — add API key in Admin Panel")
+		writeRouteError(w, err)
 		return
 	}
 
@@ -987,6 +987,24 @@ func sanitizeRequestBody(body map[string]any) {
 		"headers", "api_version", "user",
 	} {
 		delete(body, key)
+	}
+}
+
+// writeRouteError maps routing sentinels to distinct HTTP responses so callers
+// can tell "unknown model" from "no access" from "no capacity" instead of a
+// single misleading 503.
+func writeRouteError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, gw.ErrModelNotFound):
+		writeError(w, http.StatusNotFound, "model_not_found", "Model not found")
+	case errors.Is(err, gw.ErrModelNotActive):
+		writeError(w, http.StatusBadRequest, "model_not_active", "Model is not active")
+	case errors.Is(err, gw.ErrTenantNotAllowed):
+		writeError(w, http.StatusForbidden, "model_not_allowed", "This model is not available to your account")
+	case errors.Is(err, gw.ErrNoChannelAvailable):
+		writeError(w, http.StatusServiceUnavailable, "no_channel_available", "No provider channel for this model — add API key in Admin Panel")
+	default:
+		writeError(w, http.StatusInternalServerError, "routing_error", "Internal routing error")
 	}
 }
 

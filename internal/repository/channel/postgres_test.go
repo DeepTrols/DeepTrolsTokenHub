@@ -87,13 +87,33 @@ func TestChannelListByModel(t *testing.T) {
 		}
 	})
 
-	t.Run("filters by tenant", func(t *testing.T) {
+	t.Run("tenant requests include shared channels, dedicated first", func(t *testing.T) {
 		channels, err := repo.ListByModel(ctx, modelID, &tenantID)
 		if err != nil {
 			t.Fatalf("ListByModel filtered: %v", err)
 		}
+		if len(channels) != 2 {
+			t.Fatalf("len(channels) = %d, want 2 (dedicated + shared)", len(channels))
+		}
+		if channels[0].TenantID == nil {
+			t.Error("channels[0].TenantID = nil, want the dedicated channel first")
+		}
+		if channels[1].TenantID != nil {
+			t.Errorf("channels[1].TenantID = %v, want the shared channel second", *channels[1].TenantID)
+		}
+	})
+
+	t.Run("tenant B cannot see tenant A's dedicated channel", func(t *testing.T) {
+		tenantB := seedChannelTenant(t, ctx, repo)
+		channels, err := repo.ListByModel(ctx, modelID, &tenantB)
+		if err != nil {
+			t.Fatalf("ListByModel tenant B: %v", err)
+		}
 		if len(channels) != 1 {
-			t.Errorf("len(channels) = %d, want 1", len(channels))
+			t.Fatalf("len(channels) = %d, want 1 (shared only, no tenant A channel)", len(channels))
+		}
+		if channels[0].TenantID != nil {
+			t.Errorf("channels[0].TenantID = %v, want nil (shared channel)", *channels[0].TenantID)
 		}
 	})
 

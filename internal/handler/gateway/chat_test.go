@@ -211,7 +211,8 @@ func (m *mockPricingRepo) FindByModel(ctx context.Context, modelID uuid.UUID, te
 // ============================================================================
 
 type mockModelRepo struct {
-	findByCodeFn func(ctx context.Context, code string) (*domain.Model, error)
+	findByCodeFn  func(ctx context.Context, code string) (*domain.Model, error)
+	tenantModelFn func(ctx context.Context, tenantID uuid.UUID, modelCode string) (*domain.TenantModel, error)
 }
 
 func (m *mockModelRepo) FindByCode(ctx context.Context, code string) (*domain.Model, error) {
@@ -228,6 +229,9 @@ func (m *mockModelRepo) ListByTenant(ctx context.Context, tenantID *uuid.UUID) (
 	return nil, nil
 }
 func (m *mockModelRepo) GetTenantModel(ctx context.Context, tenantID uuid.UUID, modelCode string) (*domain.TenantModel, error) {
+	if m.tenantModelFn != nil {
+		return m.tenantModelFn(ctx, tenantID, modelCode)
+	}
 	return nil, nil
 }
 
@@ -656,10 +660,10 @@ func TestHandleNonStreamingChat_InsufficientBalance_Returns402(t *testing.T) {
 }
 
 // ============================================================================
-// Test: Non-streaming model not routable -- 503
+// Test: Non-streaming model not found -- 404
 // ============================================================================
 
-func TestHandleNonStreamingChat_ModelNotRoutable_Returns503(t *testing.T) {
+func TestHandleNonStreamingChat_ModelNotFound_Returns404(t *testing.T) {
 	// Arrange
 	userID := uuid.New()
 	apiKeyID := uuid.New()
@@ -693,9 +697,94 @@ func TestHandleNonStreamingChat_ModelNotRoutable_Returns503(t *testing.T) {
 	// Act
 	HandleNonStreamingChat(w, req, application, "gpt-4o", body)
 
-	// Assert -- HTTP 503
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusServiceUnavailable, w.Body.String())
+	// Assert -- HTTP 404
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+}
+
+func TestHandleNonStreamingChat_ModelNotActive_Returns400(t *testing.T) {
+	// Arrange
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			t.Error("executor should not be called when routing fails")
+			return nil, nil
+		},
+	}
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: uuid.New(), Code: code, Status: domain.ModelStatusInactive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{}
+	pricingRepo := &mockPricingRepo{}
+	walletRepo := &mockWalletRepo{}
+	usageRepo := &mockUsageRepo{}
+
+	application := newTestApp(executor, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+
+	body := validRequestBody()
+	respBodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(respBodyBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	req = setAuthContext(req, userID, apiKeyID)
+	w := httptest.NewRecorder()
+
+	// Act
+	HandleNonStreamingChat(w, req, application, "gpt-4o", body)
+
+	// Assert -- HTTP 400
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestHandleNonStreamingChat_TenantNotAllowed_Returns403(t *testing.T) {
+	// Arrange
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	tenantID := uuid.New()
+
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			t.Error("executor should not be called when routing fails")
+			return nil, nil
+		},
+	}
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: uuid.New(), Code: code, Status: domain.ModelStatusActive}, nil
+		},
+		tenantModelFn: func(ctx context.Context, tid uuid.UUID, modelCode string) (*domain.TenantModel, error) {
+			return &domain.TenantModel{IsListed: false}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{}
+	pricingRepo := &mockPricingRepo{}
+	walletRepo := &mockWalletRepo{}
+	usageRepo := &mockUsageRepo{}
+
+	application := newTestApp(executor, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+
+	body := validRequestBody()
+	respBodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(respBodyBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	req = setAuthContext(req, userID, apiKeyID)
+	// A non-empty tenant is required to reach the tenant_models gate.
+	ctx := context.WithValue(req.Context(), middleware.CtxTenantID, tenantID.String())
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	// Act
+	HandleNonStreamingChat(w, req, application, "gpt-4o", body)
+
+	// Assert -- HTTP 403
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusForbidden, w.Body.String())
 	}
 }
 
@@ -996,10 +1085,10 @@ func TestHandleStreamingChat_UpstreamError_Releases(t *testing.T) {
 }
 
 // ============================================================================
-// Test: Streaming model not routable -- 503
+// Test: Streaming model not found -- 404
 // ============================================================================
 
-func TestHandleStreamingChat_ModelNotRoutable_Returns503(t *testing.T) {
+func TestHandleStreamingChat_ModelNotFound_Returns404(t *testing.T) {
 	// Arrange
 	userID := uuid.New()
 	apiKeyID := uuid.New()
@@ -1027,9 +1116,9 @@ func TestHandleStreamingChat_ModelNotRoutable_Returns503(t *testing.T) {
 	// Act
 	HandleStreamingChat(w, req, application, "gpt-4o", body)
 
-	// Assert
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusServiceUnavailable, w.Body.String())
+	// Assert -- HTTP 404
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusNotFound, w.Body.String())
 	}
 }
 

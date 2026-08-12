@@ -28,11 +28,15 @@ var _ Repository = (*PostgresRepository)(nil)
 func (r *PostgresRepository) ListByModel(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
 	query := "SELECT " + channelSelectClause + " FROM channels WHERE model_id = $1"
 	args := []any{modelID}
+	orderBy := " ORDER BY weight DESC"
 	if tenantID != nil {
-		query += " AND tenant_id = $2"
+		// A tenant request is served by its dedicated channels first, then falls
+		// back to the shared pool (tenant_id NULL) for models without one.
+		query += " AND (tenant_id IS NULL OR tenant_id = $2)"
 		args = append(args, tenantID)
+		orderBy = " ORDER BY (tenant_id IS NOT NULL) DESC, weight DESC"
 	}
-	query += " ORDER BY weight DESC"
+	query += orderBy
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {

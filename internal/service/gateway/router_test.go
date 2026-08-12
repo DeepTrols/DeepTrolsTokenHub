@@ -9,6 +9,7 @@ import (
 	"github.com/deeptrols/api/internal/repository/channel"
 	"github.com/deeptrols/api/internal/repository/model"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // --- mock types ---
@@ -163,7 +164,7 @@ func TestRoute_TenantNotAllowed(t *testing.T) {
 			return model, nil
 		},
 		tenantModelFn: func(ctx context.Context, tid uuid.UUID, code string) (*domain.TenantModel, error) {
-			return nil, nil
+			return &domain.TenantModel{IsListed: false}, nil
 		},
 	}
 	channels := &mockChannelRepo{}
@@ -172,6 +173,91 @@ func TestRoute_TenantNotAllowed(t *testing.T) {
 	_, err := router.Route(context.Background(), makeIdentity(&tenantID), "restricted-model")
 	if err != ErrTenantNotAllowed {
 		t.Errorf("expected ErrTenantNotAllowed, got %v", err)
+	}
+}
+
+func TestRoute_TenantNoRecordAllowed(t *testing.T) {
+	// A tenant with no tenant_models row inherits the shared catalog
+	// (default-open). GetTenantModel reports that absence as pgx.ErrNoRows.
+	model := makeTestModel("open-model", domain.ModelStatusActive)
+	tenantID := uuid.New()
+	chID := uuid.New()
+	instID := uuid.New()
+
+	models := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return model, nil
+		},
+		tenantModelFn: func(ctx context.Context, tid uuid.UUID, code string) (*domain.TenantModel, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+	channels := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, modelID uuid.UUID, tid *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{
+				makeTestChannel(chID, model.ID, domain.ChannelStatusActive, 100, 100),
+			}, nil
+		},
+		listInstancesFn: func(ctx context.Context, channelID uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{
+				makeTestInstance(instID, chID, "https://litellm.example.com", "openai/open-model", 0),
+			}, nil
+		},
+	}
+	router := NewRouter(models, channels)
+
+	result, err := router.Route(context.Background(), makeIdentity(&tenantID), "open-model")
+	if err != nil {
+		t.Fatalf("tenant with no tenant_models row should inherit the shared catalog: %v", err)
+	}
+	if result.Channel.ID != chID {
+		t.Errorf("Channel.ID = %s, want %s", result.Channel.ID, chID)
+	}
+}
+
+func TestRoute_TenantDBErrorFailsClosed(t *testing.T) {
+	// A tenant_models lookup failure must never widen access; fail closed.
+	model := makeTestModel("active-model", domain.ModelStatusActive)
+	tenantID := uuid.New()
+
+	models := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return model, nil
+		},
+		tenantModelFn: func(ctx context.Context, tid uuid.UUID, code string) (*domain.TenantModel, error) {
+			return nil, errors.New("connection refused")
+		},
+	}
+	channels := &mockChannelRepo{}
+	router := NewRouter(models, channels)
+
+	_, err := router.Route(context.Background(), makeIdentity(&tenantID), "active-model")
+	if err != ErrTenantNotAllowed {
+		t.Errorf("expected ErrTenantNotAllowed (fail closed), got %v", err)
+	}
+}
+
+func TestRoute_TenantNilNilFailsClosed(t *testing.T) {
+	// Defense-in-depth: if GetTenantModel ever returns (nil, nil) instead of
+	// the documented (nil, pgx.ErrNoRows), the gate must fail closed rather
+	// than silently inheriting the shared catalog.
+	model := makeTestModel("active-model", domain.ModelStatusActive)
+	tenantID := uuid.New()
+
+	models := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return model, nil
+		},
+		tenantModelFn: func(ctx context.Context, tid uuid.UUID, code string) (*domain.TenantModel, error) {
+			return nil, nil
+		},
+	}
+	channels := &mockChannelRepo{}
+	router := NewRouter(models, channels)
+
+	_, err := router.Route(context.Background(), makeIdentity(&tenantID), "active-model")
+	if err != ErrTenantNotAllowed {
+		t.Errorf("expected ErrTenantNotAllowed (fail closed on nil,nil), got %v", err)
 	}
 }
 
