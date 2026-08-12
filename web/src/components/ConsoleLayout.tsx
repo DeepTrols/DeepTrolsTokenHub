@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { Key, BarChart3, Wallet, Box, Play, LogOut, LayoutDashboard, FileText, Book, Settings, UserCircle, Users } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
+import { PendingReviewBanner } from "./PendingReviewBanner";
 
 export default function ConsoleLayout() {
   const navigate = useNavigate();
@@ -77,6 +78,7 @@ export default function ConsoleLayout() {
       </aside>
       <main className="flex-1 overflow-auto">
         <div className="p-6">
+          <PendingReviewBanner tenantStatus={user?.tenant_status} />
           <RouteErrorBoundary>
             <Outlet />
           </RouteErrorBoundary>
