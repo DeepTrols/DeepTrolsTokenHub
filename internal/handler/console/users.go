@@ -33,7 +33,9 @@ func HandleListUsers(a *app.App) http.HandlerFunc {
 		if rejectNonAdmin(w, r) {
 			return
 		}
-		filter := userRepo.ListFilter{}
+		// Management lists never show soft-deleted users (status=deleted): a
+		// user the admin deleted must disappear from the list immediately.
+		filter := userRepo.ListFilter{ExcludeDeleted: true}
 		if raw := r.URL.Query().Get("user_type"); raw != "" {
 			if raw != string(domain.UserTypePersonal) && raw != string(domain.UserTypeEnterprise) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid user_type"})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/google/uuid"
@@ -140,9 +141,16 @@ func (r *PostgresRepository) List(ctx context.Context, filter ListFilter, limit,
 		       created_at, updated_at
 		FROM users`
 	args := make([]any, 0, 4)
+	conds := make([]string, 0, 2)
 	if filter.UserType != "" {
 		args = append(args, string(filter.UserType))
-		query += fmt.Sprintf(` WHERE user_type = $%d`, len(args))
+		conds = append(conds, fmt.Sprintf(`user_type = $%d`, len(args)))
+	}
+	if filter.ExcludeDeleted {
+		conds = append(conds, `status <> 'deleted'`)
+	}
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
 	}
 	args = append(args, limit, offset)
 	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
@@ -224,9 +232,16 @@ func (r *PostgresRepository) UpdatePassword(ctx context.Context, id uuid.UUID, p
 func (r *PostgresRepository) Count(ctx context.Context, filter ListFilter) (int, error) {
 	query := `SELECT COUNT(*) FROM users`
 	args := make([]any, 0, 1)
+	conds := make([]string, 0, 2)
 	if filter.UserType != "" {
 		args = append(args, string(filter.UserType))
-		query += fmt.Sprintf(` WHERE user_type = $%d`, len(args))
+		conds = append(conds, fmt.Sprintf(`user_type = $%d`, len(args)))
+	}
+	if filter.ExcludeDeleted {
+		conds = append(conds, `status <> 'deleted'`)
+	}
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
 	}
 	var count int
 	err := r.pool.QueryRow(ctx, query, args...).Scan(&count)

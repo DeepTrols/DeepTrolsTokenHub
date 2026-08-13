@@ -288,3 +288,58 @@ func TestCountByUserType(t *testing.T) {
 		t.Errorf("Count all = %d, err = %v; want 3", n, err)
 	}
 }
+
+// TestListExcludesDeleted verifies that List/Count with ExcludeDeleted set omit
+// soft-deleted users (status=deleted), while the zero-value filter still
+// returns them for backward compatibility (audit/evidence paths).
+func TestListExcludesDeleted(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateAll(t, repo.pool)
+
+	now := time.Now().UTC()
+	keep := &domain.User{
+		ID: uuid.New(), Email: "keep@test.com", PasswordHash: "h",
+		DisplayName: "Keep", Role: "user", UserType: domain.UserTypePersonal,
+		Status: domain.UserStatusActive, CreatedAt: now, UpdatedAt: now,
+	}
+	remove := &domain.User{
+		ID: uuid.New(), Email: "remove@test.com", PasswordHash: "h",
+		DisplayName: "Remove", Role: "user", UserType: domain.UserTypePersonal,
+		Status: domain.UserStatusActive, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := repo.Create(ctx, keep); err != nil {
+		t.Fatalf("Create keep: %v", err)
+	}
+	if err := repo.Create(ctx, remove); err != nil {
+		t.Fatalf("Create remove: %v", err)
+	}
+	if err := repo.UpdateStatus(ctx, remove.ID, domain.UserStatusDeleted); err != nil {
+		t.Fatalf("soft delete remove: %v", err)
+	}
+
+	// Zero-value filter still includes the deleted user (backward compatible).
+	all, err := repo.List(ctx, ListFilter{}, 20, 0)
+	if err != nil {
+		t.Fatalf("List zero-value: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("zero-value List = %d users, want 2 (deleted included)", len(all))
+	}
+
+	// ExcludeDeleted omits the soft-deleted user from both List and Count.
+	kept, err := repo.List(ctx, ListFilter{ExcludeDeleted: true}, 20, 0)
+	if err != nil {
+		t.Fatalf("List ExcludeDeleted: %v", err)
+	}
+	if len(kept) != 1 || kept[0].ID != keep.ID {
+		t.Errorf("List ExcludeDeleted = %+v, want only %s", kept, keep.ID)
+	}
+	n, err := repo.Count(ctx, ListFilter{ExcludeDeleted: true})
+	if err != nil {
+		t.Fatalf("Count ExcludeDeleted: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("Count ExcludeDeleted = %d, want 1", n)
+	}
+}

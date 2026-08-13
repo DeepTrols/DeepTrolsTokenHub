@@ -17,6 +17,10 @@ type ListFilter struct {
 	// UserType restricts to a single account type when non-empty.
 	// Valid values are the domain.UserType constants (personal/enterprise).
 	UserType domain.UserType
+	// ExcludeDeleted omits soft-deleted users (status=deleted). Management
+	// lists use this so a deleted user disappears from the UI, while audit
+	// and evidence paths keep querying with the zero value.
+	ExcludeDeleted bool
 }
 
 // Repository defines the user data access interface.

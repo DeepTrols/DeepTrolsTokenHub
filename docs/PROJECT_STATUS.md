@@ -422,3 +422,25 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 金额全程 decimal 字符串穿越 API 边界，禁止 float；FOR UPDATE 防并发超扣；确定性幂等键**含金额**（`balance-transfer:<admin>:<member>:<amount>`）——同成员不同金额是独立转账，同金额重试回放不重复扣款；重放金额与存储不一致返回 `ErrIdempotencyMismatch`（handler → 409），绝不伪装成功；双钱包锁按 id 规范顺序获取防死锁
 - 员工「无钱包管理」= 前端隐藏 + `/wallet/topup` 未对企业员工开放（管理员分配是唯一入账路径）
 - 预算控制语义保留：员工余额上限 = 管理员分配给他的余额，花完即止（网关 402 `insufficient_balance`，提示管理员再分配）
+
+## 十一、2026-08-13 修复：管理控制台「个人管理」删除后仍显示
+
+> **Bug**：系统管理员在「管理控制台 → 个人管理」删除一个用户后，前端列表仍显示该用户。根因是 `HandleDeleteUser` 是**软删除**（`status='deleted'`，保留记录供审计/证据链），而 `HandleListUsers` 的 SQL 不过滤该状态，把已删除用户原样返回，前端 refetch 后依然可见。
+
+### 11.1 变更
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `user.ListFilter` 新增 `ExcludeDeleted bool`；**零值保持向后兼容**（审计/证据路径继续查全量） | `internal/repository/user/repository.go` |
+| 2 | `List`/`Count` 的 WHERE 改为 conditions-join：`UserType` 与 `status <> 'deleted'` 用 `AND` 组合，参数编号正确 | `internal/repository/user/postgres.go` |
+| 3 | `HandleListUsers` 设 `ListFilter{ExcludeDeleted: true}` —— 管理列表不再返回已删除用户，mutation 后前端 invalidation refetch 即消失 | `internal/handler/console/users.go` |
+
+### 11.2 测试（TDD，先 RED 后 GREEN）
+
+- `internal/repository/user/postgres_test.go`：`TestListExcludesDeleted` —— 零值 filter 含已删除用户（向后兼容）；`ExcludeDeleted` 时 `List`/`Count` 均排除。
+- `internal/handler/console/users_test.go`：`TestHandleListUsers_ExcludesDeleted` —— 删一人后 `?user_type=personal` total=2（admin+survivor），victim 不出现在响应。
+
+### 11.3 验证
+
+- `go build ./...` · `go vet ./...` 全绿；`go test ./internal/repository/user ./internal/handler/console` 全绿（console 包 191s 全量通过）。
+- 前端 `Users.test.tsx` 5/5 通过（前端无改动——invalidation 机制本就会 refetch，修复落在后端列表）。
