@@ -37,6 +37,8 @@ func HandleAllocateBalance(a *app.App) http.HandlerFunc {
 			return
 		}
 
+		// Cap the body so an oversized request fails fast instead of buffering.
+		r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 		var req allocateBalanceRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -85,14 +87,19 @@ func HandleAllocateBalance(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// Deterministic idempotency key from (admin, member): a retried request
-		// replays the recorded transfer instead of moving money twice.
-		key := "balance-transfer:" + adminID.String() + ":" + targetID.String()
+		// Deterministic idempotency key from (admin, member, amount): a retried
+		// request replays the recorded transfer instead of moving money twice,
+		// while a *different* amount to the same member is a distinct transfer.
+		key := "balance-transfer:" + adminID.String() + ":" + targetID.String() + ":" + amount.String()
 
 		transfer, err := a.Wallets.Transfer(ctx, fromWallet.ID, toWallet.ID, amount, key)
 		if err != nil {
 			if errors.Is(err, walletRepo.ErrInsufficientBalance) {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Wallet balance insufficient"})
+				return
+			}
+			if errors.Is(err, walletRepo.ErrIdempotencyMismatch) {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "Idempotency key already used with a different amount"})
 				return
 			}
 			log.Printf("HandleAllocateBalance: %v", err)

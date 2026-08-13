@@ -16,6 +16,11 @@ var ErrNotFound = errors.New("wallet: not found")
 // balance than the wallet holds.
 var ErrInsufficientBalance = errors.New("wallet: insufficient available balance")
 
+// ErrIdempotencyMismatch is returned when an idempotency key has already been
+// consumed for a different amount. Replaying it would report success while
+// moving no money, so callers must treat it as a conflict, never a success.
+var ErrIdempotencyMismatch = errors.New("wallet: idempotency key used with a different amount")
+
 type Repository interface {
 	FindByUser(ctx context.Context, userID uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*domain.Wallet, error)

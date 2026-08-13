@@ -586,6 +586,30 @@ func TestWalletTransfer(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects a key reused with a different amount", func(t *testing.T) {
+		// Consume a fresh key for 40, then reuse it for 10. The second call
+		// must be rejected, not silently replayed (which would report success
+		// while moving no money). Expectations are derived from the current
+		// balances so the sub-test is order-independent.
+		beforeFrom, _ := repo.FindByID(ctx, fromWalletID)
+		beforeTo, _ := repo.FindByID(ctx, toWalletID)
+		if _, err := repo.Transfer(ctx, fromWalletID, toWalletID, decimal.NewFromInt(40), "transfer-collide"); err != nil {
+			t.Fatalf("Transfer (consume key): %v", err)
+		}
+		if _, err := repo.Transfer(ctx, fromWalletID, toWalletID, decimal.NewFromInt(10), "transfer-collide"); err == nil {
+			t.Fatal("expected ErrIdempotencyMismatch on key reuse with different amount")
+		} else if !errors.Is(err, ErrIdempotencyMismatch) {
+			t.Errorf("err = %v, want ErrIdempotencyMismatch", err)
+		}
+		afterFrom, _ := repo.FindByID(ctx, fromWalletID)
+		afterTo, _ := repo.FindByID(ctx, toWalletID)
+		if !afterFrom.Balance.Equal(beforeFrom.Balance.Sub(decimal.NewFromInt(40))) ||
+			!afterTo.Balance.Equal(beforeTo.Balance.Add(decimal.NewFromInt(40))) {
+			t.Errorf("rejected transfer moved money: from=%s to=%s, want delta of 40 only",
+				afterFrom.Balance, afterTo.Balance)
+		}
+	})
+
 	t.Run("fails when destination wallet missing", func(t *testing.T) {
 		_, err := repo.Transfer(ctx, fromWalletID, uuid.New(), decimal.NewFromInt(1), "transfer-missing-to")
 		if err == nil {

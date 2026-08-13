@@ -89,6 +89,67 @@ func TestHandleAllocateBalance_Success(t *testing.T) {
 	}
 }
 
+// Regression for the security-reviewer HIGH: the idempotency key must include
+// the amount, otherwise a second allocation to the same member with a
+// *different* amount silently replays the first and moves no money.
+func TestHandleAllocateBalance_DifferentAmountsToSameMember(t *testing.T) {
+	a := appForTeamTest(t)
+	tn := seedTenantForTest(t, a, "bal-multi", "Acme", domain.TenantStatusActive)
+	owner := seedTeamUser(t, a, "bal-owner-multi@test.com")
+	sub := seedTeamUser(t, a, "bal-sub-multi@test.com")
+	_ = seedMembershipForAdminTest(t, a, tn.ID, owner.ID, domain.MembershipRoleOwner, domain.MembershipStatusActive)
+	_ = seedMembershipForAdminTest(t, a, tn.ID, sub.ID, domain.MembershipRoleMember, domain.MembershipStatusActive)
+	seedWalletBalanceForTeamTest(t, a, owner.ID, "100.00")
+	seedWalletBalanceForTeamTest(t, a, sub.ID, "0")
+
+	allocate := func(amount string) string {
+		t.Helper()
+		body := bytes.NewBufferString(`{"user_id":"` + sub.ID.String() + `","amount":"` + amount + `"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/console/team/balance/allocate", body)
+		req = setTenantCtx(req, owner.ID.String(), tn.ID.String(), "owner")
+		w := httptest.NewRecorder()
+		HandleAllocateBalance(a).ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("allocate %s: status = %d, want %d, body: %s", amount, w.Code, http.StatusOK, w.Body.String())
+		}
+		var resp struct {
+			TransactionID string `json:"transaction_id"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		return resp.TransactionID
+	}
+
+	first := allocate("10.00")
+	second := allocate("20.00")
+	if first == "" || second == "" {
+		t.Fatal("expected transaction ids")
+	}
+	// Different amounts → distinct transfers, never a replay.
+	if first == second {
+		t.Errorf("two different amounts resolved to the same transaction %q — H1 regression", first)
+	}
+	if !walletBalanceForTeamTest(t, a, owner.ID).Equal(decimal.RequireFromString("70")) {
+		t.Errorf("owner balance = %s, want 70 after 10 + 20", walletBalanceForTeamTest(t, a, owner.ID))
+	}
+	if !walletBalanceForTeamTest(t, a, sub.ID).Equal(decimal.RequireFromString("30")) {
+		t.Errorf("member balance = %s, want 30 after 10 + 20", walletBalanceForTeamTest(t, a, sub.ID))
+	}
+
+	// A retried identical amount is a genuine replay: no double debit.
+	replay := allocate("10.00")
+	if replay != first {
+		t.Errorf("same-amount replay produced a new transaction %q, want %q (must dedup)", replay, first)
+	}
+	if !walletBalanceForTeamTest(t, a, owner.ID).Equal(decimal.RequireFromString("70")) {
+		t.Error("owner balance changed on idempotent replay")
+	}
+	if !walletBalanceForTeamTest(t, a, sub.ID).Equal(decimal.RequireFromString("30")) {
+		t.Error("member balance changed on idempotent replay")
+	}
+}
+
 func TestHandleAllocateBalance_MemberForbidden(t *testing.T) {
 	a := appForTeamTest(t)
 	tn := seedTenantForTest(t, a, "bal-forbid", "Acme", domain.TenantStatusActive)

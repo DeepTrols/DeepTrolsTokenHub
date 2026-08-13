@@ -260,9 +260,15 @@ func (r *PostgresRepository) Transfer(ctx context.Context, fromWalletID, toWalle
 	defer tx.Rollback(ctx)
 
 	// 1. Idempotent replay: same (from_wallet, key) resolves to the original
-	//    transfer_out so retries never double-debit.
+	//    transfer_out so retries never double-debit. A key that maps to a
+	//    *different* amount is a conflict, never a replay — returning the
+	//    original tx would report success while moving no money.
 	existing, err := findIdempotentTx(ctx, tx, fromWalletID, idempotencyKey)
 	if err == nil {
+		if !existing.Amount.Abs().Equal(amount) {
+			return nil, fmt.Errorf("%w: key=%s stored=%s requested=%s",
+				ErrIdempotencyMismatch, idempotencyKey, existing.Amount.Abs(), amount)
+		}
 		if cerr := tx.Commit(ctx); cerr != nil {
 			return nil, fmt.Errorf("wallet transfer commit: %w", cerr)
 		}
@@ -272,38 +278,45 @@ func (r *PostgresRepository) Transfer(ctx context.Context, fromWalletID, toWalle
 		return nil, fmt.Errorf("wallet transfer idempotent check: %w", err)
 	}
 
-	// 2. Lock the source wallet and validate available balance.
-	var fromBalance, fromFrozen decimal.Decimal
-	var fromBalanceStr, fromFrozenStr string
-	var fromVersion int64
-	if err := tx.QueryRow(ctx,
-		`SELECT balance, frozen, version FROM wallets WHERE id = $1 FOR UPDATE`,
-		fromWalletID).Scan(&fromBalanceStr, &fromFrozenStr, &fromVersion); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("%w: source wallet", ErrNotFound)
-		}
-		return nil, fmt.Errorf("wallet transfer lock source: %w", err)
+	// 2. Lock both wallets in canonical (sorted-by-id) order so a concurrent
+	//    A→B and B→A transfer can never deadlock on each other's rows.
+	type lockedWallet struct {
+		balance decimal.Decimal
+		frozen  decimal.Decimal
+		version int64
 	}
-	fromBalance = parseDecimalStr(fromBalanceStr)
-	fromFrozen = parseDecimalStr(fromFrozenStr)
-	available := fromBalance.Sub(fromFrozen)
+	lockOrder := [2]uuid.UUID{fromWalletID, toWalletID}
+	if lockOrder[0].String() > lockOrder[1].String() {
+		lockOrder[0], lockOrder[1] = lockOrder[1], lockOrder[0]
+	}
+	locked := make(map[uuid.UUID]lockedWallet, 2)
+	for _, id := range lockOrder {
+		var lw lockedWallet
+		var balStr, frozenStr string
+		if err := tx.QueryRow(ctx,
+			`SELECT balance, frozen, version FROM wallets WHERE id = $1 FOR UPDATE`,
+			id).Scan(&balStr, &frozenStr, &lw.version); err != nil {
+			if err == pgx.ErrNoRows {
+				label := "destination"
+				if id == fromWalletID {
+					label = "source"
+				}
+				return nil, fmt.Errorf("%w: %s wallet", ErrNotFound, label)
+			}
+			return nil, fmt.Errorf("wallet transfer lock %s: %w", id, err)
+		}
+		lw.balance = parseDecimalStr(balStr)
+		lw.frozen = parseDecimalStr(frozenStr)
+		locked[id] = lw
+	}
+	fromLock := locked[fromWalletID]
+	toLock := locked[toWalletID]
+
+	// 3. Validate available balance on the source.
+	available := fromLock.balance.Sub(fromLock.frozen)
 	if available.LessThan(amount) {
 		return nil, fmt.Errorf("%w: available=%s required=%s", errInsufficientBalance, available, amount)
 	}
-
-	// 3. Lock the destination wallet.
-	var toBalance decimal.Decimal
-	var toBalanceStr string
-	var toVersion int64
-	if err := tx.QueryRow(ctx,
-		`SELECT balance, version FROM wallets WHERE id = $1 FOR UPDATE`,
-		toWalletID).Scan(&toBalanceStr, &toVersion); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("%w: destination wallet", ErrNotFound)
-		}
-		return nil, fmt.Errorf("wallet transfer lock destination: %w", err)
-	}
-	toBalance = parseDecimalStr(toBalanceStr)
 
 	// 4. Write both ledger rows: transfer_out (source, -amount) and
 	//    transfer_in (destination, +amount), cross-referenced and sharing the
@@ -326,14 +339,14 @@ func (r *PostgresRepository) Transfer(ctx context.Context, fromWalletID, toWalle
 	`
 	if _, err := tx.Exec(ctx, insertTx,
 		outTxID, fromWalletID, idempotencyKey, domain.WalletTxTransferOut,
-		amount.Neg(), fromBalance, fromBalance.Sub(amount),
+		amount.Neg(), fromLock.balance, fromLock.balance.Sub(amount),
 		"balance_transfer", toWalletID, json.RawMessage(meta),
 	); err != nil {
 		return nil, fmt.Errorf("wallet transfer insert out: %w", err)
 	}
 	if _, err := tx.Exec(ctx, insertTx,
 		inTxID, toWalletID, idempotencyKey, domain.WalletTxTransferIn,
-		amount, toBalance, toBalance.Add(amount),
+		amount, toLock.balance, toLock.balance.Add(amount),
 		"balance_transfer", fromWalletID, json.RawMessage(meta),
 	); err != nil {
 		return nil, fmt.Errorf("wallet transfer insert in: %w", err)
@@ -344,17 +357,21 @@ func (r *PostgresRepository) Transfer(ctx context.Context, fromWalletID, toWalle
 		UPDATE wallets SET balance = balance - $1, version = version + 1, updated_at = NOW()
 		WHERE id = $2 AND version = $3
 	`
-	tag, err := tx.Exec(ctx, updateSource, amount, fromWalletID, fromVersion)
+	tag, err := tx.Exec(ctx, updateSource, amount, fromWalletID, fromLock.version)
 	if err != nil {
 		return nil, fmt.Errorf("wallet transfer update source: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return nil, fmt.Errorf("wallet transfer: source optimistic lock conflict (version=%d)", fromVersion)
+		return nil, fmt.Errorf("wallet transfer: source optimistic lock conflict (version=%d)", fromLock.version)
 	}
-	if _, err := tx.Exec(ctx,
+	destTag, err := tx.Exec(ctx,
 		`UPDATE wallets SET balance = balance + $1, version = version + 1, updated_at = NOW() WHERE id = $2 AND version = $3`,
-		amount, toWalletID, toVersion); err != nil {
+		amount, toWalletID, toLock.version)
+	if err != nil {
 		return nil, fmt.Errorf("wallet transfer update destination: %w", err)
+	}
+	if destTag.RowsAffected() == 0 {
+		return nil, fmt.Errorf("wallet transfer: destination optimistic lock conflict (version=%d)", toLock.version)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -367,8 +384,8 @@ func (r *PostgresRepository) Transfer(ctx context.Context, fromWalletID, toWalle
 		IdempotencyKey: idempotencyKey,
 		TxType:         domain.WalletTxTransferOut,
 		Amount:         amount.Neg(),
-		BalanceBefore:  fromBalance,
-		BalanceAfter:   fromBalance.Sub(amount),
+		BalanceBefore:  fromLock.balance,
+		BalanceAfter:   fromLock.balance.Sub(amount),
 		ReferenceType:  "balance_transfer",
 		ReferenceID:    &toWalletID,
 	}, nil
