@@ -20,13 +20,16 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// teamMember represents a member in the team list response.
+// teamMember represents a member in the team list response. Balance is the
+// member's personal-wallet spendable balance, serialized as a decimal string so
+// the frontend never touches floats for money.
 type teamMember struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
-	Status string `json:"status"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Role    string `json:"role"`
+	Status  string `json:"status"`
+	Balance string `json:"balance"`
 }
 
 // isTenantAdmin checks that the authenticated user is an admin or owner of their
@@ -86,6 +89,11 @@ func HandleListTeamMembers(a *app.App) http.HandlerFunc {
 			if u, err := a.Users.FindByID(r.Context(), m.UserID); err == nil && u != nil {
 				item.Name = u.DisplayName
 				item.Email = u.Email
+			}
+			// The member's spendable balance comes from their personal wallet
+			// (tenant_id IS NULL). A missing wallet simply leaves balance empty.
+			if w, err := a.Wallets.FindByUser(r.Context(), m.UserID, nil); err == nil && w != nil {
+				item.Balance = w.Balance.String()
 			}
 			items = append(items, item)
 		}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
+	"github.com/shopspring/decimal"
 )
 
 // seedTeamFixture creates a tenant with an owner and returns it together with
@@ -105,6 +106,51 @@ func TestHandleListTeamMembers_IncludesStatusAndExcludesLeft(t *testing.T) {
 	}
 	if _, ok := byID[left.ID.String()]; ok {
 		t.Error("left member should be omitted from the list")
+	}
+}
+
+func TestHandleListTeamMembers_IncludesBalance(t *testing.T) {
+	a := appForTeamTest(t)
+	tn := seedTenantForTest(t, a, "team-bal-ok", "Acme", domain.TenantStatusActive)
+	owner := seedTeamUser(t, a, "owner-bal@test.com")
+	member := seedTeamUser(t, a, "member-bal@test.com")
+	_ = seedMembershipForAdminTest(t, a, tn.ID, owner.ID, domain.MembershipRoleOwner, domain.MembershipStatusActive)
+	_ = seedMembershipForAdminTest(t, a, tn.ID, member.ID, domain.MembershipRoleMember, domain.MembershipStatusActive)
+	seedWalletBalanceForTeamTest(t, a, owner.ID, "50.00")
+	seedWalletBalanceForTeamTest(t, a, member.ID, "10.00")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/console/team", nil)
+	req = setTenantCtx(req, owner.ID.String(), tn.ID.String(), "owner")
+	w := httptest.NewRecorder()
+
+	HandleListTeamMembers(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp struct {
+		Members []teamMember `json:"members"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	byID := map[string]teamMember{}
+	for _, m := range resp.Members {
+		byID[m.ID] = m
+	}
+	for _, tc := range []struct {
+		user  *domain.User
+		want  string
+		label string
+	}{
+		{member, "10", "member"},
+		{owner, "50", "owner"},
+	} {
+		got := byID[tc.user.ID.String()].Balance
+		if !decimal.RequireFromString(got).Equal(decimal.RequireFromString(tc.want)) {
+			t.Errorf("%s balance = %q, want %s", tc.label, got, tc.want)
+		}
 	}
 }
 
