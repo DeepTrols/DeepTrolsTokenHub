@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import {
   Box,
-  Wallet,
   BarChart3,
   LogOut,
   Shield,
@@ -19,7 +18,6 @@ import RouteErrorBoundary from "./RouteErrorBoundary";
 const navItems = [
   { to: "/admin/models", icon: Box, label: "模型管理" },
   { to: "/admin/channels", icon: Shield, label: "渠道管理" },
-  { to: "/admin/quotas", icon: Wallet, label: "配额管理" },
   { to: "/admin/reconciliation", icon: BarChart3, label: "对账管理" },
   { to: "/admin/policies", icon: Route, label: "策略管理" },
   { to: "/admin/costs", icon: Calculator, label: "成本核算" },

@@ -372,3 +372,53 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 **验证**：`go build/vet` clean · `go test -p 1 ./internal/handler/console/` 全绿 · 前端 `tsc --noEmit` + vitest 237 例全过；code-reviewer APPROVE（0 CRITICAL/0 HIGH）、security-reviewer 遗留项见下。
 
 **安全评审遗留（follow-up，非本次阻塞）**：① 默认管理员密码 `deeptrols@2026` 为预置 infra（`internal/config/config.go`），建议启动时强制显式提供；② 密码策略仅最小 8 位，无复杂度要求（与既有个人注册一致），复杂度为产品策略待定；③ `ConsoleAuth`/`GatewayAuth` 不校验租户状态，`pending_review` 企业可进控制台但钱包零余额无法计费调用——是否在中间件层硬拦截待产品决策；④ 注册 409「Email already registered」暴露邮箱占用（标准注册 UX，与既有注册一致，已随限流缓解枚举放大）。
+
+
+## 十、2026-08-13 砍掉「配额」概念：企业管理员充值 → 给员工分配余额
+
+> **背景**：企业管理员（`demo@admin.com`）在团队管理分配额度时报「企业暂无配额池，请联系平台管理员创建后再分配」；企业员工（`demo@demo.com`）在线体验报 `Insufficient balance`。与用户对齐后**放弃「配额池」三层账务模型**（pool/allocation/ledger），改为最简钱包模型：**企业管理员充值（钱进自己钱包）→ 给员工分配余额（钱包转账）→ 员工用余额调用模型**。网关本就无条件扣钱包，员工钱包有余额即零改动 work。
+
+### 10.1 四角色权限矩阵（目标态）
+
+| 角色 | Admin 控制台 | 团队管理 | 钱包管理 | 余额/额度 |
+|---|---|---|---|---|
+| 系统管理员 `role=admin` | ✅（去掉「配额管理」菜单） | ✅ | ✅ | — |
+| 个人用户 | ❌ | ❌ | ✅ | 自充自用 |
+| 企业管理员 `tenant_role=owner/admin` | ❌ | ✅ | ✅ | 充值 + 给员工分配余额 |
+| 企业员工 `tenant_role=member` | ❌ | ❌ | ❌（隐藏） | 余额由管理员分配，只读 |
+
+### 10.2 后端变更（commit `fcffdc6`）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `wallet.Repository` 新增 `Transfer(ctx, fromWalletID, toWalletID, amount, idempotencyKey)`：单事务 FOR UPDATE 锁双钱包、余额校验、确定性幂等键、两条流水（`transfer_out`/`transfer_in`，`reference_type='balance_transfer'`） | `internal/repository/wallet/repository.go` / `postgres.go` |
+| 2 | 新增 `HandleAllocateBalance`：`POST /team/balance/allocate`，复用 `isTenantAdmin` 鉴权；请求 `{user_id, amount}`（金额 decimal 字符串）；**强制同租户转账**（目标 `tenant_id` 不匹配 403/404）；`amount<=0` 400；余额不足 400「钱包余额不足」 | `internal/handler/console/team_balance.go` |
+| 3 | 路由注册（`/team` 限流组内） | `cmd/api/main.go` |
+| 4 | **安全评审 H1 修复（follow-up commit）**：幂等键纳入金额 → `"balance-transfer:" + adminUserID + ":" + targetUserID + ":" + amount`，同成员**不同金额**是独立转账，不再静默回放首笔（否则第二次分配 200 OK 但钱不动）；`Transfer` 重放路径校验存储金额一致，不一致返回新哨兵 `ErrIdempotencyMismatch`（handler → 409）；锁双钱包改**规范顺序**（按 id 排序）防 A→B / B→A 并发死锁；目标钱包 UPDATE 补 `RowsAffected` 乐观锁检查；`team/balance/allocate` 加 `http.MaxBytesReader` 8KB 体限制 | `internal/repository/wallet/postgres.go` / `repository.go` / `team_balance.go` |
+
+### 10.3 前端变更
+
+| 文件 | 变更 |
+|------|------|
+| `web/src/pages/TeamManagement.tsx` | 「分配额度」对话框 → 「分配余额」：输入 CNY 金额（`toMoneyInput` 清洗 + 正则 `/^\d+(\.\d{1,2})?$/` + 上限 = 管理员 `/wallet` 的 `available`）；成员列表新增「余额」列（decimal 字符串经 `fmtMoney` 展示）；mutation 指向 `/team/balance/allocate`，成功同时失效 `/team` + `/wallet` |
+| `web/src/components/ConsoleLayout.tsx` | 「钱包管理」菜单对企业员工（`tenant_role === "member"`）隐藏（前端只读 + 后端不开放员工充值为加固项） |
+| `web/src/components/AdminLayout.tsx` | 删除「配额管理」菜单项 |
+| `web/src/App.tsx` | 删除 `/admin/quotas` 路由（`QuotaManagement.tsx` 保留但不可达） |
+
+### 10.4 测试
+
+- `internal/repository/wallet/postgres_test.go`：`Transfer` 集成测试（成功转账双方余额变化 + 双流水；余额不足 `ErrInsufficientBalance`；幂等重放不重复扣款；目标钱包不存在 `ErrNotFound`；**新增**：同一 key 复用于不同金额 → `ErrIdempotencyMismatch`，且被拒转账不移动资金）
+- `internal/handler/console/team_balance_test.go`：非租户管理员 403；跨租户目标 403/404；`amount<=0` 400；余额不足 400；**新增** `TestHandleAllocateBalance_DifferentAmountsToSameMember`（H1 回归：同成员 10+20 两次分配均成功、交易号不同、余额 70/30；同金额重试回放不重复扣款）
+- 前端：`TeamManagement.test.tsx`（分配余额对话框 + `/team/balance/allocate` 提交 + 余额列展示 + 超上限禁用 + **wallet 加载失败禁用分配并提示重试**）、新增 `ConsoleLayout.test.tsx`（四角色导航：企业员工无钱包管理/团队管理/管理控制台，企业管理员有钱包+团队，个人用户有钱包无团队，系统管理员有钱包+管理控制台）、新增 `money.test.ts`（`toCents`/`fmtMoney`/`toMoneyInput`/`isValidAmount`，BigInt 超越 float 安全整数精度）
+
+### 10.5 验证
+
+- `go build ./...` · `go vet ./...` · `go test ./...` 全绿（含 `internal/repository/wallet` + `internal/handler/console`）
+- 前端 `npx tsc --noEmit` · vitest（27 文件 / 250 例）· `npm run build` 全绿
+
+### 10.6 边界 / 安全
+
+- 转账**强制同租户**（后端校验 `tenant_id` 匹配），禁止跨租户划转
+- 金额全程 decimal 字符串穿越 API 边界，禁止 float；FOR UPDATE 防并发超扣；确定性幂等键**含金额**（`balance-transfer:<admin>:<member>:<amount>`）——同成员不同金额是独立转账，同金额重试回放不重复扣款；重放金额与存储不一致返回 `ErrIdempotencyMismatch`（handler → 409），绝不伪装成功；双钱包锁按 id 规范顺序获取防死锁
+- 员工「无钱包管理」= 前端隐藏 + `/wallet/topup` 未对企业员工开放（管理员分配是唯一入账路径）
+- 预算控制语义保留：员工余额上限 = 管理员分配给他的余额，花完即止（网关 402 `insufficient_balance`，提示管理员再分配）

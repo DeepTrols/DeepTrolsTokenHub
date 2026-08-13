@@ -1,6 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../lib/auth";
-import { useConsoleMutation, useConsoleQuery } from "../lib/hooks/use-api";
+import {
+  consoleKey,
+  useConsoleMutation,
+  useConsoleQuery,
+} from "../lib/hooks/use-api";
+import { fmtMoney, isValidAmount, toCents, toMoneyInput } from "../lib/money";
 import {
   Ban,
   CheckCircle2,
@@ -41,30 +47,8 @@ interface MemberRow {
   email: string;
   role: string;
   status: string;
-}
-
-interface QuotaAllocation {
-  user_id: string;
-  allocated: number;
-  used: number;
-  remaining: number;
-}
-
-interface QuotaPool {
-  id: string;
-  dimension: string;
-  total_amount: number;
-  allocated: number;
-  used: number;
-  remaining: number;
-  unit_name: string;
-  allocations: QuotaAllocation[];
-}
-
-/** Per-member quota aggregated across all pools for the list column. */
-interface MemberQuota {
-  allocated: number;
-  used: number;
+  /** Personal-wallet spendable balance as a decimal string. */
+  balance: string;
 }
 
 interface CreateSubAccountVars {
@@ -74,10 +58,9 @@ interface CreateSubAccountVars {
   role: string;
 }
 
-interface AllocateQuotaVars {
+interface AllocateBalanceVars {
   user_id: string;
-  pool_id: string;
-  amount: number;
+  amount: string;
 }
 
 const STATUS_META: Record<string, { label: string; variant: "success" | "destructive" | "secondary" }> = {
@@ -104,10 +87,6 @@ function roleLabel(role: string): string {
   return role;
 }
 
-function fmtNum(n: number | undefined): string {
-  return (n ?? 0).toLocaleString("en-US");
-}
-
 export default function TeamManagement() {
   const { user } = useAuth();
   const isOwner = user?.tenant_role === "owner";
@@ -120,33 +99,30 @@ export default function TeamManagement() {
   } = useConsoleQuery<{ members: MemberRow[] }>("/team");
   const members: MemberRow[] = data?.members ?? [];
 
-  const { data: quotaData } = useConsoleQuery<{ pools: QuotaPool[] }>("/team/quotas");
-  const pools: QuotaPool[] = quotaData?.pools ?? [];
-
-  // Aggregate each member's quota across all pools for the list column.
-  const quotaByUser = useMemo(() => {
-    const map = new Map<string, MemberQuota>();
-    for (const pool of pools) {
-      for (const a of pool.allocations) {
-        const prev = map.get(a.user_id);
-        map.set(a.user_id, {
-          allocated: (prev?.allocated ?? 0) + a.allocated,
-          used: (prev?.used ?? 0) + a.used,
-        });
-      }
-    }
-    return map;
-  }, [pools]);
-
-  const allocatedTotal = pools.reduce((sum, p) => sum + p.allocated, 0);
-  const headroomTotal = pools.reduce((sum, p) => sum + p.remaining, 0);
+  // The admin's own spendable balance, shown in the allocate dialog so the
+  // amount entered can never exceed what they can actually transfer.
+  const {
+    data: walletData,
+    isError: walletError,
+    refetch: walletRefetch,
+  } = useConsoleQuery<{ available: string }>("/wallet");
+  const walletLoaded = !!walletData;
+  const adminAvailable = walletData?.available ?? "0";
 
   // --- Mutations ---
+  const queryClient = useQueryClient();
   const createMutation = useConsoleMutation<unknown, CreateSubAccountVars>(
     "post", "/team/members", "/team",
   );
-  const allocateMutation = useConsoleMutation<unknown, AllocateQuotaVars>(
-    "post", "/team/quotas/allocate", "/team/quotas",
+  const allocateMutation = useConsoleMutation<unknown, AllocateBalanceVars>(
+    "post", "/team/balance/allocate", "/team",
+    {
+      // The transfer also moves money out of the admin's own wallet, so the
+      // wallet view needs a refresh alongside the member list.
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: consoleKey("/wallet") });
+      },
+    },
   );
   const removeMutation = useConsoleMutation<unknown, { id: string }>(
     "delete", v => `/team/${v.id}`, "/team",
@@ -210,36 +186,34 @@ export default function TeamManagement() {
     }
   }
 
-  // --- Allocate quota dialog ---
-  // The backend allocation is additive: the amount is added to the member's
-  // existing share, and the atomic capacity check rejects anything that would
-  // push the pool past its total.
+  // --- Allocate balance dialog ---
+  // The backend transfers the amount from the admin's wallet to the member's
+  // wallet; the entered value must be a positive decimal with at most two
+  // fractional digits and cannot exceed the admin's own spendable balance.
   const [allocMember, setAllocMember] = useState<MemberRow | null>(null);
-  const [allocPoolId, setAllocPoolId] = useState("");
   const [allocAmount, setAllocAmount] = useState("");
-  const allocPool = pools.find(p => p.id === allocPoolId) ?? null;
-  const allocCurrent = allocPool?.allocations.find(a => a.user_id === allocMember?.id);
-  const allocAmountNum = Number(allocAmount);
+  const allocAmountValid = isValidAmount(allocAmount);
+  const allocExceeds =
+    walletLoaded &&
+    allocAmountValid &&
+    toCents(allocAmount) > toCents(adminAvailable);
+  // The ceiling is only meaningful once the wallet read has succeeded. Without
+  // it (still loading, or errored) the confirm button stays disabled so the
+  // client-side guard can never be silently bypassed.
   const allocValid =
-    !!allocMember &&
-    !!allocPool &&
-    Number.isInteger(allocAmountNum) &&
-    allocAmountNum > 0 &&
-    allocAmountNum <= allocPool.remaining;
+    !!allocMember && walletLoaded && allocAmountValid && !allocExceeds;
 
   function openAllocate(m: MemberRow) {
     allocateMutation.reset();
     setAllocMember(m);
-    setAllocPoolId(pools.length > 0 ? pools[0].id : "");
     setAllocAmount("");
   }
   async function handleAllocate() {
-    if (!allocMember || !allocPool || !allocValid) return;
+    if (!allocMember || !allocValid) return;
     try {
       await allocateMutation.mutateAsync({
         user_id: allocMember.id,
-        pool_id: allocPool.id,
-        amount: allocAmountNum,
+        amount: allocAmount,
       });
       setAllocMember(null);
       setAllocAmount("");
@@ -328,10 +302,7 @@ export default function TeamManagement() {
         <SectionPageLayout.HeaderBlock>
           <SectionPageLayout.Title>团队管理</SectionPageLayout.Title>
           <SectionPageLayout.Description>
-            共 {members.length} 人
-            {pools.length > 0
-              ? ` · 企业剩余可分配 ${fmtNum(headroomTotal)} ${pools[0].unit_name}`
-              : ""}
+            共 {members.length} 人 · 管理员可给成员分配余额
           </SectionPageLayout.Description>
         </SectionPageLayout.HeaderBlock>
         <SectionPageLayout.Actions>
@@ -354,35 +325,6 @@ export default function TeamManagement() {
               {rowActionError instanceof Error ? rowActionError.message : String(rowActionError)}
             </CardContent>
           </Card>
-        )}
-
-        {pools.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">配额池数量</p>
-                <p className="text-xl font-semibold mt-1">{pools.length}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">企业剩余可分配</p>
-                <p className="text-xl font-semibold mt-1">
-                  {fmtNum(headroomTotal)}
-                  <span className="ml-1 text-sm font-normal text-muted-foreground">{pools[0].unit_name}</span>
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground">已分配总量</p>
-                <p className="text-xl font-semibold mt-1">
-                  {fmtNum(allocatedTotal)}
-                  <span className="ml-1 text-sm font-normal text-muted-foreground">{pools[0].unit_name}</span>
-                </p>
-              </CardContent>
-            </Card>
-          </div>
         )}
 
         <div className="mb-4 relative max-w-sm">
@@ -413,7 +355,7 @@ export default function TeamManagement() {
                 <TableHead>邮箱</TableHead>
                 <TableHead>角色</TableHead>
                 <TableHead>状态</TableHead>
-                <TableHead>配额</TableHead>
+                <TableHead>余额</TableHead>
                 <TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
@@ -425,71 +367,65 @@ export default function TeamManagement() {
                   </TableCell>
                 </TableRow>
               )}
-              {filtered.map(m => {
-                const q = quotaByUser.get(m.id);
-                return (
-                  <TableRow key={m.id}>
-                    <TableCell className="font-medium text-sm">{m.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{m.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={roleBadge(m.role)}>{roleLabel(m.role)}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_META[m.status]?.variant ?? "secondary"}>
-                        {STATUS_META[m.status]?.label ?? m.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {!q || q.allocated <= 0 ? (
-                        <span className="text-sm text-muted-foreground">—</span>
+              {filtered.map(m => (
+                <TableRow key={m.id}>
+                  <TableCell className="font-medium text-sm">{m.name}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{m.email}</TableCell>
+                  <TableCell>
+                    <Badge variant={roleBadge(m.role)}>{roleLabel(m.role)}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={STATUS_META[m.status]?.variant ?? "secondary"}>
+                      {STATUS_META[m.status]?.label ?? m.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {m.balance ? (
+                      <span className="text-sm tabular-nums">¥{fmtMoney(m.balance)}</span>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex gap-1 justify-end">
+                      {m.role === "owner" ? (
+                        <span className="text-xs text-muted-foreground self-center">所有者不可操作</span>
                       ) : (
-                        <div className="text-sm">
-                          <div>已分配 {fmtNum(q.allocated)}</div>
-                          <div className="text-xs text-muted-foreground">已用 {fmtNum(q.used)}</div>
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex gap-1 justify-end">
-                        {m.role === "owner" ? (
-                          <span className="text-xs text-muted-foreground self-center">所有者不可操作</span>
-                        ) : (
-                          <>
-                            <Button variant="outline" size="sm" onClick={() => openAllocate(m)}>
-                              <Coins size={12} className="mr-1" />分配额度
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => openAllocate(m)}>
+                            <Coins size={12} className="mr-1" />分配余额
+                          </Button>
+                          {canToggleStatus(m) && (
+                            <Button variant="outline" size="sm" onClick={() => handleToggleStatus(m)}>
+                              {m.status === "suspended" ? (
+                                <><CheckCircle2 size={12} className="mr-1" />启用</>
+                              ) : (
+                                <><Ban size={12} className="mr-1" />停用</>
+                              )}
                             </Button>
-                            {canToggleStatus(m) && (
-                              <Button variant="outline" size="sm" onClick={() => handleToggleStatus(m)}>
-                                {m.status === "suspended" ? (
-                                  <><CheckCircle2 size={12} className="mr-1" />启用</>
-                                ) : (
-                                  <><Ban size={12} className="mr-1" />停用</>
-                                )}
-                              </Button>
-                            )}
-                            {isOwner && (
-                              <Button variant="outline" size="sm" onClick={() => openRoleEdit(m)}>
-                                <Edit size={12} className="mr-1" />改角色
-                              </Button>
-                            )}
-                            {m.id !== user?.id && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                aria-label="移除成员"
-                                className="hover:text-destructive"
-                                onClick={() => handleRemove(m)}
-                              >
-                                <Trash2 size={12} />
-                              </Button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+                          )}
+                          {isOwner && (
+                            <Button variant="outline" size="sm" onClick={() => openRoleEdit(m)}>
+                              <Edit size={12} className="mr-1" />改角色
+                            </Button>
+                          )}
+                          {m.id !== user?.id && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              aria-label="移除成员"
+                              className="hover:text-destructive"
+                              onClick={() => handleRemove(m)}
+                            >
+                              <Trash2 size={12} />
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </Card>
@@ -559,10 +495,10 @@ export default function TeamManagement() {
           </DialogContent>
         </Dialog>
 
-        {/* Allocate quota dialog */}
+        {/* Allocate balance dialog */}
         <Dialog open={allocMember !== null} onOpenChange={() => setAllocMember(null)}>
           <DialogContent>
-            <DialogHeader><DialogTitle>分配额度</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>分配余额</DialogTitle></DialogHeader>
             {allocMember && (
               <div className="space-y-4">
                 <div className="p-3 bg-muted rounded-lg">
@@ -570,91 +506,56 @@ export default function TeamManagement() {
                   <p className="text-xs text-muted-foreground">{allocMember.email}</p>
                 </div>
 
-                {pools.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    企业暂无配额池，请联系平台管理员创建后再分配。
-                  </p>
-                ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label>配额池</Label>
-                      <div className="space-y-2">
-                        {pools.map(p => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => {
-                              setAllocPoolId(p.id);
-                              setAllocAmount("");
-                            }}
-                            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-sm text-left ${
-                              allocPoolId === p.id
-                                ? "border-primary bg-primary/5"
-                                : "border-input hover:bg-muted"
-                            }`}
-                          >
-                            <span>{p.unit_name || "token"} 池</span>
-                            <span className="text-xs text-muted-foreground">
-                              剩余可分配 {fmtNum(p.remaining)}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
+                <div className="p-3 bg-muted rounded-lg text-sm">
+                  <p className="text-xs text-muted-foreground">您的可用余额</p>
+                  {walletLoaded ? (
+                    <p className="font-medium tabular-nums">¥{fmtMoney(adminAvailable)}</p>
+                  ) : walletError ? (
+                    <div className="space-y-1">
+                      <p className="text-xs text-destructive">可用余额加载失败</p>
+                      <Button variant="outline" size="sm" onClick={() => walletRefetch()}>
+                        重试
+                      </Button>
                     </div>
+                  ) : (
+                    <p className="font-medium tabular-nums">加载中...</p>
+                  )}
+                </div>
 
-                    {allocPool && (
-                      <>
-                        <div className="grid grid-cols-3 gap-2 text-sm">
-                          <div className="p-2 bg-muted rounded-lg">
-                            <p className="text-xs text-muted-foreground">该成员已分配</p>
-                            <p className="font-medium">{fmtNum(allocCurrent?.allocated ?? 0)}</p>
-                          </div>
-                          <div className="p-2 bg-muted rounded-lg">
-                            <p className="text-xs text-muted-foreground">已用</p>
-                            <p className="font-medium">{fmtNum(allocCurrent?.used ?? 0)}</p>
-                          </div>
-                          <div className="p-2 bg-muted rounded-lg">
-                            <p className="text-xs text-muted-foreground">本池可分配</p>
-                            <p className="font-medium">{fmtNum(allocPool.remaining)}</p>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>追加额度 *（最多 {fmtNum(allocPool.remaining)}）</Label>
-                          <Input
-                            value={allocAmount}
-                            onChange={e => setAllocAmount(e.target.value.replace(/[^0-9]/g, ""))}
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="例如 1000"
-                          />
-                          {allocAmount && !allocValid && (
-                            <p className="text-xs text-destructive">
-                              {allocAmountNum > allocPool.remaining
-                                ? "超出企业剩余可分配额度"
-                                : "请输入正整数"}
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    )}
-                    {allocateMutation.isError && (
-                      <p className="text-sm text-destructive">
-                        {allocateMutation.error instanceof Error
-                          ? allocateMutation.error.message
-                          : "分配失败"}
-                      </p>
-                    )}
-                  </>
+                <div className="space-y-2">
+                  <Label>转账金额（CNY）*</Label>
+                  <Input
+                    value={allocAmount}
+                    onChange={e => setAllocAmount(toMoneyInput(e.target.value))}
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="例如 10.00"
+                  />
+                  {allocAmount && !allocValid && (
+                    <p className="text-xs text-destructive">
+                      {allocExceeds ? "超出您的可用余额" : "请输入有效金额（最多两位小数）"}
+                    </p>
+                  )}
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  金额将直接从您的余额转入 {allocMember.name} 的账户。
+                </p>
+
+                {allocateMutation.isError && (
+                  <p className="text-sm text-destructive">
+                    {allocateMutation.error instanceof Error
+                      ? allocateMutation.error.message
+                      : "分配失败"}
+                  </p>
                 )}
               </div>
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setAllocMember(null)}>取消</Button>
-              {pools.length > 0 && (
-                <Button onClick={handleAllocate} disabled={!allocValid || allocateMutation.isPending}>
-                  {allocateMutation.isPending ? "分配中..." : "确认分配"}
-                </Button>
-              )}
+              <Button onClick={handleAllocate} disabled={!allocValid || allocateMutation.isPending}>
+                {allocateMutation.isPending ? "分配中..." : "确认分配"}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

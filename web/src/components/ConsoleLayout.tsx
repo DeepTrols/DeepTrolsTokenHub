@@ -10,6 +10,9 @@ export default function ConsoleLayout() {
   const { user, logout } = useAuth();
   const isAdmin = user?.role === "admin";
   const isEnterpriseAdmin = user?.tenant_role === "owner" || user?.tenant_role === "admin";
+  // Enterprise members have no self-service wallet: their balance is handed out
+  // by the team admin, so the wallet menu is hidden for them (read-only spend).
+  const isEnterpriseMember = user?.tenant_role === "member";
 
   const navItems = [
     { to: "/dashboard", icon: LayoutDashboard, label: "数据看板" },
@@ -17,7 +20,7 @@ export default function ConsoleLayout() {
     { to: "/models", icon: Box, label: "模型广场" },
     { to: "/playground", icon: Play, label: "在线体验" },
     { to: "/logs", icon: FileText, label: "调用记录" },
-    { to: "/wallet", icon: Wallet, label: "钱包管理" },
+    ...(isEnterpriseMember ? [] : [{ to: "/wallet", icon: Wallet, label: "钱包管理" }]),
     { to: "/profile", icon: UserCircle, label: "个人设置" },
     ...(isEnterpriseAdmin ? [
       { to: "/team", icon: Users, label: "团队管理" },

@@ -38,49 +38,29 @@ const mockApiPost = api.post as ReturnType<typeof vi.fn>;
 const mockApiPut = api.put as ReturnType<typeof vi.fn>;
 const mockApiDelete = api.delete as ReturnType<typeof vi.fn>;
 
+// Balances are decimal strings — the API boundary never uses floats for money.
 const baseMembers = [
-  { id: "owner-id", name: "老板", email: "owner@company.com", role: "owner", status: "active" },
-  { id: "bob-id", name: "Bob", email: "bob@company.com", role: "admin", status: "active" },
-  { id: "alice-id", name: "Alice", email: "alice@company.com", role: "member", status: "active" },
+  { id: "owner-id", name: "老板", email: "owner@company.com", role: "owner", status: "active", balance: "0" },
+  { id: "bob-id", name: "Bob", email: "bob@company.com", role: "admin", status: "active", balance: "120.5" },
+  { id: "alice-id", name: "Alice", email: "alice@company.com", role: "member", status: "active", balance: "0" },
 ];
 
-const basePools = [
-  {
-    id: "pool-1",
-    dimension: "token",
-    total_amount: 10000,
-    allocated: 3000,
-    used: 0,
-    remaining: 7000,
-    unit_name: "token",
-    allocations: [
-      { user_id: "bob-id", allocated: 2000, used: 800, remaining: 1200 },
-      { user_id: "alice-id", allocated: 1000, used: 200, remaining: 800 },
-    ],
-  },
-  {
-    id: "pool-2",
-    dimension: "token",
-    total_amount: 5000,
-    allocated: 1000,
-    used: 0,
-    remaining: 4000,
-    unit_name: "token",
-    allocations: [
-      { user_id: "alice-id", allocated: 1000, used: 300, remaining: 700 },
-    ],
-  },
-];
+// The admin's own wallet, read for the "available" ceiling in the dialog.
+const walletBalance = {
+  balance: "10000",
+  frozen: "0",
+  available: "10000",
+  currency: "CNY",
+  total_charged: "0",
+};
 
 type Member = typeof baseMembers[number];
-type Pool = typeof basePools[number];
 
-/** Routes GET /team and GET /team/quotas to the given fixtures. */
-function mockRoutes(options: { members?: Member[]; pools?: Pool[] } = {}) {
+/** Routes GET /team and GET /wallet to the given fixtures. */
+function mockRoutes(options: { members?: Member[] } = {}) {
   const members = options.members ?? baseMembers;
-  const pools = options.pools ?? basePools;
   mockApiGet.mockImplementation((path: string) => {
-    if (path === "/team/quotas") return Promise.resolve({ pools });
+    if (path === "/wallet") return Promise.resolve(walletBalance);
     return Promise.resolve({ members });
   });
 }
@@ -100,12 +80,12 @@ describe("TeamManagement", () => {
     vi.restoreAllMocks();
   });
 
-  it("fetches members and quotas on mount", async () => {
+  it("fetches members and the admin wallet on mount", async () => {
     renderWithProviders(<TeamManagement />);
 
     await waitFor(() => {
       expect(mockApiGet).toHaveBeenCalledWith("/team");
-      expect(mockApiGet).toHaveBeenCalledWith("/team/quotas");
+      expect(mockApiGet).toHaveBeenCalledWith("/wallet");
     });
   });
 
@@ -136,7 +116,7 @@ describe("TeamManagement", () => {
   });
 
   it("shows empty state when no members exist", async () => {
-    mockRoutes({ members: [], pools: [] });
+    mockRoutes({ members: [] });
 
     renderWithProviders(<TeamManagement />);
 
@@ -150,32 +130,18 @@ describe("TeamManagement", () => {
     expect(screen.getByText("所有者不可操作")).toBeInTheDocument();
 
     const ownerRow = screen.getByRole("row", { name: /owner@company\.com/ });
-    expect(within(ownerRow).queryByRole("button", { name: /分配额度/ })).not.toBeInTheDocument();
+    expect(within(ownerRow).queryByRole("button", { name: /分配余额/ })).not.toBeInTheDocument();
     expect(within(ownerRow).queryByRole("button", { name: /移除成员/ })).not.toBeInTheDocument();
   });
 
-  it("aggregates each member's quota across pools in the list column", async () => {
+  it("shows each member's current balance in the list column", async () => {
     renderWithProviders(<TeamManagement />);
 
     await screen.findByText("Bob");
 
-    // Bob: 2000/800, Alice: 1000+1000=2000 / 200+300=500
-    expect(screen.getAllByText("已分配 2,000").length).toBe(2);
-    expect(screen.getByText("已用 800")).toBeInTheDocument();
-    expect(screen.getByText("已用 500")).toBeInTheDocument();
-  });
-
-  it("shows the quota stat strip (pools count / headroom / allocated total)", async () => {
-    renderWithProviders(<TeamManagement />);
-
-    await screen.findByText("Bob");
-
-    const headroomLabel = screen.getByText("企业剩余可分配");
-    expect(headroomLabel).toBeInTheDocument();
-    expect(screen.getByText("11,000")).toBeInTheDocument(); // 7000 + 4000
-    expect(screen.getByText("4,000")).toBeInTheDocument(); // allocated total
-    expect(screen.getByText("配额池数量")).toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument(); // pool count
+    // Bob has 120.5; the owner and Alice have zero balances.
+    expect(screen.getByText("¥120.50")).toBeInTheDocument();
+    expect(screen.getAllByText("¥0.00").length).toBe(2);
   });
 
   it("creates a sub-account with role member", async () => {
@@ -224,47 +190,60 @@ describe("TeamManagement", () => {
     expect(mockApiPost).not.toHaveBeenCalled();
   });
 
-  it("allocates quota to a member (additive amount within pool headroom)", async () => {
+  it("allocates balance to a member (amount within the admin's available balance)", async () => {
     const user = userEvent.setup();
     mockApiPost.mockResolvedValue({
-      id: "alloc-id",
-      pool_id: "pool-1",
-      user_id: "bob-id",
-      allocated: 2500,
-      used: 800,
-      remaining: 4500,
+      transaction_id: "tx-1",
+      from_balance: "9500",
+      to_balance: "10",
     });
 
     renderWithProviders(<TeamManagement />);
     await screen.findByText("Bob");
 
-    await user.click(within(bobRow()).getByRole("button", { name: /分配额度/ }));
+    await user.click(within(bobRow()).getByRole("button", { name: /分配余额/ }));
 
-    // Default pool is pool-1 with 7000 remaining (dialog opened)
-    expect(screen.getByText("剩余可分配 7,000")).toBeInTheDocument();
+    // The dialog surfaces the admin's own spendable balance as the ceiling.
+    expect(screen.getByText("¥10,000.00")).toBeInTheDocument();
 
-    await user.type(screen.getByPlaceholderText("例如 1000"), "500");
+    await user.type(screen.getByPlaceholderText("例如 10.00"), "10");
     await user.click(screen.getByRole("button", { name: /确认分配/ }));
 
     await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith("/team/quotas/allocate", {
+      expect(mockApiPost).toHaveBeenCalledWith("/team/balance/allocate", {
         user_id: "bob-id",
-        pool_id: "pool-1",
-        amount: 500,
+        amount: "10",
       });
     });
   });
 
-  it("rejects an allocation that exceeds pool headroom", async () => {
+  it("rejects an allocation that exceeds the admin's available balance", async () => {
     const user = userEvent.setup();
 
     renderWithProviders(<TeamManagement />);
     await screen.findByText("Bob");
 
-    await user.click(within(bobRow()).getByRole("button", { name: /分配额度/ }));
-    await user.type(screen.getByPlaceholderText("例如 1000"), "999999");
+    await user.click(within(bobRow()).getByRole("button", { name: /分配余额/ }));
+    await user.type(screen.getByPlaceholderText("例如 10.00"), "99999");
 
-    expect(screen.getByText("超出企业剩余可分配额度")).toBeInTheDocument();
+    expect(screen.getByText("超出您的可用余额")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /确认分配/ })).toBeDisabled();
+    expect(mockApiPost).not.toHaveBeenCalled();
+  });
+
+  it("disables allocation and surfaces a retry when the admin wallet fails to load", async () => {
+    const user = userEvent.setup();
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === "/wallet") return Promise.reject(new Error("wallet down"));
+      return Promise.resolve({ members: baseMembers });
+    });
+
+    renderWithProviders(<TeamManagement />);
+    await screen.findByText("Bob");
+
+    await user.click(within(bobRow()).getByRole("button", { name: /分配余额/ }));
+
+    expect(await screen.findByText("可用余额加载失败")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认分配/ })).toBeDisabled();
     expect(mockApiPost).not.toHaveBeenCalled();
   });
@@ -324,7 +303,7 @@ describe("TeamManagement", () => {
 
   it("surfaces a members fetch error with a retry button", async () => {
     mockApiGet.mockImplementation((path: string) => {
-      if (path === "/team/quotas") return Promise.resolve({ pools: [] });
+      if (path === "/wallet") return Promise.resolve(walletBalance);
       return Promise.reject(new Error("Network error"));
     });
 
