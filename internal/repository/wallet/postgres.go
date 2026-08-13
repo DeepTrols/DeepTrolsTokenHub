@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/deeptrols/api/internal/domain"
@@ -238,6 +239,138 @@ func (r *PostgresRepository) TopUp(ctx context.Context, walletID uuid.UUID, amou
 		Amount:         amount,
 		BalanceBefore:  balanceBefore,
 		BalanceAfter:   balanceAfter,
+	}, nil
+}
+
+// Transfer atomically moves an amount between two wallets in one transaction:
+// a negative transfer_out on the source and a positive transfer_in on the
+// destination, cross-referenced by wallet id. Replaying the same idempotency
+// key against the same source wallet returns the original transfer_out without
+// double-debiting. Returns ErrInsufficientBalance when the source lacks
+// available balance and ErrNotFound when either wallet is missing.
+func (r *PostgresRepository) Transfer(ctx context.Context, fromWalletID, toWalletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil, fmt.Errorf("wallet transfer: amount must be positive")
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("wallet transfer begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Idempotent replay: same (from_wallet, key) resolves to the original
+	//    transfer_out so retries never double-debit.
+	existing, err := findIdempotentTx(ctx, tx, fromWalletID, idempotencyKey)
+	if err == nil {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return nil, fmt.Errorf("wallet transfer commit: %w", cerr)
+		}
+		return existing, nil
+	}
+	if err != pgx.ErrNoRows {
+		return nil, fmt.Errorf("wallet transfer idempotent check: %w", err)
+	}
+
+	// 2. Lock the source wallet and validate available balance.
+	var fromBalance, fromFrozen decimal.Decimal
+	var fromBalanceStr, fromFrozenStr string
+	var fromVersion int64
+	if err := tx.QueryRow(ctx,
+		`SELECT balance, frozen, version FROM wallets WHERE id = $1 FOR UPDATE`,
+		fromWalletID).Scan(&fromBalanceStr, &fromFrozenStr, &fromVersion); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("%w: source wallet", ErrNotFound)
+		}
+		return nil, fmt.Errorf("wallet transfer lock source: %w", err)
+	}
+	fromBalance = parseDecimalStr(fromBalanceStr)
+	fromFrozen = parseDecimalStr(fromFrozenStr)
+	available := fromBalance.Sub(fromFrozen)
+	if available.LessThan(amount) {
+		return nil, fmt.Errorf("%w: available=%s required=%s", errInsufficientBalance, available, amount)
+	}
+
+	// 3. Lock the destination wallet.
+	var toBalance decimal.Decimal
+	var toBalanceStr string
+	var toVersion int64
+	if err := tx.QueryRow(ctx,
+		`SELECT balance, version FROM wallets WHERE id = $1 FOR UPDATE`,
+		toWalletID).Scan(&toBalanceStr, &toVersion); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("%w: destination wallet", ErrNotFound)
+		}
+		return nil, fmt.Errorf("wallet transfer lock destination: %w", err)
+	}
+	toBalance = parseDecimalStr(toBalanceStr)
+
+	// 4. Write both ledger rows: transfer_out (source, -amount) and
+	//    transfer_in (destination, +amount), cross-referenced and sharing the
+	//    same idempotency key.
+	transferID := uuid.New()
+	outTxID := uuid.New()
+	inTxID := uuid.New()
+	meta, err := json.Marshal(map[string]string{
+		"transfer_id":    transferID.String(),
+		"from_wallet_id": fromWalletID.String(),
+		"to_wallet_id":   toWalletID.String(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("wallet transfer marshal metadata: %w", err)
+	}
+	const insertTx = `
+		INSERT INTO wallet_transactions (id, wallet_id, idempotency_key, tx_type, amount,
+			balance_before, balance_after, reference_type, reference_id, metadata, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+	`
+	if _, err := tx.Exec(ctx, insertTx,
+		outTxID, fromWalletID, idempotencyKey, domain.WalletTxTransferOut,
+		amount.Neg(), fromBalance, fromBalance.Sub(amount),
+		"balance_transfer", toWalletID, json.RawMessage(meta),
+	); err != nil {
+		return nil, fmt.Errorf("wallet transfer insert out: %w", err)
+	}
+	if _, err := tx.Exec(ctx, insertTx,
+		inTxID, toWalletID, idempotencyKey, domain.WalletTxTransferIn,
+		amount, toBalance, toBalance.Add(amount),
+		"balance_transfer", fromWalletID, json.RawMessage(meta),
+	); err != nil {
+		return nil, fmt.Errorf("wallet transfer insert in: %w", err)
+	}
+
+	// 5. Update both wallets with optimistic locking.
+	const updateSource = `
+		UPDATE wallets SET balance = balance - $1, version = version + 1, updated_at = NOW()
+		WHERE id = $2 AND version = $3
+	`
+	tag, err := tx.Exec(ctx, updateSource, amount, fromWalletID, fromVersion)
+	if err != nil {
+		return nil, fmt.Errorf("wallet transfer update source: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, fmt.Errorf("wallet transfer: source optimistic lock conflict (version=%d)", fromVersion)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE wallets SET balance = balance + $1, version = version + 1, updated_at = NOW() WHERE id = $2 AND version = $3`,
+		amount, toWalletID, toVersion); err != nil {
+		return nil, fmt.Errorf("wallet transfer update destination: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("wallet transfer commit: %w", err)
+	}
+
+	return &domain.WalletTransaction{
+		ID:             outTxID,
+		WalletID:       fromWalletID,
+		IdempotencyKey: idempotencyKey,
+		TxType:         domain.WalletTxTransferOut,
+		Amount:         amount.Neg(),
+		BalanceBefore:  fromBalance,
+		BalanceAfter:   fromBalance.Sub(amount),
+		ReferenceType:  "balance_transfer",
+		ReferenceID:    &toWalletID,
 	}, nil
 }
 

@@ -486,3 +486,130 @@ func TestWalletSettle(t *testing.T) {
 		}
 	})
 }
+
+func TestWalletTransfer(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, "wallet_transactions", "wallets", "api_key_spend", "api_keys", "users", "tenants")
+
+	fromUserID := seedWalletUser(t, ctx, repo)
+	toUserID := seedWalletUser(t, ctx, repo)
+
+	fromWalletID := uuid.New()
+	toWalletID := uuid.New()
+	seedWallet := func(id, userID uuid.UUID, balance string) {
+		t.Helper()
+		_, err := repo.pool.Exec(ctx, `
+			INSERT INTO wallets (id, user_id, balance, frozen, currency, version)
+			VALUES ($1, $2, $3, '0.000000', 'CNY', 0)
+		`, id, userID, balance)
+		if err != nil {
+			t.Fatalf("seed wallet: %v", err)
+		}
+	}
+	seedWallet(fromWalletID, fromUserID, "100.000000")
+	seedWallet(toWalletID, toUserID, "0.000000")
+
+	t.Run("moves balance and records both sides", func(t *testing.T) {
+		tx, err := repo.Transfer(ctx, fromWalletID, toWalletID, decimal.NewFromInt(40), "transfer-1")
+		if err != nil {
+			t.Fatalf("Transfer: %v", err)
+		}
+		if tx.TxType != domain.WalletTxTransferOut {
+			t.Errorf("TxType = %s, want %s", tx.TxType, domain.WalletTxTransferOut)
+		}
+
+		from, _ := repo.FindByID(ctx, fromWalletID)
+		to, _ := repo.FindByID(ctx, toWalletID)
+		if !from.Balance.Equal(decimal.NewFromInt(60)) {
+			t.Errorf("from Balance = %s, want 60", from.Balance)
+		}
+		if !to.Balance.Equal(decimal.NewFromInt(40)) {
+			t.Errorf("to Balance = %s, want 40", to.Balance)
+		}
+		if from.Version != 1 || to.Version != 1 {
+			t.Errorf("versions = %d/%d, want 1/1", from.Version, to.Version)
+		}
+
+		// Two ledger rows share the idempotency key, with opposite signs.
+		var n int
+		if err := repo.pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM wallet_transactions WHERE idempotency_key = 'transfer-1'`).Scan(&n); err != nil {
+			t.Fatalf("count: %v", err)
+		}
+		if n != 2 {
+			t.Errorf("transactions count = %d, want 2", n)
+		}
+		var outType, inType string
+		var outAmt, inAmt string
+		if err := repo.pool.QueryRow(ctx,
+			`SELECT tx_type, amount::text FROM wallet_transactions WHERE wallet_id = $1 AND idempotency_key = 'transfer-1'`,
+			fromWalletID).Scan(&outType, &outAmt); err != nil {
+			t.Fatalf("read out row: %v", err)
+		}
+		if err := repo.pool.QueryRow(ctx,
+			`SELECT tx_type, amount::text FROM wallet_transactions WHERE wallet_id = $1 AND idempotency_key = 'transfer-1'`,
+			toWalletID).Scan(&inType, &inAmt); err != nil {
+			t.Fatalf("read in row: %v", err)
+		}
+		if outType != "transfer_out" || outAmt != "-40.000000" {
+			t.Errorf("out row = %s/%s, want transfer_out/-40.000000", outType, outAmt)
+		}
+		if inType != "transfer_in" || inAmt != "40.000000" {
+			t.Errorf("in row = %s/%s, want transfer_in/40.000000", inType, inAmt)
+		}
+	})
+
+	t.Run("fails when source balance insufficient", func(t *testing.T) {
+		_, err := repo.Transfer(ctx, fromWalletID, toWalletID, decimal.NewFromInt(999), "transfer-insuff")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrInsufficientBalance) {
+			t.Errorf("err = %v, want ErrInsufficientBalance", err)
+		}
+		from, _ := repo.FindByID(ctx, fromWalletID)
+		if !from.Balance.Equal(decimal.NewFromInt(60)) {
+			t.Errorf("Balance = %s, want 60 (unchanged)", from.Balance)
+		}
+	})
+
+	t.Run("is idempotent on same key", func(t *testing.T) {
+		_, err := repo.Transfer(ctx, fromWalletID, toWalletID, decimal.NewFromInt(40), "transfer-1")
+		if err != nil {
+			t.Fatalf("Transfer (idempotent): %v", err)
+		}
+		from, _ := repo.FindByID(ctx, fromWalletID)
+		to, _ := repo.FindByID(ctx, toWalletID)
+		if !from.Balance.Equal(decimal.NewFromInt(60)) || !to.Balance.Equal(decimal.NewFromInt(40)) {
+			t.Errorf("balances changed on idempotent replay: from=%s to=%s", from.Balance, to.Balance)
+		}
+	})
+
+	t.Run("fails when destination wallet missing", func(t *testing.T) {
+		_, err := repo.Transfer(ctx, fromWalletID, uuid.New(), decimal.NewFromInt(1), "transfer-missing-to")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("fails when source wallet missing", func(t *testing.T) {
+		_, err := repo.Transfer(ctx, uuid.New(), toWalletID, decimal.NewFromInt(1), "transfer-missing-from")
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("rejects non-positive amount", func(t *testing.T) {
+		_, err := repo.Transfer(ctx, fromWalletID, toWalletID, decimal.Zero, "transfer-zero")
+		if err == nil {
+			t.Fatal("expected error for zero amount")
+		}
+	})
+}
