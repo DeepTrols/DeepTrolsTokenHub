@@ -14,6 +14,7 @@ import (
 	"github.com/deeptrols/api/internal/repository/tenant"
 	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/user"
+	"github.com/deeptrols/api/internal/repository/wallet"
 )
 
 // appForTeamTest wires the repos needed by the team handlers.
@@ -33,6 +34,7 @@ func appForTeamTest(t *testing.T) *app.App {
 		Tenants:     tenant.NewPostgresRepository(pool),
 		Memberships: membership.NewPostgresRepository(pool),
 		Quotas:      quota.NewPostgresRepository(pool),
+		Wallets:     wallet.NewPostgresRepository(pool),
 		Healthy:     true,
 	}
 }

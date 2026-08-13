@@ -103,6 +103,7 @@ func main() {
 				r.Get("/team/quotas", console.HandleListTeamQuotas(application))
 				r.Post("/team/quotas/allocate", console.HandleAllocateTeamQuota(application))
 				r.Get("/team/quotas/ledger", console.HandleTeamQuotaLedger(application))
+				r.Post("/team/balance/allocate", console.HandleAllocateBalance(application))
 			})
 
 			r.Get("/api-keys", console.HandleListAPIKeys(application))
