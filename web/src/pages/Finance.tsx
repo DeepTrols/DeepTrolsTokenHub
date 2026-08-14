@@ -92,7 +92,7 @@ export default function Finance() {
       <SectionPageLayout.Header>
         <SectionPageLayout.HeaderBlock>
           <SectionPageLayout.Title>账务管理</SectionPageLayout.Title>
-          <SectionPageLayout.Description>共 {total} 个账号（个人 + 企业）</SectionPageLayout.Description>
+          <SectionPageLayout.Description>共 {total} 个账号（个人用户 + 企业用户；企业员工余额与消费已并入企业账号）</SectionPageLayout.Description>
         </SectionPageLayout.HeaderBlock>
       </SectionPageLayout.Header>
 
