@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/deeptrols/api/internal/repository/testutil"
@@ -32,6 +33,42 @@ func TestAuditAdminWrite_Integration(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 audit row, got %d", count)
+	}
+}
+
+// TestAuditAdminWrite_Integration_WithOldValue verifies that a handler can
+// attach an old-value snapshot to the request context and the audit
+// middleware persists it into audit_logs.old_value (used by hard-delete
+// endpoints where the row is gone after the operation).
+func TestAuditAdminWrite_Integration_WithOldValue(t *testing.T) {
+	pool := testutil.SetupPool(t)
+	testutil.TruncateTables(t, pool, "audit_logs")
+
+	mw := AuditAdminWrite(pool)
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/11111111-1111-1111-1111-111111111111", nil)
+	req.RemoteAddr = "10.0.0.10:1234"
+	ctx := contextWithUser(req.Context())
+	ctx = context.WithValue(ctx, CtxAuditOldValue, map[string]any{
+		"code":   "acme",
+		"name":   "Acme Corp",
+		"status": "active",
+	})
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	mw(next).ServeHTTP(w, req)
+
+	var oldValue []byte
+	err := pool.QueryRow(context.Background(),
+		`SELECT old_value FROM audit_logs WHERE action LIKE 'DELETE %'`).Scan(&oldValue)
+	if err != nil {
+		t.Fatalf("query audit old_value: %v", err)
+	}
+	if !strings.Contains(string(oldValue), "Acme Corp") {
+		t.Errorf("old_value = %s, want it to contain the tenant identity", oldValue)
 	}
 }
 

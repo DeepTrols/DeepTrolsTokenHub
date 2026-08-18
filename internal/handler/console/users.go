@@ -1,6 +1,7 @@
 package console
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
+	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	userRepo "github.com/deeptrols/api/internal/repository/user"
 	"github.com/go-chi/chi/v5"
@@ -306,6 +308,20 @@ func HandleDeleteUser(a *app.App) http.HandlerFunc {
 		if userID == actorID {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Cannot delete yourself"})
 			return
+		}
+
+		// Attach a best-effort identity snapshot for the audit trail: the
+		// middleware records only the user UUID by default, which cannot be
+		// traced back to an email after the account is disabled.
+		if usr, err := a.Users.FindByID(r.Context(), userID); err == nil && usr != nil {
+			r = r.WithContext(context.WithValue(r.Context(), middleware.CtxAuditOldValue, map[string]any{
+				"id":           usr.ID.String(),
+				"email":        usr.Email,
+				"display_name": usr.DisplayName,
+				"role":         usr.Role,
+				"user_type":    string(usr.UserType),
+				"status":       string(usr.Status),
+			}))
 		}
 
 		if err := a.Users.UpdateStatus(r.Context(), userID, domain.UserStatusDeleted); err != nil {

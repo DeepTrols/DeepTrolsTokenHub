@@ -340,3 +340,86 @@ func TestLoginRateLimit_ContentTypeIsJSON(t *testing.T) {
 		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
 }
+
+// TestAdminRateLimit_UsesUserIDForKey verifies AdminRateLimit keys on the
+// console user ID from context, so two admins sharing an IP are not
+// rate-limited together.
+func TestAdminRateLimit_UsesUserIDForKey(t *testing.T) {
+	limit := 3
+	window := 1 * time.Minute
+	limiter := ratelimit.NewMemoryRateLimiter()
+	mw := AdminRateLimit(limiter, limit, window)
+
+	callCount := 0
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := mw(nextHandler)
+
+	ip := "192.168.1.99:12345"
+	adminID := "admin-123"
+
+	for i := 0; i < limit; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/models", nil)
+		req.RemoteAddr = ip
+		req = req.WithContext(context.WithValue(req.Context(), CtxUserID, adminID))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want %d", i+1, w.Code, http.StatusOK)
+		}
+	}
+
+	// admin-123 is now blocked.
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/models", nil)
+	req.RemoteAddr = ip
+	req = req.WithContext(context.WithValue(req.Context(), CtxUserID, adminID))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("blocked admin request: status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Error("Retry-After header is missing on admin 429")
+	}
+
+	// A different admin on the same IP still passes.
+	req2 := httptest.NewRequest(http.MethodPost, "/api/admin/models", nil)
+	req2.RemoteAddr = ip
+	req2 = req2.WithContext(context.WithValue(req2.Context(), CtxUserID, "admin-456"))
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Errorf("different admin request: status = %d, want %d", w2.Code, http.StatusOK)
+	}
+}
+
+// TestAdminRateLimit_FallsBackToIP verifies AdminRateLimit uses the IP when
+// no user ID is present in the request context.
+func TestAdminRateLimit_FallsBackToIP(t *testing.T) {
+	limit := 2
+	window := 1 * time.Minute
+	limiter := ratelimit.NewMemoryRateLimiter()
+	mw := AdminRateLimit(limiter, limit, window)
+
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := mw(nextHandler)
+
+	ip := "203.0.113.7:12345"
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/models", nil)
+	req.RemoteAddr = ip
+
+	for i := 0; i < limit; i++ {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+	}
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("IP-fallback request: status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+}

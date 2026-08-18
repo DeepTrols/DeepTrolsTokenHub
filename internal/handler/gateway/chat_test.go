@@ -39,11 +39,16 @@ var (
 // ============================================================================
 
 type mockExecutor struct {
-	mu        sync.Mutex
-	executeFn func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error)
+	mu                sync.Mutex
+	executeFn         func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error)
+	executeEndpointFn func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.ExecuteResponse, error)
+	executeRawFn      func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.RawResponse, error)
 	// call tracking
-	executeCalled int
-	lastBody      map[string]any
+	executeCalled         int
+	executeEndpointCalled int
+	executeRawCalled      int
+	lastBody              map[string]any
+	lastEndpoint          string
 }
 
 func (m *mockExecutor) Execute(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
@@ -55,6 +60,39 @@ func (m *mockExecutor) Execute(ctx context.Context, baseURL, apiKey, upstreamMod
 		return m.executeFn(ctx, baseURL, apiKey, upstreamModel, body)
 	}
 	return nil, fmt.Errorf("mockExecutor: executeFn not set")
+}
+
+// ExecuteEndpoint is the generic endpoint counterpart of Execute. It prefers
+// the endpoint-specific mock fn and falls back to the chat executeFn so
+// existing tests keep working unchanged.
+func (m *mockExecutor) ExecuteEndpoint(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.ExecuteResponse, error) {
+	m.mu.Lock()
+	m.executeEndpointCalled++
+	m.lastEndpoint = endpoint
+	m.lastBody = body
+	m.mu.Unlock()
+	if m.executeEndpointFn != nil {
+		return m.executeEndpointFn(ctx, baseURL, apiKey, upstreamModel, endpoint, body)
+	}
+	if m.executeFn != nil {
+		return m.executeFn(ctx, baseURL, apiKey, upstreamModel, body)
+	}
+	return nil, fmt.Errorf("mockExecutor: executeEndpointFn not set")
+}
+
+// ExecuteEndpointRaw is the raw-response counterpart used by the audio
+// endpoint tests. It prefers the endpoint-specific mock fn and fails loudly
+// when a test forgets to stub it.
+func (m *mockExecutor) ExecuteEndpointRaw(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.RawResponse, error) {
+	m.mu.Lock()
+	m.executeRawCalled++
+	m.lastEndpoint = endpoint
+	m.lastBody = body
+	m.mu.Unlock()
+	if m.executeRawFn != nil {
+		return m.executeRawFn(ctx, baseURL, apiKey, upstreamModel, endpoint, body)
+	}
+	return nil, fmt.Errorf("mockExecutor: executeRawFn not set")
 }
 
 // ============================================================================
@@ -2372,5 +2410,319 @@ func TestHandleNonStreamingChat_FailoverToSecondChannel(t *testing.T) {
 	}
 	if executor.executeCalled != 2 {
 		t.Errorf("executeCalled = %d, want 2", executor.executeCalled)
+	}
+}
+
+// ============================================================================
+// Non-streaming failure evidence (invariant #4/#5): every failed upstream
+// attempt must leave a usage_log (failed, zero cost) plus provider evidence,
+// and the wallet hold must always be released -- even on client disconnect.
+// ============================================================================
+
+// newNonStreamFailureEnv builds the standard mock app for non-streaming
+// failure tests. When multiChannel is true the router exposes two candidates
+// (baseURL 9999 then 8888) so failover paths can be exercised.
+func newNonStreamFailureEnv(executor gw.Executor, multiChannel bool) (*app.App, *mockWalletRepo, *mockUsageRepo) {
+	channelID1 := uuid.New()
+	channelID2 := uuid.New()
+	instanceID1 := uuid.New()
+	instanceID2 := uuid.New()
+	modelID := uuid.New()
+
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			channels := []domain.Channel{
+				{ID: channelID1, ModelID: modelID, Name: "ch1", Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 100, MaxConcurrency: 10},
+			}
+			if multiChannel {
+				channels = append(channels, domain.Channel{ID: channelID2, ModelID: modelID, Name: "ch2", Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 90, MaxConcurrency: 10})
+			}
+			return channels, nil
+		},
+		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
+			if multiChannel && cid == channelID2 {
+				return []domain.ChannelInstance{{ID: instanceID2, ChannelID: channelID2, BaseURL: "http://localhost:8888/v1", ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+			}
+			return []domain.ChannelInstance{{ID: instanceID1, ChannelID: channelID1, BaseURL: "http://localhost:9999/v1", ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+		},
+	}
+	pricingRepo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return makePricingEntries(), nil
+		},
+	}
+	txID := uuid.New()
+	walletRepo := &mockWalletRepo{
+		findByUserFn: func(ctx context.Context, uid uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error) {
+			return &domain.Wallet{ID: uuid.New(), UserID: uid, Balance: decimal.NewFromFloat(100.0), Frozen: decimal.Zero}, nil
+		},
+		reserveFn: func(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+			return &domain.WalletTransaction{ID: txID, WalletID: walletID, Amount: amount, IdempotencyKey: idempotencyKey, TxType: domain.WalletTxReserve}, nil
+		},
+		releaseFn: func(ctx context.Context, tID uuid.UUID) error { return nil },
+	}
+	usageRepo := &mockUsageRepo{}
+
+	application := newTestApp(executor, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+	return application, walletRepo, usageRepo
+}
+
+// newNonStreamChatRequest builds a valid non-streaming chat request with auth
+// context and a unique request ID.
+func newNonStreamChatRequest(userID, apiKeyID uuid.UUID, body map[string]any) *http.Request {
+	respBodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(respBodyBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "test-ns-"+uuid.New().String())
+	return setAuthContext(req, userID, apiKeyID)
+}
+
+// waitForUsageLog polls the mock usage repo until the async logging goroutine
+// has recorded a usage log (or fails the test after a deadline).
+func waitForUsageLog(t *testing.T, usageRepo *mockUsageRepo) *domain.UsageLog {
+	t.Helper()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if usageRepo.lastUsageLog == nil {
+		t.Fatal("usage log was never recorded (timed out)")
+	}
+	return usageRepo.lastUsageLog
+}
+
+func TestHandleNonStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			return &gw.ExecuteResponse{
+				StatusCode: http.StatusInternalServerError,
+				Body:       map[string]any{"error": map[string]any{"message": "provider exploded"}},
+				DurationMs: 42,
+			}, nil
+		},
+	}
+	application, walletRepo, usageRepo := newNonStreamFailureEnv(executor, false)
+
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusBadGateway, w.Body.String())
+	}
+	if walletRepo.releaseCalled == 0 {
+		t.Error("release should have been called on upstream HTTP error")
+	}
+	if walletRepo.settleCalled > 0 {
+		t.Error("settle should NOT be called on upstream HTTP error")
+	}
+
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusFailed)
+	}
+	if log.ErrorCode != "upstream_http_error" {
+		t.Errorf("ErrorCode = %s, want upstream_http_error", log.ErrorCode)
+	}
+	if log.UsageSource != domain.UsageSourceEstimated {
+		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceEstimated)
+	}
+	if !log.WalletCharged.IsZero() {
+		t.Errorf("WalletCharged = %s, want 0", log.WalletCharged)
+	}
+	if !log.FinalCost.IsZero() {
+		t.Errorf("FinalCost = %s, want 0", log.FinalCost)
+	}
+	if usageRepo.lastEvidence == nil {
+		t.Fatal("provider evidence was never recorded")
+	}
+	if usageRepo.lastEvidence.StatusCode != http.StatusInternalServerError {
+		t.Errorf("evidence status = %d, want %d", usageRepo.lastEvidence.StatusCode, http.StatusInternalServerError)
+	}
+	if usageRepo.lastEvidence.ErrorMessage == "" {
+		t.Error("evidence error_message should be populated on upstream HTTP error")
+	}
+}
+
+func TestHandleNonStreamingChat_UpstreamConnectionError_LogsFailed(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			return nil, fmt.Errorf("upstream connection refused")
+		},
+	}
+	application, walletRepo, usageRepo := newNonStreamFailureEnv(executor, false)
+
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+	if walletRepo.releaseCalled == 0 {
+		t.Error("release should have been called on connection error")
+	}
+
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusFailed)
+	}
+	if log.ErrorCode != "upstream_error" {
+		t.Errorf("ErrorCode = %s, want upstream_error", log.ErrorCode)
+	}
+	if usageRepo.lastEvidence == nil {
+		t.Fatal("provider evidence was never recorded")
+	}
+	if usageRepo.lastEvidence.ErrorMessage == "" {
+		t.Error("evidence error_message should carry the connection error")
+	}
+}
+
+func TestHandleNonStreamingChat_FailoverAllFailed_LogsSingleFailure(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			if strings.Contains(baseURL, "9999") {
+				return &gw.ExecuteResponse{StatusCode: http.StatusBadGateway, Body: map[string]any{"error": "first down"}}, nil
+			}
+			return nil, fmt.Errorf("second channel down")
+		},
+	}
+	application, walletRepo, usageRepo := newNonStreamFailureEnv(executor, true)
+
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+	if executor.executeCalled != 2 {
+		t.Errorf("executeCalled = %d, want 2 (both candidates tried)", executor.executeCalled)
+	}
+	if walletRepo.releaseCalled != 2 {
+		t.Errorf("releaseCalled = %d, want 2 (one per failed attempt)", walletRepo.releaseCalled)
+	}
+
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusFailed)
+	}
+	if !strings.Contains(log.ErrorMessage, "all 2 candidates failed") {
+		t.Errorf("ErrorMessage = %q, want it to mention 'all 2 candidates failed'", log.ErrorMessage)
+	}
+	// Evidence reflects the LAST attempt (connection error -> no status code).
+	if usageRepo.lastEvidence == nil {
+		t.Fatal("provider evidence was never recorded")
+	}
+	if usageRepo.lastEvidence.StatusCode != 0 {
+		t.Errorf("evidence status = %d, want 0 (last attempt was a connection error)", usageRepo.lastEvidence.StatusCode)
+	}
+}
+
+func TestHandleNonStreamingChat_ClientCancel_LogsFailedDetached(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			return nil, fmt.Errorf("upstream connection refused")
+		},
+	}
+	application, walletRepo, usageRepo := newNonStreamFailureEnv(executor, false)
+
+	var releaseWithCancelledCtx bool
+	walletRepo.releaseFn = func(ctx context.Context, tID uuid.UUID) error {
+		if ctx.Err() != nil {
+			releaseWithCancelledCtx = true
+		}
+		return nil
+	}
+
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	ctx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	if walletRepo.releaseCalled == 0 {
+		t.Error("release should still be called when the client disconnected")
+	}
+	if releaseWithCancelledCtx {
+		t.Error("release must use a detached context when the request context is cancelled")
+	}
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s (evidence must survive disconnect)", log.Status, domain.UsageLogStatusFailed)
+	}
+}
+
+func TestHandleNonStreamingChat_ErrorBodyTruncated(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			return &gw.ExecuteResponse{
+				StatusCode: http.StatusInternalServerError,
+				Body:       map[string]any{"error": map[string]any{"message": strings.Repeat("x", 2<<20)}},
+				DurationMs: 10,
+			}, nil
+		},
+	}
+	application, _, usageRepo := newNonStreamFailureEnv(executor, false)
+
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusFailed {
+		t.Fatalf("Status = %s, want %s", log.Status, domain.UsageLogStatusFailed)
+	}
+	if usageRepo.lastEvidence == nil {
+		t.Fatal("provider evidence was never recorded")
+	}
+	raw, err := json.Marshal(usageRepo.lastEvidence.ResponseBody)
+	if err != nil {
+		t.Fatalf("marshal evidence response body: %v", err)
+	}
+	if len(raw) > maxUpstreamErrorBody {
+		t.Errorf("evidence response body = %d bytes, want <= %d", len(raw), maxUpstreamErrorBody)
+	}
+}
+
+func TestHandleNonStreamingChat_Success_NoFailureLog(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			respBody := validResponseBody()
+			usage, _ := usageparser.ParseOpenAIUsage(respBody)
+			return &gw.ExecuteResponse{StatusCode: http.StatusOK, Body: respBody, Usage: usage,
+				UsageSource: usageparser.SourceUpstream, ProviderReqID: "chatcmpl-ok", DurationMs: 12}, nil
+		},
+	}
+	application, _, usageRepo := newNonStreamFailureEnv(executor, false)
+
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusCompleted {
+		t.Errorf("Status = %s, want %s (success must not be recorded as failed)", log.Status, domain.UsageLogStatusCompleted)
 	}
 }

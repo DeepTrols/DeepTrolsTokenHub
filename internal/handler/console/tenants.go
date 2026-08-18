@@ -13,6 +13,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
+	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/repository/tenant"
 	"github.com/deeptrols/api/internal/repository/user"
 	"github.com/go-chi/chi/v5"
@@ -507,10 +508,23 @@ func HandleDeleteTenant(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// The admin audit middleware records only the tenant UUID; the operator
-		// log must carry the human-readable identity since the row is about to
-		// be permanently removed.
+		// The audit middleware records only the tenant UUID by default; attach
+		// a human-readable snapshot so the operator log can reconstruct the
+		// tenant identity after the row is permanently removed.
 		log.Printf("HandleDeleteTenant: deleting tenant code=%s name=%s id=%s", tn.Code, tn.Name, tn.ID)
+		ownerID := ""
+		if tn.OwnerID != nil {
+			ownerID = tn.OwnerID.String()
+		}
+		r = r.WithContext(context.WithValue(r.Context(), middleware.CtxAuditOldValue, map[string]any{
+			"id":            tn.ID.String(),
+			"code":          tn.Code,
+			"name":          tn.Name,
+			"status":        string(tn.Status),
+			"owner_id":      ownerID,
+			"credit_code":   tn.CreditCode,
+			"contact_email": tn.ContactEmail,
+		}))
 
 		if err := a.Tenants.Delete(r.Context(), tn.ID); err != nil {
 			if errors.Is(err, tenant.ErrNotFound) {

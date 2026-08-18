@@ -25,7 +25,7 @@ func TestConfig_WeakSecretsRejectedInProduction(t *testing.T) {
 	os.Setenv("LITELLM_BASE_URL", "http://localhost:4000")
 	os.Setenv("LITELLM_MASTER_KEY", "sk-litellm-master-dev")
 	os.Setenv("JWT_SECRET", "change-me-in-production-jwt-secret")
-	os.Setenv("ENCRYPTION_KEY", "abcdefghijklmnopqrstuvwxyz123456")
+	os.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
 	os.Setenv("ADMIN_EMAIL", "admin@test.com")
 	os.Setenv("ADMIN_PASSWORD", "deeptrols@2026")
 	defer func() {
@@ -61,6 +61,79 @@ func TestConfig_WeakSecretsRejectedInProduction(t *testing.T) {
 	}
 	if cfg == nil {
 		t.Fatal("expected config in dev mode")
+	}
+}
+
+// TestConfig_ProductionRequiresSecureCookie verifies the fail-fast guard:
+// production mode (ENABLE_FAKE_PAYMENT=false) must refuse to start when
+// COOKIE_SECURE is false, because auth cookies would traverse plain HTTP.
+func TestConfig_ProductionRequiresSecureCookie(t *testing.T) {
+	os.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/test")
+	os.Setenv("LITELLM_BASE_URL", "http://localhost:4000")
+	os.Setenv("LITELLM_MASTER_KEY", "sk-strong-litellm-key-0123456789")
+	os.Setenv("JWT_SECRET", "a-strong-jwt-secret-that-is-way-over-32-bytes")
+	os.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+	os.Setenv("ADMIN_EMAIL", "admin@test.com")
+	os.Setenv("ADMIN_PASSWORD", "a-strong-admin-password-123")
+	os.Setenv("ENABLE_FAKE_PAYMENT", "false")
+	os.Setenv("COOKIE_SECURE", "false")
+	defer func() {
+		os.Unsetenv("DATABASE_URL")
+		os.Unsetenv("LITELLM_BASE_URL")
+		os.Unsetenv("LITELLM_MASTER_KEY")
+		os.Unsetenv("JWT_SECRET")
+		os.Unsetenv("ENCRYPTION_KEY")
+		os.Unsetenv("ADMIN_EMAIL")
+		os.Unsetenv("ADMIN_PASSWORD")
+		os.Unsetenv("COOKIE_SECURE")
+		// Restore dev-mode flag (TestMain default).
+		os.Setenv("ENABLE_FAKE_PAYMENT", "true")
+	}()
+
+	cfg, err := Load()
+	if err == nil {
+		t.Fatal("expected COOKIE_SECURE=false to be rejected in production, got nil error")
+	}
+	if !strings.Contains(err.Error(), "COOKIE_SECURE") {
+		t.Fatalf("expected COOKIE_SECURE error, got: %v", err)
+	}
+	if cfg != nil {
+		t.Fatal("expected nil config on validation failure")
+	}
+}
+
+// TestConfig_ProductionRequiresStrongAdminPassword verifies the fail-fast
+// guard: production mode must reject admin passwords shorter than 12 bytes.
+func TestConfig_ProductionRequiresStrongAdminPassword(t *testing.T) {
+	os.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/test")
+	os.Setenv("LITELLM_BASE_URL", "http://localhost:4000")
+	os.Setenv("LITELLM_MASTER_KEY", "sk-strong-litellm-key-0123456789")
+	os.Setenv("JWT_SECRET", "a-strong-jwt-secret-that-is-way-over-32-bytes")
+	os.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+	os.Setenv("ADMIN_EMAIL", "admin@test.com")
+	os.Setenv("ADMIN_PASSWORD", "short")
+	os.Setenv("ENABLE_FAKE_PAYMENT", "false")
+	defer func() {
+		os.Unsetenv("DATABASE_URL")
+		os.Unsetenv("LITELLM_BASE_URL")
+		os.Unsetenv("LITELLM_MASTER_KEY")
+		os.Unsetenv("JWT_SECRET")
+		os.Unsetenv("ENCRYPTION_KEY")
+		os.Unsetenv("ADMIN_EMAIL")
+		os.Unsetenv("ADMIN_PASSWORD")
+		// Restore dev-mode flag (TestMain default).
+		os.Setenv("ENABLE_FAKE_PAYMENT", "true")
+	}()
+
+	cfg, err := Load()
+	if err == nil {
+		t.Fatal("expected weak admin password to be rejected in production, got nil error")
+	}
+	if !strings.Contains(err.Error(), "ADMIN_PASSWORD") {
+		t.Fatalf("expected ADMIN_PASSWORD error, got: %v", err)
+	}
+	if cfg != nil {
+		t.Fatal("expected nil config on validation failure")
 	}
 }
 

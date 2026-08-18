@@ -74,6 +74,9 @@ func main() {
 		r.Use(middleware.GatewayRateLimit(application.RateLimiter, 100, 1*time.Minute))
 		r.Get("/models", gateway.HandleListModels(application))
 		r.Post("/chat/completions", gateway.HandleChatCompletions(application))
+		r.Post("/embeddings", gateway.HandleEmbeddings(application))
+		r.Post("/images/generations", gateway.HandleImagesGenerations(application))
+		r.Post("/audio/speech", gateway.HandleAudioSpeech(application))
 	})
 
 	// Console API (JWT-protected, user-facing).
@@ -127,6 +130,7 @@ func main() {
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(middleware.ConsoleAuth(application))
 		r.Use(middleware.AdminAuth())
+		r.Use(middleware.AdminRateLimit(application.RateLimiter, 120, 1*time.Minute))
 		r.Use(middleware.AuditAdminWrite(application.Pool))
 
 		r.Get("/models", console.HandleListModels(application))

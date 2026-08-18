@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -12,13 +13,31 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// CtxAuditOldValue carries a JSON-able snapshot of the resource being
+// mutated (e.g. the full tenant before a hard delete). Handlers set it on the
+// request context; AuditAdminWrite persists it into audit_logs.old_value so
+// the operator can reconstruct what was removed.
+type ctxAuditOldValueKey struct{}
+
+// CtxAuditOldValue is the context key for the audit old-value snapshot.
+var CtxAuditOldValue = ctxAuditOldValueKey{}
+
 // recordAudit inserts a row into audit_logs. Errors are logged, never returned:
 // a failed audit write must not fail the underlying business operation.
-func recordAudit(ctx context.Context, pool *pgxpool.Pool, actorID *uuid.UUID, action, resourceType string, resourceID *uuid.UUID, ip string) {
+func recordAudit(ctx context.Context, pool *pgxpool.Pool, actorID *uuid.UUID, action, resourceType string, resourceID *uuid.UUID, ip string, oldValue any) {
+	var oldValueJSON []byte
+	if oldValue != nil {
+		if b, err := json.Marshal(oldValue); err == nil {
+			oldValueJSON = b
+		} else {
+			log.Printf("audit: marshal old_value for %s %s: %v", action, resourceType, err)
+		}
+	}
+
 	_, err := pool.Exec(ctx,
-		`INSERT INTO audit_logs (actor_id, actor_type, tenant_id, action, resource_type, resource_id, ip_address, created_at)
-		 VALUES ($1, 'user', NULL, $2, $3, $4, $5, $6)`,
-		actorID, action, resourceType, resourceID, ip, time.Now().UTC(),
+		`INSERT INTO audit_logs (actor_id, actor_type, tenant_id, action, resource_type, resource_id, old_value, ip_address, created_at)
+		 VALUES ($1, 'user', NULL, $2, $3, $4, $5, $6, $7)`,
+		actorID, action, resourceType, resourceID, oldValueJSON, ip, time.Now().UTC(),
 	)
 	if err != nil {
 		log.Printf("audit: record %s %s: %v", action, resourceType, err)
@@ -57,7 +76,8 @@ func AuditAdminWrite(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 					}
 				}
 
-				recordAudit(r.Context(), pool, actorID, method+" "+r.URL.Path, resourceType, resourceID, extractIPFromRemoteAddr(r.RemoteAddr))
+				oldValue := r.Context().Value(CtxAuditOldValue)
+				recordAudit(r.Context(), pool, actorID, method+" "+r.URL.Path, resourceType, resourceID, extractIPFromRemoteAddr(r.RemoteAddr), oldValue)
 			}
 			next.ServeHTTP(w, r)
 		})

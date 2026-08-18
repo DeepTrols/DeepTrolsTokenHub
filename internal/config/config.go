@@ -186,6 +186,16 @@ func (c *Config) validate() error {
 				return fmt.Errorf("config: weak default secret %q detected in production mode; set a strong value in .env (or set ENABLE_FAKE_PAYMENT=true for development only)", w)
 			}
 		}
+
+		// Production baseline: auth cookies must only travel over HTTPS, and
+		// the bootstrap admin password must be strong enough to survive a
+		// credential-stuffing attempt before the operator rotates it.
+		if !c.Cookie.Secure {
+			return fmt.Errorf("config: COOKIE_SECURE must be true in production mode (auth cookies must never traverse plain HTTP); set COOKIE_SECURE=true behind your TLS terminator")
+		}
+		if len(c.Bootstrap.AdminPassword) < 12 {
+			return fmt.Errorf("config: ADMIN_PASSWORD must be at least 12 bytes in production mode, got %d", len(c.Bootstrap.AdminPassword))
+		}
 	}
 	return nil
 }

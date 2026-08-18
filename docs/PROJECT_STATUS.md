@@ -477,3 +477,50 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - `go build ./...` · `go vet ./...` 全绿；`go test -p 1 ./...` 全量通过（串行避免共享测试库并发 TRUNCATE 死锁）
 - 迁移 000009 已应用 dev + test 库；up/down 往返验证通过
+
+## 十三、2026-08-18 生产就绪 Step 2/3：非流式证据 · 安全基线 · 网关端点扩展
+
+> **目标**：按生产就绪路线补齐三件事——非流式失败请求不再"账外消失"、管理后台限流与生产配置 fail-fast、网关新增 embeddings/images/audio 端点走完整计费链路。
+
+### 13.1 非流式失败证据补齐（对账"消失的请求"清零）
+
+`POST /v1/chat/completions`（stream=false）上游全部失败时，此前只 release 预留金并返回 502，**不写 usage_log**。现在：
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 候选循环内记录最后一次尝试（statusCode / duration / response body / attemptCount），供最终失败日志使用 | `internal/handler/gateway/chat.go` |
+| 2 | 新增 `logNonStreamFailure`：detached context（30s，客户端断连不丢证据）；`Status=failed`、`UsageSource=estimated`、成本/钱包/配额恒 0；错误码分类 `upstream_http_error`（带 status_code）/ `upstream_error` / `client_disconnected`；evidence 带上游状态码、错误体（1 MiB 截断）、请求体、tenant_id；`(all N candidates failed)` 可追溯多候选失败 | `internal/handler/gateway/chat.go` |
+| 3 | `releaseHoldSafe`：客户端断开（ctx canceled）时改用 detached context 释放预留金与配额，防断连冻结 | `internal/handler/gateway/chat.go` |
+
+### 13.2 管理后台限流 + 生产配置基线 + 审计 old_value
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 新增 `AdminRateLimit`（key=`rl:admin:<userID>`，IP 兜底，fail-open），挂到 `/api/admin` 组（AdminAuth 之后、AuditAdminWrite 之前），默认 120/min | `internal/handler/middleware/ratelimit.go`、`cmd/api/main.go` |
+| 2 | 生产模式（`ENABLE_FAKE_PAYMENT=false`）强制 `COOKIE_SECURE=true`、`ADMIN_PASSWORD` ≥ 12 字节，否则拒绝启动（fail-fast） | `internal/config/config.go` |
+| 3 | 审计落库支持 `old_value`：`CtxAuditOldValue` 上下文快照 → `audit_logs.old_value` JSON；租户硬删除与用户软删除前写入身份快照（id/code/name/email/role 等），删除后可追溯 | `internal/handler/middleware/audit.go`、`internal/handler/console/tenants.go`、`internal/handler/console/users.go` |
+| 4 | `.env.example` 补生产环境注释块（强随机密钥生成、TLS 终止、COOKIE 基线）；新增 `docs/DEPLOYMENT.md` 部署手册（环境变量基线、迁移与 dirty 修复、健康检查、备份、密钥轮换、灰度回滚） | `.env.example`、`docs/DEPLOYMENT.md` |
+
+### 13.3 网关端点扩展：/v1/embeddings · /v1/images/generations · /v1/audio/speech
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | Executor 接口新增 `ExecuteEndpoint` / `ExecuteEndpointRaw`（任意 `/v1` 端点转发；`Execute` 改为委托 `chat/completions`，行为不变） | `internal/service/gateway/executor.go` |
+| 2 | 新增通用转发助手 `handleForwardedEndpoint` / `handleForwardedRawEndpoint`：POST+1MiB 校验 → `enforceAPIKeyBoundaries` → 路由候选（3 个 failover）→ **预留金与配额预留先于上游调用** → 逐候选执行（失败 release 换下一个）→ 成功后估算/解析 usage → pricer 计价 → Settle → spend 记录 → usage_log（request_type 参数化） | `internal/handler/gateway/endpoints.go` |
+| 3 | `HandleEmbeddings`：usage 优先响应 `usage.prompt_tokens`（source=upstream），缺失按输入估算（source=estimated）；request_type=embeddings，按 input 维度计价 | `internal/handler/gateway/endpoints.go` |
+| 4 | `HandleImagesGenerations`：按请求 `n`（默认 1，>10 拒绝）→ `ImageCount`，dimension=image；`HandleAudioSpeech`：输入文本估算 TTS 字符，dimension=tts；audio/speech 走 Raw 响应透传（二进制音频） | `internal/handler/gateway/endpoints.go` |
+| 5 | 路由注册：`r.Post("/embeddings" ...)` 等三个路由挂入 /v1 组 | `cmd/api/main.go` |
+
+### 13.4 测试（TDD，先 RED 后 GREEN）
+
+- 非流式失败：HTTP 500 → failed + upstream_http_error + evidence.StatusCode=500 + release；连接错误 → upstream_error；多候选全失败 → 单条日志含 attempts；客户端取消 → release 仍执行、日志仍落；成功路径无 failed 日志（回归）
+- 限流：`TestAdminRateLimit_*` 同用户超限 429 + Retry-After、不同用户互不影响、无用户按 IP 兜底
+- 配置：生产模式 COOKIE_SECURE=false / 弱管理员密码 → 启动报错；开发模式默认值放行（回归）
+- 审计：`audit_logs.old_value` 落 JSON 快照（集成）
+- 端点：embeddings/images/audio 各自成功结算（dimension=input/image/tts、request_type 正确、usage 来源 upstream/estimated 兜底）、上游 4xx 失败落证据零成本、无钱包 402、未知模型 404、n>10 拒绝
+
+### 13.5 验证
+
+- `go vet ./...` · `go build ./...` 全绿；`go test -p 1 ./...` 全量通过
+- **注记（测试基建）**：共享测试库曾受一个被中断运行的孤儿测试进程干扰（表现为随机 deadlock / FK 违规 / 计数错乱），已用 `pg_terminate_backend` 清掉其连接后全量复测通过；复现排查手法记录在 `docs/DEPLOYMENT.md` 与本次会话，非代码缺陷
+- 新增端点已注册；API 二进制重建重启后 /health 正常

@@ -184,12 +184,17 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	}
 
 	var (
-		reserveResult  *billing.ReserveResult
-		routeResult    *gw.RouteResult
-		resp           *gw.ExecuteResponse
-		upstreamFailed = true
-		lastErr        error
+		reserveResult     *billing.ReserveResult
+		routeResult       *gw.RouteResult
+		resp              *gw.ExecuteResponse
+		upstreamFailed    = true
+		lastErr           error
+		lastResp          *gw.ExecuteResponse
+		lastRouteResult   *gw.RouteResult
+		upstreamModelName = modelName
+		attemptCount      int
 	)
+	startTime := time.Now()
 	for i := range candidates {
 		cand := candidates[i]
 		attemptID := requestID
@@ -229,23 +234,32 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 			break
 		}
 
-		// Attempt failed: release this hold and try the next candidate.
-		if relErr := application.Charger.Release(r.Context(), reserveResult.TransactionID); relErr != nil {
-			log.Printf("gateway: release error tx=%s: %v", reserveResult.TransactionID, relErr)
-		}
+		// Attempt failed: remember evidence, release this hold (with a detached
+		// fallback so a client disconnect can never freeze the hold), and try
+		// the next candidate.
+		lastResp = resp
+		lastRouteResult = &cand
+		attemptCount = i + 1
+		upstreamModelName = stringOrDefault(cand.UpstreamModel, modelName)
+		releaseWalletHold(r.Context(), application, reserveResult.TransactionID)
 		reserveResult = nil
 		log.Printf("gateway: attempt %d failed channel=%q: %v", i, cand.Channel.Name, lastErr)
 	}
 
 	if upstreamFailed {
-		if application.QuotaChecker != nil {
-			application.QuotaChecker.Release(r.Context(), quotaReservation, requestID)
-		}
+		// Release the quota reservation with a detached fallback: a cancelled
+		// request context must never leave quota or wallet holds frozen.
+		releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 		msg := "Upstream request failed"
 		if lastErr != nil {
 			msg = lastErr.Error()
 		}
 		log.Printf("gateway: all upstream attempts failed: %v", lastErr)
+		// Record the failed call in the evidence chain (invariant #4): every
+		// upstream failure leaves a zero-cost failed usage_log so billing
+		// reconciliation never sees "missing" requests.
+		go logNonStreamFailure(application, "chat", userID, apiKeyID, tenantID, modelName, upstreamModelName,
+			lastRouteResult, body, requestID, lastErr, lastResp, attemptCount, int(time.Since(startTime).Milliseconds()))
 		writeError(w, http.StatusBadGateway, "upstream_error", msg)
 		return
 	}
@@ -309,7 +323,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	// Log usage in background with a detached context so it survives
 	// the HTTP request lifecycle.
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, quotaDeducted)
+	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, quotaDeducted)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
@@ -655,6 +669,36 @@ func releaseIfReserved(ctx context.Context, application *app.App, reserveResult 
 	}
 }
 
+// releaseWalletHold releases a reserved wallet transaction, falling back to a
+// detached context when the request context is already cancelled so a client
+// disconnect can never leave the hold frozen (invariant #2 compensation).
+func releaseWalletHold(ctx context.Context, application *app.App, txID uuid.UUID) {
+	relCtx := ctx
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		relCtx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+	}
+	if err := application.Charger.Release(relCtx, txID); err != nil {
+		log.Printf("gateway: release error tx=%s: %v", txID, err)
+	}
+}
+
+// releaseQuotaDetached releases the quota reservation, falling back to a
+// detached context when the request context is already cancelled.
+func releaseQuotaDetached(ctx context.Context, application *app.App, quotaReservation *billing.QuotaReservation, requestID string) {
+	if application.QuotaChecker == nil {
+		return
+	}
+	relCtx := ctx
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		relCtx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+	}
+	application.QuotaChecker.Release(relCtx, quotaReservation, requestID)
+}
+
 // actualQuotaTokens returns the tokens actually consumed from the upstream
 // response, falling back to the request-body estimate when usage is absent.
 func actualQuotaTokens(resp *gw.ExecuteResponse, body map[string]any) int64 {
@@ -819,7 +863,7 @@ func tenantIDOrDefaultPtr(tenantID *uuid.UUID) *uuid.UUID {
 
 // logUsageWithCosts records the usage log with real costs from the pricer.
 // Uses a detached context (30s timeout) independent of the HTTP request lifecycle.
-func logUsageWithCosts(r *http.Request, application *app.App, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, quotaDeducted int64) {
+func logUsageWithCosts(r *http.Request, application *app.App, requestType string, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, quotaDeducted int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -882,7 +926,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, userID, apiKeyID u
 		UserID:            userID,
 		APIKeyID:          apiKeyID,
 		RequestID:         requestID,
-		RequestType:       "chat",
+		RequestType:       requestType,
 		PublicModelCode:   modelName,
 		UpstreamModelCode: upstreamModel,
 		ProviderRequestID: resp.ProviderReqID,
@@ -1067,6 +1111,114 @@ func logStreamFailure(application *app.App, userID, apiKeyID uuid.UUID, tenantID
 
 	if _, err := application.Logger.Record(ctx, params); err != nil {
 		log.Printf("logger record failed for stream failure: %v", err)
+	}
+}
+
+// logNonStreamFailure records a usage log for non-streaming requests that
+// failed against every upstream candidate. It runs with a detached context
+// (30s) so the evidence survives client disconnects, and always reports zero
+// cost: the reserve was released and no tokens were charged. The error body
+// is capped at maxUpstreamErrorBody before persistence.
+func logNonStreamFailure(application *app.App, requestType string, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, routeResult *gw.RouteResult, body map[string]any, requestID string, lastErr error, lastResp *gw.ExecuteResponse, attemptCount int, durationMs int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	errorCode := "upstream_error"
+	errorMessage := ""
+	if lastErr != nil {
+		errorMessage = lastErr.Error()
+	}
+	statusCode := 0
+	if lastResp != nil && lastResp.StatusCode >= 400 {
+		statusCode = lastResp.StatusCode
+		errorCode = "upstream_http_error"
+		if errorMessage == "" {
+			errorMessage = "upstream returned non-2xx"
+		}
+		if m, ok := lastResp.Body["error"].(map[string]any); ok {
+			if msg, ok := m["message"].(string); ok && msg != "" {
+				errorMessage = msg
+			}
+		} else if s, ok := lastResp.Body["error"].(string); ok && s != "" {
+			errorMessage = s
+		}
+	}
+	if attemptCount > 0 && errorMessage != "" {
+		errorMessage = fmt.Sprintf("%s (all %d candidates failed)", errorMessage, attemptCount)
+	}
+
+	responseBody := map[string]any{}
+	if lastResp != nil && len(lastResp.Body) > 0 {
+		if raw, err := json.Marshal(lastResp.Body); err == nil {
+			for {
+				if len(raw) > maxUpstreamErrorBody {
+					raw = raw[:maxUpstreamErrorBody]
+				}
+				if err := json.Unmarshal(raw, &responseBody); err != nil {
+					responseBody = map[string]any{"raw": string(raw)}
+				}
+				// Re-encoding the evidence map can add wrapper bytes (e.g. the
+				// {"raw": ...} fallback); shrink until it fits the storage cap.
+				if b, err := json.Marshal(responseBody); err == nil && len(b) <= maxUpstreamErrorBody {
+					break
+				}
+				if len(raw) <= 64 {
+					responseBody = map[string]any{"truncated": true}
+					break
+				}
+				raw = raw[:len(raw)-64]
+			}
+		}
+	}
+
+	var channelID, instanceID *uuid.UUID
+	var routePolicyID *uuid.UUID
+	if routeResult != nil {
+		if routeResult.Channel != nil {
+			id := routeResult.Channel.ID
+			channelID = &id
+		}
+		if routeResult.Instance != nil {
+			id := routeResult.Instance.ID
+			instanceID = &id
+		}
+		routePolicyID = routeResult.RoutePolicyID
+	}
+
+	params := billing.LogUsageParams{
+		TenantID:          tenantID,
+		UserID:            userID,
+		APIKeyID:          apiKeyID,
+		RequestID:         requestID,
+		RequestType:       requestType,
+		PublicModelCode:   modelName,
+		UpstreamModelCode: upstreamModel,
+		ChannelID:         channelID,
+		InstanceID:        instanceID,
+		RoutePolicyID:     routePolicyID,
+		UsageSource:       domain.UsageSourceEstimated,
+		UsageRaw:          map[string]any{},
+		UsageNormalized:   map[string]any{},
+		ListCost:          decimal.Zero,
+		FinalCost:         decimal.Zero,
+		UpstreamCost:      decimal.Zero,
+		Currency:          "CNY",
+		QuotaDeducted:     0,
+		WalletCharged:     decimal.Zero,
+		Status:            domain.UsageLogStatusFailed,
+		ErrorCode:         errorCode,
+		ErrorMessage:      errorMessage,
+		Provider:          "litellm",
+		ProviderReqID:     requestID,
+		RequestBody:       body,
+		ResponseBody:      responseBody,
+		StatusCode:        statusCode,
+		DurationMs:        durationMs,
+		ProviderErrMsg:    errorMessage,
+	}
+
+	if _, err := application.Logger.Record(ctx, params); err != nil {
+		log.Printf("logger record failed for non-stream failure: %v", err)
 	}
 }
 
