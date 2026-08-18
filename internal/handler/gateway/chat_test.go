@@ -1,9 +1,11 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -911,8 +913,235 @@ func TestHandleStreamingChat_SuccessWithUsage(t *testing.T) {
 	if usageRepo.lastUsageLog.FinalCost.Equal(decimal.Zero) {
 		t.Error("FinalCost should be non-zero in streaming usage log")
 	}
-	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceUpstream {
-		t.Errorf("Streaming UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceUpstream)
+	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceFinalChunk {
+		t.Errorf("Streaming UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceFinalChunk)
+	}
+	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusCompleted {
+		t.Errorf("Streaming Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusCompleted)
+	}
+	if usageRepo.lastEvidence == nil {
+		t.Fatal("provider evidence was never recorded for streaming")
+	}
+	if usageRepo.lastEvidence.StatusCode != http.StatusOK {
+		t.Errorf("evidence status = %d, want %d", usageRepo.lastEvidence.StatusCode, http.StatusOK)
+	}
+}
+
+// ============================================================================
+// Test: Streaming truncated stream -- partial usage log + release (no [DONE])
+// ============================================================================
+
+func TestHandleStreamingChat_TruncatedStream_LogsPartialAndReleases(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	modelID := uuid.New()
+
+	// Upstream hijacks the connection, forwards one chunk, then resets the TCP
+	// connection so the client sees a read error instead of a clean EOF.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("hijack not supported")
+			return
+		}
+		conn, buf, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		buf.WriteString("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\r\n")
+		chunk := `{"id":"chatcmpl-trunc","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}`
+		fmt.Fprintf(buf, "data: %s\n\n", chunk)
+		buf.Flush()
+		if tc, ok := conn.(*net.TCPConn); ok {
+			tc.SetLinger(0) // RST instead of FIN
+		}
+		conn.Close()
+	}))
+	defer upstream.Close()
+
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{{ID: channelID, ModelID: modelID, Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 1, MaxConcurrency: 10}}, nil
+		},
+		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{{ID: instanceID, ChannelID: channelID, BaseURL: upstream.URL, ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+		},
+	}
+	pricingRepo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return makePricingEntries(), nil
+		},
+	}
+	txID := uuid.New()
+	walletRepo := &mockWalletRepo{
+		findByUserFn: func(ctx context.Context, uid uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error) {
+			return &domain.Wallet{ID: uuid.New(), UserID: uid, Balance: decimal.NewFromFloat(100.0), Frozen: decimal.Zero}, nil
+		},
+		reserveFn: func(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+			return &domain.WalletTransaction{ID: txID, WalletID: walletID, Amount: amount, IdempotencyKey: idempotencyKey, TxType: domain.WalletTxReserve}, nil
+		},
+		releaseFn: func(ctx context.Context, tID uuid.UUID) error { return nil },
+	}
+	usageRepo := &mockUsageRepo{}
+
+	application := newTestApp(nil, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+	application.HttpClient = upstream.Client()
+
+	body := validRequestBody()
+	respBodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(respBodyBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "test-stream-trunc")
+	req = setAuthContext(req, userID, apiKeyID)
+	w := httptest.NewRecorder()
+
+	HandleStreamingChat(w, req, application, "gpt-4o", body)
+
+	// Partial stream was forwarded, but no [DONE] may be sent.
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	respBody := w.Body.String()
+	if !strings.Contains(respBody, "data:") {
+		t.Error("response should contain the forwarded SSE chunk")
+	}
+	if strings.Contains(respBody, "[DONE]") {
+		t.Error("truncated stream must NOT send [DONE] (invariant #5)")
+	}
+
+	if walletRepo.reserveCalled == 0 {
+		t.Error("reserve should have been called before upstream")
+	}
+	if walletRepo.releaseCalled == 0 {
+		t.Error("release should have been called on truncated stream")
+	}
+	if walletRepo.settleCalled > 0 {
+		t.Error("settle should NOT be called on truncated stream")
+	}
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if usageRepo.lastUsageLog == nil {
+		t.Fatal("usage log was never recorded for truncated stream (timed out)")
+	}
+	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusPartial {
+		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusPartial)
+	}
+	if usageRepo.lastUsageLog.ErrorCode != "stream_interrupted" {
+		t.Errorf("ErrorCode = %s, want stream_interrupted", usageRepo.lastUsageLog.ErrorCode)
+	}
+	if !usageRepo.lastUsageLog.WalletCharged.IsZero() {
+		t.Errorf("WalletCharged = %s, want 0", usageRepo.lastUsageLog.WalletCharged)
+	}
+	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceEstimated {
+		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceEstimated)
+	}
+}
+
+// ============================================================================
+// Test: Streaming upstream HTTP error -- failed usage log with evidence
+// ============================================================================
+
+func TestHandleStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	modelID := uuid.New()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": {"message": "provider exploded"}}`))
+	}))
+	defer upstream.Close()
+
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{{ID: channelID, ModelID: modelID, Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 1, MaxConcurrency: 10}}, nil
+		},
+		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{{ID: instanceID, ChannelID: channelID, BaseURL: upstream.URL, ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+		},
+	}
+	pricingRepo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return makePricingEntries(), nil
+		},
+	}
+	txID := uuid.New()
+	walletRepo := &mockWalletRepo{
+		findByUserFn: func(ctx context.Context, uid uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error) {
+			return &domain.Wallet{ID: uuid.New(), UserID: uid, Balance: decimal.NewFromFloat(100.0), Frozen: decimal.Zero}, nil
+		},
+		reserveFn: func(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+			return &domain.WalletTransaction{ID: txID, WalletID: walletID, Amount: amount, IdempotencyKey: idempotencyKey, TxType: domain.WalletTxReserve}, nil
+		},
+		releaseFn: func(ctx context.Context, tID uuid.UUID) error { return nil },
+	}
+	usageRepo := &mockUsageRepo{}
+
+	application := newTestApp(nil, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+	application.HttpClient = upstream.Client()
+
+	body := validRequestBody()
+	respBodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(respBodyBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "test-stream-http-err")
+	req = setAuthContext(req, userID, apiKeyID)
+	w := httptest.NewRecorder()
+
+	HandleStreamingChat(w, req, application, "gpt-4o", body)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusInternalServerError, w.Body.String())
+	}
+	if walletRepo.releaseCalled == 0 {
+		t.Error("release should have been called on upstream HTTP error")
+	}
+	if walletRepo.settleCalled > 0 {
+		t.Error("settle should NOT be called on upstream HTTP error")
+	}
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if usageRepo.lastUsageLog == nil {
+		t.Fatal("usage log was never recorded for upstream HTTP error (timed out)")
+	}
+	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusFailed)
+	}
+	if usageRepo.lastUsageLog.ErrorCode != "upstream_http_error" {
+		t.Errorf("ErrorCode = %s, want upstream_http_error", usageRepo.lastUsageLog.ErrorCode)
+	}
+	if usageRepo.lastEvidence == nil {
+		t.Fatal("provider evidence was never recorded")
+	}
+	if usageRepo.lastEvidence.StatusCode != http.StatusInternalServerError {
+		t.Errorf("evidence status = %d, want %d", usageRepo.lastEvidence.StatusCode, http.StatusInternalServerError)
+	}
+	if usageRepo.lastEvidence.ErrorMessage == "" {
+		t.Error("evidence error_message should be populated on upstream HTTP error")
+	}
+	if !usageRepo.lastUsageLog.WalletCharged.IsZero() {
+		t.Errorf("WalletCharged = %s, want 0", usageRepo.lastUsageLog.WalletCharged)
 	}
 }
 
@@ -1084,6 +1313,174 @@ func TestHandleStreamingChat_UpstreamError_Releases(t *testing.T) {
 	}
 	if walletRepo.commitCalled > 0 {
 		t.Error("commit should NOT be called on upstream error")
+	}
+}
+
+// ============================================================================
+// Test: Streaming upstream connection error -- failed usage log
+// ============================================================================
+
+func TestHandleStreamingChat_UpstreamConnectionError_LogsFailed(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	modelID := uuid.New()
+
+	// Grab a port with nothing listening: connection refused on client.Do.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	deadURL := "http://" + ln.Addr().String()
+	ln.Close()
+
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{{ID: channelID, ModelID: modelID, Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 1, MaxConcurrency: 10}}, nil
+		},
+		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{{ID: instanceID, ChannelID: channelID, BaseURL: deadURL, ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+		},
+	}
+	pricingRepo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return makePricingEntries(), nil
+		},
+	}
+	txID := uuid.New()
+	walletRepo := &mockWalletRepo{
+		findByUserFn: func(ctx context.Context, uid uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error) {
+			return &domain.Wallet{ID: uuid.New(), UserID: uid, Balance: decimal.NewFromFloat(100.0), Frozen: decimal.Zero}, nil
+		},
+		reserveFn: func(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+			return &domain.WalletTransaction{ID: txID, WalletID: walletID, Amount: amount, IdempotencyKey: idempotencyKey, TxType: domain.WalletTxReserve}, nil
+		},
+		releaseFn: func(ctx context.Context, tID uuid.UUID) error { return nil },
+	}
+	usageRepo := &mockUsageRepo{}
+
+	application := newTestApp(nil, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+
+	body := validRequestBody()
+	respBodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(respBodyBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "test-stream-conn-err")
+	req = setAuthContext(req, userID, apiKeyID)
+	w := httptest.NewRecorder()
+
+	HandleStreamingChat(w, req, application, "gpt-4o", body)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusInternalServerError, w.Body.String())
+	}
+	if walletRepo.releaseCalled == 0 {
+		t.Error("release should have been called on upstream connection error")
+	}
+	if walletRepo.settleCalled > 0 {
+		t.Error("settle should NOT be called on upstream connection error")
+	}
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if usageRepo.lastUsageLog == nil {
+		t.Fatal("usage log was never recorded for upstream connection error (timed out)")
+	}
+	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusFailed)
+	}
+	if usageRepo.lastUsageLog.ErrorCode != "upstream_error" {
+		t.Errorf("ErrorCode = %s, want upstream_error", usageRepo.lastUsageLog.ErrorCode)
+	}
+	if !usageRepo.lastUsageLog.WalletCharged.IsZero() {
+		t.Errorf("WalletCharged = %s, want 0", usageRepo.lastUsageLog.WalletCharged)
+	}
+}
+
+// ============================================================================
+// Test: Streaming upstream HTTP error body is capped at 1 MB
+// ============================================================================
+
+func TestHandleStreamingChat_UpstreamHTTPError_BodyTruncated(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	modelID := uuid.New()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write(bytes.Repeat([]byte("x"), 2*1024*1024))
+	}))
+	defer upstream.Close()
+
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{{ID: channelID, ModelID: modelID, Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 1, MaxConcurrency: 10}}, nil
+		},
+		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{{ID: instanceID, ChannelID: channelID, BaseURL: upstream.URL, ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+		},
+	}
+	pricingRepo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return makePricingEntries(), nil
+		},
+	}
+	txID := uuid.New()
+	walletRepo := &mockWalletRepo{
+		findByUserFn: func(ctx context.Context, uid uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error) {
+			return &domain.Wallet{ID: uuid.New(), UserID: uid, Balance: decimal.NewFromFloat(100.0), Frozen: decimal.Zero}, nil
+		},
+		reserveFn: func(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+			return &domain.WalletTransaction{ID: txID, WalletID: walletID, Amount: amount, IdempotencyKey: idempotencyKey, TxType: domain.WalletTxReserve}, nil
+		},
+		releaseFn: func(ctx context.Context, tID uuid.UUID) error { return nil },
+	}
+	usageRepo := &mockUsageRepo{}
+
+	application := newTestApp(nil, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+	application.HttpClient = upstream.Client()
+
+	body := validRequestBody()
+	respBodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(respBodyBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "test-stream-big-err")
+	req = setAuthContext(req, userID, apiKeyID)
+	w := httptest.NewRecorder()
+
+	HandleStreamingChat(w, req, application, "gpt-4o", body)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+	if w.Body.Len() > 1<<20 {
+		t.Errorf("response body length = %d, want <= 1 MiB (capped)", w.Body.Len())
+	}
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if usageRepo.lastUsageLog == nil {
+		t.Fatal("usage log was never recorded for large upstream error (timed out)")
+	}
+	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusFailed)
 	}
 }
 

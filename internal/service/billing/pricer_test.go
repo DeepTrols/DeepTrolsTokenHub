@@ -325,3 +325,125 @@ func TestPricer_Calculate_NilUsage(t *testing.T) {
 	}
 	t.Logf("Nil usage correctly returns error: %v", err)
 }
+
+func TestPricer_PriceSnapshot_Populated(t *testing.T) {
+	modelID := uuid.New()
+	repo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mID uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return []domain.ModelPricing{
+				{ID: uuid.New(), ModelID: modelID, RequestType: "chat", PricingDimension: "input", UnitName: "token",
+					UnitPrice: "0.000015", Currency: "CNY", UpstreamCost: "0.000010", PriceVersion: 3, IsActive: true},
+				{ID: uuid.New(), ModelID: modelID, RequestType: "chat", PricingDimension: "output", UnitName: "token",
+					UnitPrice: "0.000060", Currency: "CNY", UpstreamCost: "0.000040", PriceVersion: 3, IsActive: true},
+			}, nil
+		},
+	}
+
+	p := NewPricer(repo)
+	result, err := p.Calculate(context.Background(), modelID, nil, &usageparser.NormalizedUsage{InputTokens: 1000, OutputTokens: 500})
+	if err != nil {
+		t.Fatalf("Calculate unexpected error: %v", err)
+	}
+
+	if result.PriceSnapshot == nil {
+		t.Fatal("PriceSnapshot should not be nil")
+	}
+	if result.PriceSnapshot["source"] != "model_pricing" {
+		t.Errorf("snapshot source = %v, want model_pricing", result.PriceSnapshot["source"])
+	}
+	if result.PriceSnapshot["currency"] != "CNY" {
+		t.Errorf("snapshot currency = %v, want CNY", result.PriceSnapshot["currency"])
+	}
+	capturedAt, _ := result.PriceSnapshot["captured_at"].(string)
+	if capturedAt == "" {
+		t.Error("snapshot captured_at must be a non-empty RFC3339 timestamp")
+	}
+
+	rows, ok := result.PriceSnapshot["rows"].([]any)
+	if !ok {
+		t.Fatalf("snapshot rows = %T, want []any", result.PriceSnapshot["rows"])
+	}
+	if len(rows) != len(result.ChargeLines) {
+		t.Fatalf("snapshot rows count = %d, want %d (one per charge line)", len(rows), len(result.ChargeLines))
+	}
+	// Dimension iteration order is a Go map order (non-deterministic), so
+	// locate the input row instead of assuming a fixed index.
+	var inputRow map[string]any
+	for _, r := range rows {
+		row, ok := r.(map[string]any)
+		if !ok {
+			t.Fatalf("snapshot row = %T, want map[string]any", r)
+		}
+		if row["dimension"] == "input" {
+			inputRow = row
+			break
+		}
+	}
+	if inputRow == nil {
+		t.Fatal("snapshot rows missing input dimension")
+	}
+	if inputRow["unit_price"] != "0.000015" {
+		t.Errorf("input row unit_price = %v, want string 0.000015", inputRow["unit_price"])
+	}
+	if inputRow["price_version"] != int64(3) {
+		t.Errorf("input row price_version = %v (%T), want int64(3)", inputRow["price_version"], inputRow["price_version"])
+	}
+}
+
+func TestPricer_ChargeLines_CarryPriceSourceAndVersion(t *testing.T) {
+	modelID := uuid.New()
+	repo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mID uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return []domain.ModelPricing{
+				{ID: uuid.New(), ModelID: modelID, RequestType: "chat", PricingDimension: "input", UnitName: "token",
+					UnitPrice: "0.01", Currency: "CNY", UpstreamCost: "0.005", PriceVersion: 9, IsActive: true},
+			}, nil
+		},
+	}
+
+	p := NewPricer(repo)
+	result, err := p.Calculate(context.Background(), modelID, nil, &usageparser.NormalizedUsage{InputTokens: 100})
+	if err != nil {
+		t.Fatalf("Calculate unexpected error: %v", err)
+	}
+	if len(result.ChargeLines) != 1 {
+		t.Fatalf("ChargeLines count = %d, want 1", len(result.ChargeLines))
+	}
+	if result.ChargeLines[0].PriceSource != "model_pricing" {
+		t.Errorf("ChargeLines[0].PriceSource = %q, want model_pricing", result.ChargeLines[0].PriceSource)
+	}
+	if result.ChargeLines[0].PriceVersion != 9 {
+		t.Errorf("ChargeLines[0].PriceVersion = %d, want 9", result.ChargeLines[0].PriceVersion)
+	}
+}
+
+func TestPricer_PriceSnapshot_EmptyRowsWhenNoPricing(t *testing.T) {
+	repo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mID uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return []domain.ModelPricing{}, nil
+		},
+	}
+
+	p := NewPricer(repo)
+	result, err := p.Calculate(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1000})
+	if err != nil {
+		t.Fatalf("Calculate unexpected error: %v", err)
+	}
+	if result.PriceSnapshot == nil {
+		t.Fatal("PriceSnapshot should not be nil even without pricing rows")
+	}
+	if result.PriceSnapshot["source"] != "model_pricing" {
+		t.Errorf("snapshot source = %v, want model_pricing", result.PriceSnapshot["source"])
+	}
+	capturedAt, _ := result.PriceSnapshot["captured_at"].(string)
+	if capturedAt == "" {
+		t.Error("snapshot captured_at must be non-empty")
+	}
+	rows, ok := result.PriceSnapshot["rows"].([]any)
+	if !ok {
+		t.Fatalf("snapshot rows = %T, want []any", result.PriceSnapshot["rows"])
+	}
+	if len(rows) != 0 {
+		t.Errorf("snapshot rows count = %d, want 0", len(rows))
+	}
+}

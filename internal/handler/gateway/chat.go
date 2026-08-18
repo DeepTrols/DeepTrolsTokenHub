@@ -31,6 +31,9 @@ const (
 	estimatedOutputTokens = 256
 	// charsPerToken is the rough ratio for estimating input tokens from message length.
 	charsPerToken = 4
+	// maxUpstreamErrorBody caps the upstream error body read back and stored
+	// in provider evidence, bounding memory and evidence-table growth.
+	maxUpstreamErrorBody = 1 << 20
 )
 
 // HandleChatCompletions is the main OpenAI-compatible chat completions endpoint.
@@ -426,18 +429,25 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	if client == nil {
 		client = &http.Client{Timeout: 120 * time.Second}
 	}
+	startTime := time.Now()
 	resp, err := client.Do(upstreamReq)
 	if err != nil {
 		log.Printf("gateway: stream upstream error: %v", err)
 		releaseIfReserved(r.Context(), application, reserveResult, quotaReservation, requestID)
+		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
+			routeResult, body, requestID, "", 0, domain.UsageLogStatusFailed,
+			"upstream_error", err.Error(), 0, nil, int(time.Since(startTime).Milliseconds()))
 		writeError(w, http.StatusInternalServerError, "upstream_error", "Upstream request failed")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBytes, _ := io.ReadAll(resp.Body)
+		respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxUpstreamErrorBody))
 		releaseIfReserved(r.Context(), application, reserveResult, quotaReservation, requestID)
+		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
+			routeResult, body, requestID, "", 0, domain.UsageLogStatusFailed,
+			"upstream_http_error", "upstream returned non-2xx", resp.StatusCode, respBytes, int(time.Since(startTime).Milliseconds()))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		w.Write(respBytes)
@@ -448,6 +458,9 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		releaseIfReserved(r.Context(), application, reserveResult, quotaReservation, requestID)
+		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
+			routeResult, body, requestID, "", 0, domain.UsageLogStatusFailed,
+			"streaming_not_supported", "streaming not supported by response writer", 0, nil, int(time.Since(startTime).Milliseconds()))
 		writeError(w, http.StatusInternalServerError, "internal_error", "Streaming not supported")
 		return
 	}
@@ -458,6 +471,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	w.WriteHeader(http.StatusOK)
 
 	var lastDataLine string
+	chunksForwarded := 0
 	scanner := bufio.NewScanner(resp.Body)
 	// Allow large single chunks (e.g. long tool/function outputs): grow the
 	// per-line buffer up to 10 MB instead of failing on the 64 KB default.
@@ -476,6 +490,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 				continue
 			}
 			lastDataLine = payload
+			chunksForwarded++
 			fmt.Fprintf(w, "%s\n\n", line)
 		} else {
 			fmt.Fprintf(w, "data: %s\n\n", line)
@@ -489,16 +504,24 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	if err := scanner.Err(); err != nil {
 		log.Printf("gateway: stream scanner error: %v", err)
 		// Deliberately omit [DONE] so the client detects the unfinished stream.
-		releaseIfReserved(r.Context(), application, reserveResult, quotaReservation, requestID)
+		errorCode := "stream_interrupted"
+		if r.Context().Err() == context.Canceled || errors.Is(err, context.Canceled) {
+			errorCode = "client_disconnected"
+		}
+		// The client may have disconnected (r.Context() cancelled): release
+		// with a detached context so the wallet hold is always compensated.
+		relCtx, relCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		releaseIfReserved(relCtx, application, reserveResult, quotaReservation, requestID)
+		relCancel()
+		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
+			routeResult, body, requestID, lastDataLine, chunksForwarded, domain.UsageLogStatusFailed,
+			errorCode, err.Error(), resp.StatusCode, nil, int(time.Since(startTime).Milliseconds()))
 		return
 	}
 
 	// Send [DONE] signal only after a clean EOF.
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
-
-	// ---- Post-stream: extract usage, commit, log ----
-	startTime := time.Now() // approximate since we streamed in real time
 
 	// Parse usage from last buffered SSE data chunk.
 	var normUsage *usageparser.NormalizedUsage
@@ -514,7 +537,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 			nu, err := usageparser.ParseOpenAIUsage(chunk)
 			if err == nil && nu.HasUsage() {
 				normUsage = nu
-				usageSource = usageparser.SourceUpstream
+				usageSource = usageparser.SourceFinalChunk
 			}
 		}
 	}
@@ -575,7 +598,9 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 
 	// Determine usage source tag.
 	domainUsageSource := domain.UsageSourceEstimated
-	if usageSource == usageparser.SourceUpstream {
+	if usageSource == usageparser.SourceFinalChunk {
+		domainUsageSource = domain.UsageSourceFinalChunk
+	} else if usageSource == usageparser.SourceUpstream {
 		domainUsageSource = domain.UsageSourceUpstream
 	}
 
@@ -603,7 +628,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	}
 
 	// Log usage in background with detached context.
-	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, quotaDeducted)
+	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, quotaDeducted, domain.UsageLogStatusCompleted)
 }
 
 // resolveStreamAPIKeyID extracts the API key ID for streaming logging.
@@ -786,6 +811,12 @@ func tenantIDOrDefault(tenantID *uuid.UUID) uuid.UUID {
 	return uuid.Nil
 }
 
+// tenantIDOrDefaultPtr returns tenantID unchanged (nil-safe convenience for
+// evidence logging params).
+func tenantIDOrDefaultPtr(tenantID *uuid.UUID) *uuid.UUID {
+	return tenantID
+}
+
 // logUsageWithCosts records the usage log with real costs from the pricer.
 // Uses a detached context (30s timeout) independent of the HTTP request lifecycle.
 func logUsageWithCosts(r *http.Request, application *app.App, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, quotaDeducted int64) {
@@ -824,13 +855,17 @@ func logUsageWithCosts(r *http.Request, application *app.App, userID, apiKeyID u
 
 	// Extract evidence fields from route result when available.
 	var channelID, instanceID *uuid.UUID
+	var routePolicyID *uuid.UUID
 	if routeResult != nil {
 		if routeResult.Channel != nil {
 			id := routeResult.Channel.ID
 			channelID = &id
 		}
-		id := routeResult.Instance.ID
-		instanceID = &id
+		if routeResult.Instance != nil {
+			id := routeResult.Instance.ID
+			instanceID = &id
+		}
+		routePolicyID = routeResult.RoutePolicyID
 	}
 
 	// Compute final cost: pricer ListCost for now.
@@ -843,6 +878,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, userID, apiKeyID u
 	}
 
 	params := billing.LogUsageParams{
+		TenantID:          tenantIDOrDefaultPtr(resolveAuthIdentity(r).TenantID),
 		UserID:            userID,
 		APIKeyID:          apiKeyID,
 		RequestID:         requestID,
@@ -852,7 +888,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, userID, apiKeyID u
 		ProviderRequestID: resp.ProviderReqID,
 		ChannelID:         channelID,
 		InstanceID:        instanceID,
-		RoutePolicyID:     routeResult.RoutePolicyID,
+		RoutePolicyID:     routePolicyID,
 		UsageSource:       usageSource,
 		UsageRaw:          usageRaw,
 		UsageNormalized:   normalizedJSON,
@@ -878,7 +914,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, userID, apiKeyID u
 }
 
 // logStreamUsage records usage for streaming requests.
-func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, quotaDeducted int64) {
+func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, quotaDeducted int64, status domain.UsageLogStatus) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -892,13 +928,17 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, modelName,
 	}
 
 	var channelID, instanceID *uuid.UUID
+	var routePolicyID *uuid.UUID
 	if routeResult != nil {
 		if routeResult.Channel != nil {
 			id := routeResult.Channel.ID
 			channelID = &id
 		}
-		id := routeResult.Instance.ID
-		instanceID = &id
+		if routeResult.Instance != nil {
+			id := routeResult.Instance.ID
+			instanceID = &id
+		}
+		routePolicyID = routeResult.RoutePolicyID
 	}
 
 	finalCost := costs.ListCost
@@ -910,6 +950,7 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, modelName,
 	}
 
 	params := billing.LogUsageParams{
+		TenantID:          tenantID,
 		UserID:            userID,
 		APIKeyID:          apiKeyID,
 		RequestID:         resp.ProviderReqID,
@@ -918,7 +959,7 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, modelName,
 		UpstreamModelCode: upstreamModel,
 		ChannelID:         channelID,
 		InstanceID:        instanceID,
-		RoutePolicyID:     routeResult.RoutePolicyID,
+		RoutePolicyID:     routePolicyID,
 		UsageSource:       usageSource,
 		UsageRaw:          usageRaw,
 		UsageNormalized:   normalizedJSON,
@@ -929,7 +970,7 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, modelName,
 		PriceSnapshot:     costs.PriceSnapshot,
 		QuotaDeducted:     quotaDeducted,
 		ChargeLines:       costs.ChargeLines,
-		Status:            domain.UsageLogStatusCompleted,
+		Status:            status,
 		Provider:          "litellm",
 		ProviderReqID:     resp.ProviderReqID,
 		ResponseBody:      resp.Body,
@@ -939,6 +980,93 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, modelName,
 
 	if _, err := application.Logger.Record(ctx, params); err != nil {
 		log.Printf("logger record failed for stream: %v", err)
+	}
+}
+
+// logStreamFailure records a usage log for failed or interrupted streaming
+// requests. It runs with a detached context (30s) so the evidence survives
+// client disconnects, and never reports a failure as a successful charge:
+// costs and wallet charges are always zero because the reserve was released.
+func logStreamFailure(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, routeResult *gw.RouteResult, body map[string]any, requestID, lastDataLine string, chunksForwarded int, status domain.UsageLogStatus, errorCode, errorMessage string, upstreamStatusCode int, upstreamBody []byte, durationMs int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Chunks were delivered to the client before the interruption: the
+	// stream is partial, not a clean failure.
+	if status == domain.UsageLogStatusFailed && chunksForwarded > 0 {
+		status = domain.UsageLogStatusPartial
+	}
+
+	usageSource := domain.UsageSourceEstimated
+	usageRaw := map[string]any{}
+	if lastDataLine != "" {
+		var chunk map[string]any
+		if json.Unmarshal([]byte(lastDataLine), &chunk) == nil {
+			if u, ok := chunk["usage"].(map[string]any); ok {
+				usageRaw = u
+			}
+			nu, err := usageparser.ParseOpenAIUsage(chunk)
+			if err == nil && nu.HasUsage() {
+				usageSource = domain.UsageSourceFinalChunk
+			}
+		}
+	}
+
+	responseBody := map[string]any{}
+	if len(upstreamBody) > 0 {
+		if err := json.Unmarshal(upstreamBody, &responseBody); err != nil {
+			responseBody = map[string]any{"raw": string(upstreamBody)}
+		}
+	}
+
+	var channelID, instanceID *uuid.UUID
+	var routePolicyID *uuid.UUID
+	if routeResult != nil {
+		if routeResult.Channel != nil {
+			id := routeResult.Channel.ID
+			channelID = &id
+		}
+		if routeResult.Instance != nil {
+			id := routeResult.Instance.ID
+			instanceID = &id
+		}
+		routePolicyID = routeResult.RoutePolicyID
+	}
+
+	params := billing.LogUsageParams{
+		TenantID:          tenantID,
+		UserID:            userID,
+		APIKeyID:          apiKeyID,
+		RequestID:         requestID,
+		RequestType:       "chat",
+		PublicModelCode:   modelName,
+		UpstreamModelCode: upstreamModel,
+		ChannelID:         channelID,
+		InstanceID:        instanceID,
+		RoutePolicyID:     routePolicyID,
+		UsageSource:       usageSource,
+		UsageRaw:          usageRaw,
+		UsageNormalized:   map[string]any{},
+		ListCost:          decimal.Zero,
+		FinalCost:         decimal.Zero,
+		UpstreamCost:      decimal.Zero,
+		Currency:          "CNY",
+		QuotaDeducted:     0,
+		WalletCharged:     decimal.Zero,
+		Status:            status,
+		ErrorCode:         errorCode,
+		ErrorMessage:      errorMessage,
+		Provider:          "litellm",
+		ProviderReqID:     requestID,
+		RequestBody:       body,
+		ResponseBody:      responseBody,
+		StatusCode:        upstreamStatusCode,
+		DurationMs:        durationMs,
+		ProviderErrMsg:    errorMessage,
+	}
+
+	if _, err := application.Logger.Record(ctx, params); err != nil {
+		log.Printf("logger record failed for stream failure: %v", err)
 	}
 }
 

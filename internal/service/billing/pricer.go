@@ -4,11 +4,14 @@ import (
 	"context"
 
 	"fmt"
+	"log"
+	"time"
+
+	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/deeptrols/api/internal/repository/model"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"log"
 )
 
 type PriceResult struct {
@@ -26,6 +29,7 @@ type ChargeLineInput struct {
 	LineCost        decimal.Decimal
 	DiscountApplied decimal.Decimal
 	PriceSource     string
+	PriceVersion    int
 }
 
 type Pricer struct {
@@ -53,6 +57,10 @@ func (p *Pricer) Calculate(ctx context.Context, modelID uuid.UUID, tenantID *uui
 		PriceSnapshot: make(map[string]any),
 	}
 
+	snapshotRows := make([]any, 0)
+	snapshotCurrency := "CNY"
+	capturedAt := time.Now().UTC().Format(time.RFC3339)
+
 	dimensions := map[string]int64{
 		"input":       usage.InputTokens,
 		"output":      usage.OutputTokens,
@@ -73,6 +81,7 @@ func (p *Pricer) Calculate(ctx context.Context, modelID uuid.UUID, tenantID *uui
 		// Find matching pricing entry
 		var unitPrice, upstreamPrice decimal.Decimal
 		var unitName string
+		var matched *domain.ModelPricing
 		for _, pr := range pricings {
 			if pr.PricingDimension == dim {
 				var err error
@@ -87,12 +96,17 @@ func (p *Pricer) Calculate(ctx context.Context, modelID uuid.UUID, tenantID *uui
 					continue
 				}
 				unitName = pr.UnitName
+				matched = &pr
 				break
 			}
 		}
 
 		if unitName == "" {
 			continue
+		}
+
+		if matched.Currency != "" {
+			snapshotCurrency = matched.Currency
 		}
 
 		lineCost := unitPrice.Mul(decimal.NewFromInt(qty))
@@ -102,12 +116,35 @@ func (p *Pricer) Calculate(ctx context.Context, modelID uuid.UUID, tenantID *uui
 		result.UpstreamCost = result.UpstreamCost.Add(upstreamLineCost)
 
 		result.ChargeLines = append(result.ChargeLines, ChargeLineInput{
-			Dimension: dim,
-			UnitName:  unitName,
-			Quantity:  qty,
-			UnitPrice: unitPrice,
-			LineCost:  lineCost,
+			Dimension:    dim,
+			UnitName:     unitName,
+			Quantity:     qty,
+			UnitPrice:    unitPrice,
+			LineCost:     lineCost,
+			PriceSource:  "model_pricing",
+			PriceVersion: int(matched.PriceVersion),
 		})
+
+		var tenantID any
+		if matched.TenantID != nil {
+			tenantID = matched.TenantID.String()
+		}
+		snapshotRows = append(snapshotRows, map[string]any{
+			"pricing_id":    matched.ID.String(),
+			"dimension":     dim,
+			"unit_name":     unitName,
+			"unit_price":    matched.UnitPrice,
+			"upstream_cost": matched.UpstreamCost,
+			"price_version": matched.PriceVersion,
+			"tenant_id":     tenantID,
+		})
+	}
+
+	result.PriceSnapshot = map[string]any{
+		"source":      "model_pricing",
+		"currency":    snapshotCurrency,
+		"captured_at": capturedAt,
+		"rows":        snapshotRows,
 	}
 
 	return result, nil

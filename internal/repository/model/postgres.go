@@ -131,8 +131,8 @@ func (r *PostgresRepository) GetTenantModel(ctx context.Context, tenantID uuid.U
 func (r *PostgresRepository) FindByModel(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
 	query := `
 		SELECT id, model_id, tenant_id, request_type, pricing_dimension,
-			unit_name, unit_price, currency, upstream_cost, conditions,
-			is_active, created_at, updated_at
+			unit_name, unit_price, currency, upstream_cost, price_version,
+			conditions, is_active, created_at, updated_at
 		FROM model_pricing
 		WHERE model_id = $1 AND is_active = TRUE
 	`
@@ -156,7 +156,7 @@ func (r *PostgresRepository) FindByModel(ctx context.Context, modelID uuid.UUID,
 		var upstreamCostStr *string
 		err := rows.Scan(&p.ID, &p.ModelID, &p.TenantID, &p.RequestType,
 			&p.PricingDimension, &p.UnitName, &unitPriceStr, &currencyStr,
-			&upstreamCostStr, &p.Conditions, &p.IsActive, &p.CreatedAt, &p.UpdatedAt)
+			&upstreamCostStr, &p.PriceVersion, &p.Conditions, &p.IsActive, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("model pricing scan: %w", err)
 		}

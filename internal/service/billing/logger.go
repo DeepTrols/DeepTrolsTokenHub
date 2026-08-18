@@ -184,6 +184,14 @@ func (l *Logger) insertChargeLines(ctx context.Context, params LogUsageParams, l
 	}
 	lines := make([]domain.ChargeLine, len(params.ChargeLines))
 	for i, cl := range params.ChargeLines {
+		priceSource := cl.PriceSource
+		if priceSource == "" {
+			priceSource = params.ChargeLineSource
+		}
+		priceVersion := cl.PriceVersion
+		if priceVersion == 0 {
+			priceVersion = params.ChargeLineVer
+		}
 		lines[i] = domain.ChargeLine{
 			ID:              uuid.New(),
 			UsageLogID:      logID,
@@ -193,8 +201,8 @@ func (l *Logger) insertChargeLines(ctx context.Context, params LogUsageParams, l
 			UnitPrice:       cl.UnitPrice,
 			LineCost:        cl.LineCost,
 			DiscountApplied: cl.DiscountApplied,
-			PriceSource:     params.ChargeLineSource,
-			PriceVersion:    params.ChargeLineVer,
+			PriceSource:     priceSource,
+			PriceVersion:    priceVersion,
 			CreatedAt:       now,
 		}
 	}

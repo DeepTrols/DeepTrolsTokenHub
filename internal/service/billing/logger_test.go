@@ -351,3 +351,56 @@ func TestLogger_Record_DomainMapping(t *testing.T) {
 		t.Errorf("WalletCharged = %s, want 0.005", capturedLog.WalletCharged)
 	}
 }
+
+func TestLogger_Record_ChargeLinePerLineSourceVersion(t *testing.T) {
+	var capturedLines []domain.ChargeLine
+	repo := &mockUsageRepo{
+		createUsageLogFn: func(ctx context.Context, log *domain.UsageLog) error { return nil },
+		createChargeLinesFn: func(ctx context.Context, lines []domain.ChargeLine) error {
+			capturedLines = lines
+			return nil
+		},
+		createProviderEvidenceFn: func(ctx context.Context, evidence *domain.ProviderEvidence) error { return nil },
+	}
+
+	l := NewLogger(repo)
+	params := LogUsageParams{
+		UserID:          uuid.New(),
+		APIKeyID:        uuid.New(),
+		PublicModelCode: "gpt-4o",
+		ChargeLines: []ChargeLineInput{
+			{
+				Dimension: "input", UnitName: "token", Quantity: 100,
+				UnitPrice: decimal.NewFromFloat(0.01), LineCost: decimal.NewFromFloat(1.0),
+				PriceSource: "model_pricing", PriceVersion: 7,
+			},
+			{
+				Dimension: "output", UnitName: "token", Quantity: 50,
+				UnitPrice: decimal.NewFromFloat(0.02), LineCost: decimal.NewFromFloat(1.0),
+			},
+		},
+		ChargeLineSource: "platform",
+		ChargeLineVer:    1,
+		Status:           domain.UsageLogStatusCompleted,
+	}
+
+	_, err := l.Record(context.Background(), params)
+	if err != nil {
+		t.Fatalf("Record unexpected error: %v", err)
+	}
+	if len(capturedLines) != 2 {
+		t.Fatalf("captured lines count = %d, want 2", len(capturedLines))
+	}
+	if capturedLines[0].PriceSource != "model_pricing" {
+		t.Errorf("lines[0].PriceSource = %q, want per-line model_pricing", capturedLines[0].PriceSource)
+	}
+	if capturedLines[0].PriceVersion != 7 {
+		t.Errorf("lines[0].PriceVersion = %d, want per-line 7", capturedLines[0].PriceVersion)
+	}
+	if capturedLines[1].PriceSource != "platform" {
+		t.Errorf("lines[1].PriceSource = %q, want params-level fallback platform", capturedLines[1].PriceSource)
+	}
+	if capturedLines[1].PriceVersion != 1 {
+		t.Errorf("lines[1].PriceVersion = %d, want params-level fallback 1", capturedLines[1].PriceVersion)
+	}
+}

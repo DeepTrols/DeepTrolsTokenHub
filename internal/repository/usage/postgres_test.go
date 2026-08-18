@@ -481,3 +481,39 @@ func TestParseDecimalStrUsage(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateUsageLog_CachedSource(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateAll(t, repo.pool)
+
+	userID := seedUsageUser(t, ctx, repo)
+	keyID := seedUsageKey(t, ctx, repo, userID)
+
+	log := &domain.UsageLog{
+		ID:              uuid.New(),
+		UserID:          userID,
+		APIKeyID:        keyID,
+		RequestID:       "req-cache-" + uuid.New().String()[:8],
+		RequestType:     "chat",
+		PublicModelCode: "gpt-4o",
+		UsageSource:     domain.UsageSourceCached,
+		UsageNormalized: map[string]any{"input_tokens": float64(10), "output_tokens": float64(5)},
+		FinalCost:       decimal.Zero,
+		Currency:        "CNY",
+		Status:          domain.UsageLogStatusCompleted,
+		CreatedAt:       time.Now().UTC(),
+	}
+
+	if err := repo.CreateUsageLog(ctx, log); err != nil {
+		t.Fatalf("CreateUsageLog with cached source should succeed after CHECK extension: %v", err)
+	}
+
+	found, err := repo.FindByRequestID(ctx, log.RequestID)
+	if err != nil {
+		t.Fatalf("FindByRequestID: %v", err)
+	}
+	if found.UsageSource != domain.UsageSourceCached {
+		t.Errorf("UsageSource = %s, want %s", found.UsageSource, domain.UsageSourceCached)
+	}
+}

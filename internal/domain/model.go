@@ -64,6 +64,7 @@ type ModelPricing struct {
 	UnitPrice        string
 	Currency         string
 	UpstreamCost     string
+	PriceVersion     int64
 	Conditions       map[string]any
 	IsActive         bool
 	CreatedAt        time.Time

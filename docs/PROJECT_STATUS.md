@@ -444,3 +444,36 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - `go build ./...` · `go vet ./...` 全绿；`go test ./internal/repository/user ./internal/handler/console` 全绿（console 包 191s 全量通过）。
 - 前端 `Users.test.tsx` 5/5 通过（前端无改动——invalidation 机制本就会 refetch，修复落在后端列表）。
+
+## 十二、2026-08-18 计费正确性收尾（生产就绪 Step 1）
+
+> **目标**：修复计费/证据面三个 Blockers——流式 usage 来源标记缺失（不变量 #4）、流式错误伪装成功（不变量 #5）、价格快照无证据。
+
+### 12.1 变更
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 迁移 000009：`model_pricing.price_version`（默认 1）；`usage_logs.usage_source` CHECK 放行 `cached`（此前缓存命中落库必被拒） | `migrations/000009_billing_evidence.up/down.sql` |
+| 2 | `ModelPricing.PriceVersion` 字段；`FindByModel` 读取 `price_version` | `internal/domain/model.go`、`internal/repository/model/postgres.go` |
+| 3 | 定价变更递增版本：`HandleSetMarkup` 更新时 `price_version = price_version + 1` | `internal/handler/console/pricing.go` |
+| 4 | Pricer：charge line 携带 `PriceSource=model_pricing` + `PriceVersion`；`PriceSnapshot` 填充 source/currency/captured_at/rows（decimal 一律字符串），无定价行时 rows 为空数组 | `internal/service/billing/pricer.go` |
+| 5 | Logger：charge line 优先 per-line `PriceSource/PriceVersion`，为空回退 params 级 | `internal/service/billing/logger.go` |
+| 6 | 网关流式：最终 chunk usage 标记 `final_chunk`；新增 `logStreamFailure`（detached context，partial/failed，错误码分类：upstream_error / upstream_http_error / streaming_not_supported / stream_interrupted / client_disconnected；证据含上游状态码与错误体（上限 1 MiB）、请求体与 tenant_id；成本与钱包扣费恒为 0）；`client.Do` 错误 / 上游 ≥400 / flusher 不支持 / scanner 错误四类失败路径全部落日志，scanner 错误路径释放预留金也走 detached context | `internal/handler/gateway/chat.go` |
+
+### 12.2 不变量状态
+
+| # | 不变量 | 状态 |
+|---|--------|------|
+| 4 | usage 来源显式标记 | ✅ 补齐 `final_chunk`；`cached` 可落库 |
+| 5 | 流式错误不伪装成功 | ✅ 失败/截断路径不再落 `completed`；scanner 错误不发送 [DONE] 且落 `partial`/`failed` |
+
+### 12.3 测试（TDD，先 RED 后 GREEN）
+
+- 网关：`TestHandleStreamingChat_SuccessWithUsage`（期望 `final_chunk` + completed + 证据）；新增 `TruncatedStream_LogsPartialAndReleases`（RST 截断：无 [DONE]、partial、stream_interrupted、零扣费）、`UpstreamHTTPError_LogsFailed`（failed + evidence 500）、`UpstreamConnectionError_LogsFailed`
+- pricer：快照填充/来源版本/无定价空 rows；logger：per-line 来源版本优先 + params 回退
+- 集成：`TestFindByModel_ScansPriceVersion`、`TestCreateUsageLog_CachedSource`
+
+### 12.4 验证
+
+- `go build ./...` · `go vet ./...` 全绿；`go test -p 1 ./...` 全量通过（串行避免共享测试库并发 TRUNCATE 死锁）
+- 迁移 000009 已应用 dev + test 库；up/down 往返验证通过

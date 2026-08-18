@@ -283,3 +283,33 @@ func TestFindByModelPricing(t *testing.T) {
 		}
 	})
 }
+
+func TestFindByModel_ScansPriceVersion(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, "model_pricing", "tenant_models", "models")
+
+	m := seedModel(t, ctx, repo, "pv-"+uuid.New().String()[:8])
+	pricingID := uuid.New()
+	_, err := repo.pool.Exec(ctx, `
+		INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, upstream_cost, is_active, price_version)
+		VALUES ($1, $2, 'chat', 'input', 'token', '0.000015', 'CNY', '0.000010', true, 7)
+	`, pricingID, m.ID)
+	if err != nil {
+		t.Fatalf("seed pricing: %v", err)
+	}
+
+	pricing, err := repo.FindByModel(ctx, m.ID, nil)
+	if err != nil {
+		t.Fatalf("FindByModel: %v", err)
+	}
+	if len(pricing) != 1 {
+		t.Fatalf("pricing rows = %d, want 1", len(pricing))
+	}
+	if pricing[0].ID != pricingID {
+		t.Errorf("ID = %s, want %s", pricing[0].ID, pricingID)
+	}
+	if pricing[0].PriceVersion != 7 {
+		t.Errorf("PriceVersion = %d, want 7", pricing[0].PriceVersion)
+	}
+}

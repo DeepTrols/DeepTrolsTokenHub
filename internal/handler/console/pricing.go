@@ -40,7 +40,9 @@ func HandleSetMarkup(a *app.App) http.HandlerFunc {
 		// keep a flat price (1x) to avoid zeroing them.
 		tag, err := a.Pool.Exec(r.Context(),
 			`UPDATE model_pricing
-			 SET unit_price = ROUND(upstream_cost * $1, 6), updated_at = NOW()
+			 SET unit_price = ROUND(upstream_cost * $1, 6),
+			     price_version = price_version + 1,
+			     updated_at = NOW()
 			 WHERE upstream_cost > 0`,
 			rate)
 		if err != nil {
