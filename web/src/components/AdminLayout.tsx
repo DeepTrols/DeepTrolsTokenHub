@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Outlet, NavLink, useNavigate } from "react-router-dom";
+import React from "react";
+import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Box,
   BarChart3,
@@ -10,123 +10,157 @@ import {
   Building2,
   Route,
   Calculator,
-  ChevronDown,
+  Bell,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
 
-const navItems = [
-  { to: "/admin/models", icon: Box, label: "模型管理" },
-  { to: "/admin/channels", icon: Shield, label: "渠道管理" },
-  { to: "/admin/reconciliation", icon: BarChart3, label: "对账管理" },
-  { to: "/admin/policies", icon: Route, label: "策略管理" },
-  { to: "/admin/costs", icon: Calculator, label: "成本核算" },
+const manageItems = [
+  { to: "/admin/models", icon: Box, label: "模型管理", color: "text-[#4F6BED]" },
+  { to: "/admin/channels", icon: Shield, label: "渠道管理", color: "text-[#0FA88B]" },
+  { to: "/admin/reconciliation", icon: BarChart3, label: "对账管理", color: "text-[#8B6FE8]" },
+  { to: "/admin/policies", icon: Route, label: "策略管理", color: "text-[#D3A94E]" },
+  { to: "/admin/costs", icon: Calculator, label: "成本核算", color: "text-[#C9A96A]" },
 ];
-
-/** 用户管理展开后的子项：企业管理 / 个人管理。 */
-const userGroupItems = [
-  { to: "/admin/tenants", icon: Building2, label: "企业管理" },
-  { to: "/admin/users", icon: UserCog, label: "个人管理" },
-];
-
-function linkClass(isActive: boolean) {
-  return `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-    isActive
-      ? "bg-gray-700 text-white font-medium"
-      : "text-gray-300 hover:bg-gray-800 hover:text-white"
-  }`;
-}
 
 export default function AdminLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { logout } = useAuth();
-  const [usersOpen, setUsersOpen] = useState(true);
+
+  const current = [
+    ...manageItems,
+    { to: "/admin/tenants", label: "企业管理" },
+    { to: "/admin/users", label: "个人管理" },
+    { to: "/admin/finance", label: "账务管理" },
+  ].find((item) => location.pathname.startsWith(item.to));
+  const breadcrumbLabel = current?.label ?? "管理控制台";
 
   const handleLogout = async () => {
     await logout();
     navigate("/login");
   };
 
-  return (
-    <div className="flex h-screen">
-      <aside className="w-64 bg-gray-900 border-r border-gray-700 flex flex-col">
-        <div className="p-4 border-b border-gray-700">
-          <h1 className="text-lg font-bold text-white">DeepTrols</h1>
-          <p className="text-xs text-gray-400">管理控制台</p>
-        </div>
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) => linkClass(isActive)}
-            >
-              <item.icon size={18} />
-              {item.label}
-            </NavLink>
-          ))}
+  const linkClass = (isActive: boolean) =>
+    `flex items-center gap-[10px] px-[11px] py-[8px] rounded-[11px] text-[13.5px] font-semibold border transition-all ${
+      isActive
+        ? "bg-white/80 border-white/95 text-[#4F6BED] shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_26px_rgba(63,76,128,0.10)]"
+        : "border-transparent text-[#5C6472] hover:text-[#161A23] hover:bg-white/40"
+    }`;
 
-          {/* 用户管理：展开显示企业管理 / 个人管理 */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setUsersOpen((o) => !o)}
-              aria-expanded={usersOpen}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
-            >
-              <UserCog size={18} />
-              <span className="flex-1 text-left">用户管理</span>
-              <ChevronDown
-                size={16}
-                className={`transition-transform ${usersOpen ? "" : "-rotate-90"}`}
-              />
-            </button>
-            {usersOpen && (
-              <div className="mt-1 ml-3 space-y-1 border-l border-gray-700 pl-2">
-                {userGroupItems.map((child) => (
-                  <NavLink
-                    key={child.to}
-                    to={child.to}
-                    className={({ isActive }) => linkClass(isActive)}
-                  >
-                    <child.icon size={16} />
-                    {child.label}
-                  </NavLink>
-                ))}
-              </div>
-            )}
+  return (
+    <div className="relative h-screen overflow-hidden">
+      <div className="lg-orb w-[520px] h-[460px] bg-[#4F6BED]/20 -top-[170px] -right-[110px]" />
+      <div className="lg-orb w-[460px] h-[420px] bg-[#0FA88B]/20 -bottom-[160px] -left-[130px]" />
+      <div className="lg-orb w-[320px] h-[300px] bg-[#C9A96A]/14 top-[16%] left-[46%]" />
+
+      <div className="relative z-10 flex h-full gap-5 p-5">
+        <aside className="glass w-[220px] shrink-0 rounded-[20px] p-[12px] flex flex-col">
+          <div className="flex items-center gap-[10px] px-2 pt-1 pb-3">
+            <span className="brand-mark !w-10 !h-10 !rounded-[12px]"><span className="brand-coin gold" /><span className="brand-coin teal" /><span className="brand-coin white" /></span>
+            <span className="font-display text-[17px] font-bold">DeepTrols</span>
           </div>
 
-          {/* 账务管理：独立入口 */}
-          <NavLink to="/admin/finance" className={({ isActive }) => linkClass(isActive)}>
-            <DollarSign size={18} />
-            账务管理
-          </NavLink>
-        </nav>
-        <div className="p-4 border-t border-gray-700 space-y-2">
-          <NavLink
-            to="/dashboard"
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
-          >
-            <Box size={18} />
-            用户门户
-          </NavLink>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-gray-800 hover:text-white w-full transition-colors"
-          >
-            <LogOut size={18} />
-            退出登录
-          </button>
+          <nav className="flex flex-col gap-[3px] overflow-y-auto pr-0.5" aria-label="管理导航">
+            {manageItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) => linkClass(isActive)}
+              >
+                {({ isActive }) => (
+                  <>
+                    <span className={`nav-ic !w-[30px] !h-[30px] !rounded-[9px] ${isActive ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]" : item.color}`}>
+                      <item.icon size={15} />
+                    </span>
+                    {item.label}
+                  </>
+                )}
+              </NavLink>
+            ))}
+
+            <NavLink
+              to="/admin/tenants"
+              className={({ isActive }) => linkClass(isActive)}
+            >
+              {({ isActive }) => (
+                <>
+                  <span className={`nav-ic !w-[30px] !h-[30px] !rounded-[9px] ${isActive ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]" : "text-[#0FA88B]"}`}>
+                    <Building2 size={15} />
+                  </span>
+                  企业管理
+                </>
+              )}
+            </NavLink>
+
+            <NavLink
+              to="/admin/users"
+              className={({ isActive }) => linkClass(isActive)}
+            >
+              {({ isActive }) => (
+                <>
+                  <span className={`nav-ic !w-[30px] !h-[30px] !rounded-[9px] ${isActive ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]" : "text-[#4F6BED]"}`}>
+                    <UserCog size={15} />
+                  </span>
+                  个人管理
+                </>
+              )}
+            </NavLink>
+
+            <NavLink
+              to="/admin/finance"
+              className={({ isActive }) => linkClass(isActive)}
+            >
+              {({ isActive }) => (
+                <>
+                  <span className={`nav-ic !w-[30px] !h-[30px] !rounded-[9px] ${isActive ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]" : "text-[#C9A96A]"}`}>
+                    <DollarSign size={15} />
+                  </span>
+                  账务管理
+                </>
+              )}
+            </NavLink>
+          </nav>
+
+          <div className="mt-auto pt-3 space-y-[3px]">
+            <NavLink
+              to="/dashboard"
+              className="flex items-center gap-[10px] px-[9px] py-[7px] rounded-[10px] text-[13px] font-semibold text-[#5C6472] hover:text-[#161A23] hover:bg-white/40 transition-all"
+            >
+              <span className="nav-ic !w-[30px] !h-[30px] !rounded-[9px] text-[#0FA88B]"><Box size={15} /></span>
+              用户门户
+            </NavLink>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-[10px] w-full px-[9px] py-[7px] rounded-[10px] text-[13px] font-semibold text-[#5C6472] hover:text-[#E5484D] hover:bg-white/40 transition-all"
+            >
+              <span className="nav-ic !w-[30px] !h-[30px] !rounded-[9px] text-[#E5484D]"><LogOut size={15} /></span>
+              退出登录
+            </button>
+          </div>
+        </aside>
+
+        <div className="flex-1 min-w-0 flex flex-col gap-4">
+          <header className="glass rounded-2xl px-[22px] py-[13px] flex items-center gap-4">
+            <span className="text-[12.5px] text-[#5C6472] font-semibold whitespace-nowrap">管理控制台 / {breadcrumbLabel}</span>
+            <div className="ml-auto flex items-center gap-3">
+              <button type="button" aria-label="通知" className="nav-ic relative text-[#161A23] hover:bg-white/80">
+                <Bell size={17} />
+                <span className="absolute top-[10px] right-[11px] w-[9px] h-[9px] rounded-full bg-[#D3A94E] shadow-[0_0_10px_#D3A94E]" />
+              </button>
+              <span className="grid w-9 h-9 place-items-center rounded-[12px] bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white text-[12px] font-bold shadow-[0_6px_18px_rgba(79,107,237,0.35)]">管</span>
+            </div>
+          </header>
+
+          <main className="flex-1 overflow-y-auto pr-1">
+            <div className="px-1 pb-8">
+              <RouteErrorBoundary>
+                <Outlet />
+              </RouteErrorBoundary>
+            </div>
+          </main>
         </div>
-      </aside>
-      <main className="flex-1 overflow-auto bg-gray-50">
-        <div className="p-6">
-          <RouteErrorBoundary>
-            <Outlet />
-          </RouteErrorBoundary>
-        </div>
-      </main>
+      </div>
     </div>
   );
 }

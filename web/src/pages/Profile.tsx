@@ -52,8 +52,8 @@ export default function Profile() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-2xl font-bold">个人设置</h2>
-        <p className="text-sm text-muted-foreground mt-1">管理您的账户信息和安全设置</p>
+        <h2 className="font-display text-[25px] font-bold tracking-tight">个人设置</h2>
+        <p className="text-[13px] text-[#5C6472] mt-1">管理您的账户信息和安全设置</p>
       </div>
 
       <Tabs defaultValue="personal" className="max-w-2xl">
@@ -79,7 +79,7 @@ export default function Profile() {
                 <div className="space-y-1.5"><label className="text-sm font-medium">手机号</label><Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="输入手机号" /></div>
                 <div className="space-y-1.5"><label className="text-sm font-medium">头像 URL</label><Input value={avatarUrl} onChange={e => setAvatarUrl(e.target.value)} placeholder="https://..." /></div>
                 {updateProfile.isError && <p className="text-sm text-destructive">{updateProfile.error instanceof Error ? updateProfile.error.message : "保存失败"}</p>}
-                {updateProfile.isSuccess && <p className="text-sm text-emerald-600">保存成功</p>}
+                {updateProfile.isSuccess && <p className="text-sm text-[#0C7A55]">保存成功</p>}
                 <Button onClick={handleSaveProfile} disabled={updateProfile.isPending}>{updateProfile.isPending ? "保存中..." : "保存修改"}</Button>
               </div>
             )}

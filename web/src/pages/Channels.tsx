@@ -131,12 +131,12 @@ export default function Channels() {
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <div><h2 className="text-2xl font-bold">渠道管理</h2><p className="text-sm text-muted-foreground mt-1">管理 AI 服务商渠道，配置路由与参数覆盖规则</p></div>
+        <div><h2 className="font-display text-[25px] font-bold tracking-tight">渠道管理</h2><p className="text-[13px] text-[#5C6472] mt-1">管理 AI 服务商渠道，配置路由与参数覆盖规则</p></div>
         <Button onClick={openCreate}><Plus size={16} className="mr-1.5" />添加渠道</Button>
       </div>
 
       {loadError && <Card className="mb-4 border-destructive/20"><CardContent className="p-4 text-destructive text-sm"><p className="font-medium">加载失败</p><p className="mt-1">{loadError}</p><Button variant="destructive" size="sm" className="mt-2" onClick={() => refetch()}>重试</Button></CardContent></Card>}
-      {isLoading && <Card><CardContent className="p-12 text-center"><div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" /><p className="text-muted-foreground">加载渠道...</p></CardContent></Card>}
+      {isLoading && <Card><CardContent className="p-12 text-center"><div className="animate-spin w-8 h-8 border-2 border-[#4F6BED] border-t-transparent rounded-full mx-auto mb-3" /><p className="text-muted-foreground">加载渠道...</p></CardContent></Card>}
 
       {credentials.length > 0 ? (
         <div className="space-y-4">
@@ -165,7 +165,7 @@ export default function Channels() {
                   </div>
                 </div>
                 {testResults[cred.id] && (
-                  <div className={`mt-3 pt-3 border-t text-xs ${testResults[cred.id].ok ? "text-emerald-600" : "text-destructive"}`}>
+                  <div className={`mt-3 pt-3 border-t border-black/10 text-xs ${testResults[cred.id].ok ? "text-[#0C7A55]" : "text-destructive"}`}>
                     {testResults[cred.id].ok ? `测试通过 · 响应时间 ${testResults[cred.id].ms}ms` : "测试失败 · 请检查 API Key 和 Base URL"}
                   </div>
                 )}
@@ -215,8 +215,8 @@ export default function Channels() {
                     { v: "round_robin", l: "轮询 (Round Robin)", desc: "按顺序依次使用每个 Key" },
                     { v: "weighted_random", l: "加权随机", desc: "按权重随机选择 Key" },
                   ].map((rm) => (
-                    <label key={rm.v} className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${chRoundMode === rm.v ? "border-primary bg-primary/5" : "hover:border-muted-foreground/30"}`}>
-                      <input type="radio" name="roundMode" value={rm.v} checked={chRoundMode === rm.v} onChange={(e) => setChRoundMode(e.target.value)} className="text-primary" />
+                    <label key={rm.v} className={`flex items-center gap-3 p-3 glass-soft rounded-xl cursor-pointer transition-all ${chRoundMode === rm.v ? "border-[#4F6BED]/50 bg-[#4F6BED]/[0.06] shadow-[0_10px_26px_rgba(63,76,128,0.10)]" : "hover:bg-white/80"}`}>
+                      <input type="radio" name="roundMode" value={rm.v} checked={chRoundMode === rm.v} onChange={(e) => setChRoundMode(e.target.value)} className="text-[#4F6BED]" />
                       <div><p className="text-sm font-medium">{rm.l}</p><p className="text-xs text-muted-foreground">{rm.desc}</p></div>
                     </label>
                   ))}
@@ -278,12 +278,12 @@ export default function Channels() {
               </div>
               <div className="space-y-2">
                 <Label>模型映射</Label>
-                <textarea value={chModelMapping} onChange={(e) => setChModelMapping(e.target.value)} placeholder='{"gpt-4": "gpt-4-0613"}' rows={3} className="w-full px-3 py-2 border border-input rounded-md text-xs font-mono bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
+                <textarea value={chModelMapping} onChange={(e) => setChModelMapping(e.target.value)} placeholder='{"gpt-4": "gpt-4-0613"}' rows={3} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
                 <p className="text-xs text-muted-foreground">将用户请求的模型名映射为实际模型名，JSON 格式</p>
               </div>
               <div className="space-y-2">
                 <Label>参数覆盖</Label>
-                <textarea value={chParamOverride} onChange={(e) => setChParamOverride(e.target.value)} placeholder='{"temperature": 0.8}' rows={4} className="w-full px-3 py-2 border border-input rounded-md text-xs font-mono bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
+                <textarea value={chParamOverride} onChange={(e) => setChParamOverride(e.target.value)} placeholder='{"temperature": 0.8}' rows={4} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
                 <p className="text-xs text-muted-foreground">覆盖或扩展上游请求参数</p>
               </div>
             </TabsContent>

@@ -68,45 +68,40 @@ export default function Policies() {
 
   return <div>
     <div className="flex items-center justify-between mb-6">
-      <div><h2 className="text-2xl font-bold">路由策略</h2><p className="text-sm text-gray-500 mt-1">配置请求路由规则和 fallback 策略</p></div>
-      <button onClick={()=>{reset();setShowForm(true);}} className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 text-sm font-medium"><Plus size={16}/>创建策略</button>
+      <div><h2 className="font-display text-[25px] font-bold tracking-tight">路由策略</h2><p className="text-[13px] text-[#5C6472] mt-1">配置请求路由规则和 fallback 策略</p></div>
+      <Button onClick={()=>{reset();setShowForm(true);}}><Plus size={16} className="mr-1.5"/>创建策略</Button>
     </div>
 
-    {showForm&&<div className="mb-6 p-6 bg-white border border-gray-200 rounded-xl">
-      <h3 className="font-semibold mb-4">{editing?"编辑策略":"创建策略"}</h3>
+    {showForm&&<div className="mb-6 p-6 glass rounded-2xl">
+      <h3 className="font-display font-semibold mb-4">{editing?"编辑策略":"创建策略"}</h3>
       <div className="grid grid-cols-2 gap-4">
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">名称*</label><input aria-label="策略名称" value={name} onChange={e=>setName(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"/></div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">用户等级</label><input value={userLevel} onChange={e=>setUserLevel(e.target.value)} placeholder="vip / free" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"/></div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">模型ID*</label><input aria-label="模型编码" value={modelId} onChange={e=>setModelId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"/></div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">优先级</label><input type="number" value={priority} onChange={e=>setPriority(+e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"/></div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">Channel IDs</label><input value={channelIds} onChange={e=>setChannelIds(e.target.value)} placeholder="UUID1,UUID2" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"/></div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">Fallback</label><select value={fallback} onChange={e=>setFallback(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">{FALLBACKS.map(f=><option key={f.v} value={f.v}>{f.l}</option>)}</select></div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">租户ID</label><input value={tenantId} onChange={e=>setTenantId(e.target.value)} placeholder="留空=平台级" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"/></div>
+        <div><label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">名称*</label><Input aria-label="策略名称" value={name} onChange={e=>setName(e.target.value)}/></div>
+        <div><label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">用户等级</label><Input value={userLevel} onChange={e=>setUserLevel(e.target.value)} placeholder="vip / free"/></div>
+        <div><label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">模型ID*</label><Input aria-label="模型编码" value={modelId} onChange={e=>setModelId(e.target.value)} className="font-mono"/></div>
+        <div><label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">优先级</label><Input type="number" value={priority} onChange={e=>setPriority(+e.target.value)}/></div>
+        <div><label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">Channel IDs</label><Input value={channelIds} onChange={e=>setChannelIds(e.target.value)} placeholder="UUID1,UUID2" className="font-mono"/></div>
+        <div><label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">Fallback</label><select value={fallback} onChange={e=>setFallback(e.target.value)} className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">{FALLBACKS.map(f=><option key={f.v} value={f.v}>{f.l}</option>)}</select></div>
+        <div><label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">租户ID</label><Input value={tenantId} onChange={e=>setTenantId(e.target.value)} placeholder="留空=平台级" className="font-mono"/></div>
       </div>
-      <div className="flex gap-3 mt-6"><button onClick={handleSubmit} className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 text-sm">{editing?"保存":"创建"}</button><button onClick={reset} className="px-4 py-2 border rounded-lg text-sm text-gray-600">取消</button></div>
+      <div className="flex gap-3 mt-6"><Button onClick={handleSubmit}>{editing?"保存":"创建"}</Button><Button variant="outline" onClick={reset}>取消</Button></div>
     </div>}
 
     {loadError && <ErrorState error={loadError} onRetry={()=>refetch()} />}
-    {isLoading && (
-      <div className="p-12 text-center bg-white rounded-xl border">
-        <div className="animate-spin w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full mx-auto mb-3" />
-        <p className="text-gray-500">加载路由策略...</p>
-      </div>
-    )}
-    <div className="bg-white rounded-xl border border-gray-200">
+    {isLoading && <LoadingState message="加载路由策略..." />}
+    <div className="glass rounded-2xl overflow-hidden">
       {!isLoading && policies.length===0&&<EmptyState icon={GitBranch} title="暂无路由策略" />}
-      {policies.map(p=><div key={p.id} className="p-4 border-b border-gray-100 flex items-center justify-between hover:bg-gray-50">
+      {policies.map(p=><div key={p.id} className="p-4 border-b border-black/[0.06] flex items-center justify-between hover:bg-white/60 transition-colors">
         <div>
           <div className="flex items-center gap-2">
             <p className="font-medium text-sm">{p.name}</p>
-            <span className={`px-2 py-0.5 rounded text-xs ${p.is_active?"bg-green-100 text-green-700":"bg-gray-100 text-gray-500"}`}>{p.is_active?"启用":"已停用"}</span>
-            <span className="px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">{p.fallback_policy}</span>
+            <span className={`status-pill ${p.is_active?"ok":"run"}`}><i/>{p.is_active?"启用":"已停用"}</span>
+            <span className="status-pill text-[#4F6BED]"><i className="bg-[#4F6BED] shadow-[0_0_8px_#4F6BED]"/>{p.fallback_policy}</span>
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">等级:{p.user_level||"不限"} · 优先级:{p.priority} · Channels:{p.candidate_channel_names?.join(",")||p.candidate_channel_ids.length+"个"}</p>
+          <p className="text-xs text-[#5C6472] mt-0.5">等级:{p.user_level||"不限"} · 优先级:{p.priority} · Channels:{p.candidate_channel_names?.join(",")||p.candidate_channel_ids.length+"个"}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={()=>{setEditing(p);setName(p.name);setUserLevel(p.user_level);setModelId(p.model_id);setPriority(p.priority);setChannelIds(p.candidate_channel_ids.join(","));setFallback(p.fallback_policy);setTenantId(p.tenant_id||"");setShowForm(true);}} className="p-1.5 text-gray-400 hover:text-gray-600 rounded"><Edit size={14}/></button>
-          <button onClick={()=>handleDelete(p)} className="p-1.5 text-gray-400 hover:text-red-600 rounded"><Trash2 size={14}/></button>
+          <button onClick={()=>{setEditing(p);setName(p.name);setUserLevel(p.user_level);setModelId(p.model_id);setPriority(p.priority);setChannelIds(p.candidate_channel_ids.join(","));setFallback(p.fallback_policy);setTenantId(p.tenant_id||"");setShowForm(true);}} className="p-1.5 text-[#5C6472]/70 hover:text-[#161A23] rounded-lg hover:bg-white/70 transition-colors"><Edit size={14}/></button>
+          <button onClick={()=>handleDelete(p)} className="p-1.5 text-[#5C6472]/70 hover:text-[#C4372C] rounded-lg hover:bg-white/70 transition-colors"><Trash2 size={14}/></button>
         </div>
       </div>)}
     </div>

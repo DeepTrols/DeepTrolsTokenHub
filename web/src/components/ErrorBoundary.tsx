@@ -65,27 +65,27 @@ export default class ErrorBoundary extends Component<
       }
       return (
         <div className="flex items-center justify-center min-h-[40vh] p-6">
-          <div className="w-full max-w-md bg-white rounded-xl border border-red-200 p-6">
+          <div className="w-full max-w-md glass rounded-2xl border-[#E5484D]/25 p-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-red-50 rounded-lg">
-                <AlertTriangle size={20} className="text-red-600" />
+              <div className="p-2 rounded-xl bg-[#E5484D]/10">
+                <AlertTriangle size={20} className="text-[#E5484D]" />
               </div>
-              <h3 className="font-semibold text-red-800">页面渲染错误</h3>
+              <h3 className="font-display font-semibold text-[#C4372C]">页面渲染错误</h3>
             </div>
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-sm text-[#5C6472] mb-4">
               {this.state.error?.message || "发生了意外错误，请重试"}
             </p>
             {import.meta.env.DEV && this.state.error?.stack && (
-              <details className="mb-4 text-xs text-gray-500">
+              <details className="mb-4 text-xs text-[#5C6472]">
                 <summary className="cursor-pointer">错误详情</summary>
-                <pre className="mt-2 p-2 bg-gray-50 rounded overflow-auto whitespace-pre-wrap">
+                <pre className="mt-2 p-2 glass-soft rounded-xl overflow-auto whitespace-pre-wrap">
                   {this.state.error.stack}
                 </pre>
               </details>
             )}
             <button
               onClick={this.handleRetry}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium"
+              className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-br from-[#E5484D] to-[#C4372C] shadow-[0_10px_26px_rgba(229,72,77,0.3)] hover:brightness-110"
             >
               重试
             </button>

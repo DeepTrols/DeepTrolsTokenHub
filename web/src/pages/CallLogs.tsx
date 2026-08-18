@@ -124,10 +124,10 @@ export default function CallLogs() {
   if (isLoading) {
     return (
       <div>
-        <h2 className="text-2xl font-bold mb-6">调用记录</h2>
+        <h2 className="font-display text-[25px] font-bold tracking-tight mb-6">调用记录</h2>
         <Card>
           <CardContent className="p-12 text-center">
-            <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+            <div className="animate-spin w-8 h-8 border-2 border-[#4F6BED] border-t-transparent rounded-full mx-auto mb-3" />
             <p className="text-muted-foreground">加载调用记录...</p>
           </CardContent>
         </Card>
@@ -153,13 +153,13 @@ export default function CallLogs() {
     <div>
       <div className="flex items-end justify-between gap-3 mb-6 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold">调用记录</h2>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h2 className="font-display text-[25px] font-bold tracking-tight">调用记录</h2>
+          <p className="text-[13px] text-[#5C6472] mt-1">
             按 API 密钥查看调用量与模型分布 · 最多展示最近 200 条
           </p>
         </div>
         <div
-          className="flex items-center gap-0.5 rounded-lg border bg-muted/50 p-0.5"
+          className="flex items-center gap-0.5 glass-soft rounded-full p-1"
           role="group"
           aria-label="时间范围"
         >
@@ -170,9 +170,9 @@ export default function CallLogs() {
               onClick={() => setRange(r.key)}
               aria-pressed={range === r.key}
               className={
-                "px-3 py-1 text-sm rounded-md transition-colors " +
+                "px-3.5 py-1.5 text-sm rounded-full transition-all " +
                 (range === r.key
-                  ? "bg-background shadow-sm font-medium"
+                  ? "bg-white/85 text-foreground font-semibold shadow-[0_4px_14px_rgba(63,76,128,0.12)]"
                   : "text-muted-foreground hover:text-foreground")
               }
             >
@@ -192,7 +192,7 @@ export default function CallLogs() {
           <Card key={s.label}>
             <CardContent className="p-5">
               <p className="text-xs text-muted-foreground">{s.label}</p>
-              <p className={"mt-1 text-2xl font-bold " + (s.accent ? "text-primary" : "")}>
+              <p className={"mt-1 font-mono text-[22px] font-semibold tracking-tight " + (s.accent ? "text-[#4F6BED]" : "")}>
                 {s.value}
               </p>
             </CardContent>

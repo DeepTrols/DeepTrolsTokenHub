@@ -38,7 +38,7 @@ function fmtNum(n: number): string {
 }
 
 function usagePct(used: number, total: number): number { return total <= 0 ? 0 : Math.min(100, Math.round((used / total) * 100)); }
-function pctColor(pct: number): string { if (pct >= 90) return "bg-red-500"; if (pct >= 70) return "bg-yellow-500"; return "bg-green-500"; }
+function pctColor(pct: number): string { if (pct >= 90) return "bg-[#E5484D]"; if (pct >= 70) return "bg-[#D3A94E]"; return "bg-[#1BA878]"; }
 
 export default function QuotaManagement() {
   const { data: quotaData, isLoading, isError, error, refetch } = useAdminQuery<{ data: QuotaPool[]; total: number }>("/quotas");
@@ -113,14 +113,14 @@ export default function QuotaManagement() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div><h2 className="text-2xl font-bold">配额管理</h2><p className="text-sm text-muted-foreground mt-1">管理租户和模型的 Token 配额池及用户分配</p></div>
+        <div><h2 className="font-display text-[25px] font-bold tracking-tight">配额管理</h2><p className="text-[13px] text-[#5C6472] mt-1">管理租户和模型的 Token 配额池及用户分配</p></div>
         <Button onClick={() => setShowCreate(true)}><Plus size={16} className="mr-1.5" />创建配额池</Button>
       </div>
 
       {loadError && <ErrorState error={loadError} onRetry={() => refetch()} />}
 
       <div className="grid grid-cols-3 gap-4 mb-6">
-        {[{ label: "配额池总数", v: pools.length }, { label: "总配额量", v: fmtNum(totalQuota) }, { label: "已使用", v: fmtNum(totalUsed) }].map(c => <Card key={c.label}><CardContent className="p-5"><p className="text-sm text-muted-foreground">{c.label}</p><p className="text-2xl font-bold mt-1">{String(c.v)}</p></CardContent></Card>)}
+        {[{ label: "配额池总数", v: pools.length }, { label: "总配额量", v: fmtNum(totalQuota) }, { label: "已使用", v: fmtNum(totalUsed) }].map(c => <Card key={c.label}><CardContent className="p-5"><p className="text-[12px] font-semibold text-[#5C6472]">{c.label}</p><p className="font-mono text-[24px] font-semibold tracking-tight mt-1">{String(c.v)}</p></CardContent></Card>)}
       </div>
 
       <Card className="overflow-hidden">

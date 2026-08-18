@@ -15,12 +15,12 @@ export function PendingReviewBanner({ tenantStatus }: PendingReviewBannerProps) 
   return (
     <div
       role="status"
-      className="mb-6 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm"
+      className="mb-6 flex items-start gap-3 rounded-2xl glass-soft border-[#D3A94E]/30 p-4 text-sm"
     >
-      <Info size={18} className="mt-0.5 shrink-0 text-amber-600" />
+      <Info size={18} className="mt-0.5 shrink-0 text-[#D3A94E]" />
       <div>
-        <p className="font-medium text-amber-900">企业账号审核中</p>
-        <p className="mt-0.5 text-amber-800">
+        <p className="font-medium text-[#A06B12]">企业账号审核中</p>
+        <p className="mt-0.5 text-[#A06B12]/85">
           您的企业账号正在等待平台管理员审核，审核通过后将自动开放团队管理与配额分配等功能。
         </p>
       </div>

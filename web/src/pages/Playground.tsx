@@ -135,29 +135,29 @@ export default function Playground() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-2xl font-bold">在线体验</h2>
-        <p className="text-sm text-gray-500 mt-1">使用真实 API Key 在线测试模型调用效果</p>
+        <h2 className="font-display text-[25px] font-bold tracking-tight">在线体验</h2>
+        <p className="text-[13px] text-[#5C6472] mt-1">使用真实 API Key 在线测试模型调用效果</p>
       </div>
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="glass rounded-2xl p-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
             {/* API Key Selection */}
             <div className="mb-4">
-              <label htmlFor="api-key-select" className="block text-sm font-medium text-gray-700 mb-1">选择 API 密钥</label>
+              <label htmlFor="api-key-select" className="block text-[12px] font-semibold text-[#5C6472] mb-2">选择 API 密钥</label>
               <select id="api-key-select" value={selectedKeyId} onChange={(e) => setSelectedKeyId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2">
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm mb-2 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
                 <option value="">-- 选择密钥以加载模型 --</option>
                 {apiKeys.filter(k => k.status === "active").map(k => (
                   <option key={k.id} value={k.id}>{k.name}</option>
                 ))}
               </select>
               {modelsLoading ? (
-                <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+                <div className="flex items-center gap-2 text-sm text-[#5C6472]/70 py-2">
                   <Loader2 size={14} className="animate-spin" /> 加载模型列表中...
                 </div>
               ) : (
                 <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
                   disabled={availableModels.length === 0}>
                   {availableModels.length === 0 ? (
                     <option>{selectedKeyId ? "暂无模型" : "请先选择密钥"}</option>
@@ -169,7 +169,7 @@ export default function Playground() {
                 </select>
               )}
               {modelsLoadError && (
-                <div className="mt-2 flex items-start gap-2 text-sm text-red-600">
+                <div className="mt-2 flex items-start gap-2 text-sm text-[#C4372C]">
                   <AlertCircle size={14} className="mt-0.5 shrink-0" />
                   <span>{modelsLoadError}</span>
                 </div>
@@ -177,50 +177,48 @@ export default function Playground() {
             </div>
 
             {noKeysAvailable && (
-              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-700">请先创建 API 密钥</p>
-                <p className="text-xs text-blue-500 mt-1">创建密钥后即可在控制台在线体验模型调用</p>
+              <div className="mb-4 p-4 glass-soft border-[#4F6BED]/30 rounded-xl">
+                <p className="text-sm text-[#4F6BED] font-medium">请先创建 API 密钥</p>
+                <p className="text-xs text-[#5C6472] mt-1">创建密钥后即可在控制台在线体验模型调用</p>
               </div>
             )}
 
             {/* Prompt */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">输入提示词</label>
+              <label className="block text-[12px] font-semibold text-[#5C6472] mb-2">输入提示词</label>
               <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
                 placeholder="在此输入您的问题或提示词..." rows={6}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none" />
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
             </div>
 
             <div className="flex gap-3">
-              <button onClick={handleSend} disabled={loading || !apiKeyText.trim()}
-                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium disabled:opacity-50">
+              <Button onClick={handleSend} disabled={loading || !apiKeyText.trim()}>
                 {loading ? <Loader2 size={16} className="animate-spin"/> : <Send size={16}/>}
                 发送请求
-              </button>
-              <button onClick={handleReset}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+              </Button>
+              <Button variant="outline" onClick={handleReset}>
                 <RotateCcw size={14} /> 重置
-              </button>
+              </Button>
             </div>
           </div>
 
           {/* Response */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">响应结果</label>
-            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg min-h-[200px] max-h-[400px] overflow-auto">
+            <label className="block text-[12px] font-semibold text-[#5C6472] mb-2">响应结果</label>
+            <div className="p-4 glass-soft rounded-xl min-h-[200px] max-h-[400px] overflow-auto">
               {loading ? (
-                <div className="flex items-center gap-2 text-gray-400"><Loader2 size={16} className="animate-spin"/> 请求中...</div>
+                <div className="flex items-center gap-2 text-[#5C6472]/70"><Loader2 size={16} className="animate-spin"/> 请求中...</div>
               ) : error ? (
-                <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700 flex items-start gap-2">
+                <div className="p-3 bg-[#E5484D]/10 border border-[#E5484D]/25 rounded-xl text-sm text-[#C4372C] flex items-start gap-2">
                   <AlertCircle size={16} className="mt-0.5"/>{error}
                 </div>
               ) : response ? (
-                <pre className="text-sm whitespace-pre-wrap font-sans text-gray-800">{response}</pre>
+                <pre className="text-sm whitespace-pre-wrap font-sans text-[#161A23]">{response}</pre>
               ) : (
-                <p className="text-sm text-gray-400">在左侧输入提示词并点击发送</p>
+                <p className="text-sm text-[#5C6472]/70">在左侧输入提示词并点击发送</p>
               )}
               {usageInfo && (
-                <p className="mt-2 text-xs text-gray-500">{usageInfo}</p>
+                <p className="mt-2 text-xs text-[#5C6472] font-mono">{usageInfo}</p>
               )}
             </div>
           </div>

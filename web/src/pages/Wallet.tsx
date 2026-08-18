@@ -1,13 +1,7 @@
-import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
-import { SectionPageLayout } from "@/components/SectionPageLayout";
+import { ErrorState, LoadingState } from "@/components/StateViews";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { WalletData, Transaction } from "../lib/api";
 import { formatAmount } from "../lib/format";
@@ -88,11 +82,11 @@ export default function Wallet() {
   const txIcon = (type: string) => {
     switch (type) {
       case "topup":
-        return <ArrowUpRight size={14} className="text-green-600" />;
+        return <ArrowUpRight size={14} className="text-[#1BA878]" />;
       case "charge":
-        return <ArrowDownRight size={14} className="text-red-600" />;
+        return <ArrowDownRight size={14} className="text-[#E5484D]" />;
       default:
-        return <RefreshCw size={14} className="text-gray-400" />;
+        return <RefreshCw size={14} className="text-[#5C6472]" />;
     }
   };
 
@@ -118,15 +112,10 @@ export default function Wallet() {
     return (
       <div>
         <div className="mb-6">
-          <h2 className="text-2xl font-bold">钱包管理</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            余额管理与充值
-          </p>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">钱包管理</h2>
+          <p className="text-[13px] text-[#5C6472] mt-1">余额管理与充值</p>
         </div>
-        <div className="p-12 text-center bg-white rounded-xl border">
-          <div className="animate-spin w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full mx-auto mb-3" />
-          <p className="text-gray-500">加载钱包数据...</p>
-        </div>
+        <LoadingState message="加载钱包数据..." />
       </div>
     );
   }
@@ -135,21 +124,13 @@ export default function Wallet() {
     return (
       <div>
         <div className="mb-6">
-          <h2 className="text-2xl font-bold">钱包管理</h2>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">钱包管理</h2>
         </div>
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
-          <p className="text-red-600 mb-3">
-            {errorMessage instanceof Error
-              ? errorMessage.message
-              : "加载钱包数据失败"}
-          </p>
-          <button
-            onClick={() => refetch()}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium"
-          >
-            重试
-          </button>
-        </div>
+        <ErrorState
+          error={errorMessage}
+          onRetry={() => refetch()}
+          title="加载钱包数据失败"
+        />
       </div>
     );
   }
@@ -158,42 +139,38 @@ export default function Wallet() {
     <div>
       {/* ---- header ---------------------------------------------------------- */}
       <div className="mb-6">
-        <h2 className="text-2xl font-bold">钱包管理</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          余额管理与充值
-        </p>
+        <h2 className="font-display text-[25px] font-bold tracking-tight">钱包管理</h2>
+        <p className="text-[13px] text-[#5C6472] mt-1">余额管理与充值</p>
       </div>
 
       {/* ---- balance cards --------------------------------------------------- */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <p className="text-sm text-gray-500 mb-1">可用余额</p>
-          <p className="text-2xl font-bold text-green-600">
+        <div className="glass rounded-[22px] p-5 relative overflow-hidden">
+          <div className="absolute w-[110px] h-[110px] rounded-full blur-[28px] opacity-50 -top-[38px] -right-[28px] bg-[#1BA878]/40 pointer-events-none" />
+          <p className="text-[12px] font-semibold text-[#5C6472] mb-1 relative">可用余额</p>
+          <p className="font-mono text-[26px] font-semibold tracking-tight text-[#0C7A55] relative">
             {formatAmount(wallet?.available)}{" "}
-            <span className="text-sm font-normal text-gray-400">
-              ￥
-            </span>
+            <span className="text-sm font-normal text-[#5C6472]">￥</span>
           </p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <p className="text-sm text-gray-500 mb-1">累计消费</p>
-          <p className="text-2xl font-bold text-gray-800">
+        <div className="glass rounded-[22px] p-5 relative overflow-hidden">
+          <div className="absolute w-[110px] h-[110px] rounded-full blur-[28px] opacity-50 -top-[38px] -right-[28px] bg-[#4F6BED]/35 pointer-events-none" />
+          <p className="text-[12px] font-semibold text-[#5C6472] mb-1 relative">累计消费</p>
+          <p className="font-mono text-[26px] font-semibold tracking-tight text-[#161A23] relative">
             {/* 累计消费是累计扣费总额，API 可能返回负值，展示时取绝对值 */}
             {formatAmount(wallet?.total_charged?.replace(/^-/, ""))}{" "}
-            <span className="text-sm font-normal text-gray-400">
-              ￥
-            </span>
+            <span className="text-sm font-normal text-[#5C6472]">￥</span>
           </p>
         </div>
       </div>
 
       {/* ---- 在线充值 ------------------------------------------------------- */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-        <h3 className="font-semibold mb-4">在线支付充值</h3>
+      <div className="glass rounded-[22px] p-5 mb-6">
+        <h3 className="font-display font-semibold mb-4">在线支付充值</h3>
 
         {/* success banner */}
         {paymentSuccess && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-2">
+          <div className="mb-4 p-3 glass-soft rounded-xl border-[#1BA878]/35 text-sm text-[#0C7A55] flex items-center gap-2">
             <Zap size={16} />
             {paymentSuccess}
           </div>
@@ -201,14 +178,14 @@ export default function Wallet() {
 
         {/* error banner */}
         {paymentError && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          <div className="mb-4 p-3 glass-soft rounded-xl border-[#E5484D]/30 text-sm text-[#C4372C]">
             {paymentError}
           </div>
         )}
 
         {/* amount selection */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#161A23] mb-2">
             选择充值金额
           </label>
           <div className="flex flex-wrap gap-2 mb-3">
@@ -219,10 +196,10 @@ export default function Wallet() {
                   setSelectedAmount(amt);
                   setCustomAmount("");
                 }}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
                   selectedAmount === amt && !customAmount
-                    ? "border-primary-600 bg-primary-50 text-primary-700"
-                    : "border-gray-200 hover:border-gray-300 text-gray-600"
+                    ? "bg-white/85 border-[#4F6BED]/60 text-[#4F6BED] shadow-[0_6px_16px_rgba(79,107,237,0.18)]"
+                    : "glass-soft text-[#5C6472] hover:text-[#161A23]"
                 }`}
               >
                 {amt} ￥
@@ -230,10 +207,10 @@ export default function Wallet() {
             ))}
           </div>
           <div className="max-w-[200px]">
-            <label className="block text-xs text-gray-500 mb-1">
+            <label className="block text-xs text-[#5C6472] mb-1">
               或输入自定义金额
             </label>
-            <input
+            <Input
               type="number"
               min="0"
               step="0.01"
@@ -243,28 +220,27 @@ export default function Wallet() {
                 if (e.target.value) setSelectedAmount("");
               }}
               placeholder="自定义金额"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
             />
           </div>
         </div>
 
         {/* payment method */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#161A23] mb-2">
             选择支付方式
           </label>
-          <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:border-primary-300 transition-colors max-w-sm">
+          <label className="flex items-center gap-3 p-3 glass-soft rounded-xl cursor-pointer transition-colors max-w-sm hover:border-[#4F6BED]/40">
             <input
               type="radio"
               name="paymentMethod"
               value="epay"
               checked={paymentMethod === "epay"}
               onChange={(e) => setPaymentMethod(e.target.value)}
-              className="text-primary-600"
+              className="accent-[#4F6BED]"
             />
             <div>
               <p className="text-sm font-medium">EPay 聚合支付</p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-[#5C6472]">
                 支持支付宝、微信支付等
               </p>
             </div>
@@ -272,41 +248,54 @@ export default function Wallet() {
         </div>
 
         {/* pay button */}
-        <button
+        <Button
           onClick={handlePayment}
           disabled={topupMutation.isPending}
-          className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium disabled:opacity-50"
+          className="px-6"
         >
-          <WalletIcon size={16} />
+          <WalletIcon size={16} className="mr-1.5" />
           {topupMutation.isPending ? "处理中..." : "充值"}
-        </button>
-        <p className="text-xs text-gray-400 mt-2">
+        </Button>
+        <p className="text-xs text-[#5C6472]/80 mt-2">
           点击「充值」后将跳转至支付平台完成付款
         </p>
       </div>
 
       {/* ---- transaction history --------------------------------------------- */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="font-semibold mb-4">充值记录</h3>
+      <div className="glass rounded-[22px] p-5">
+        <h3 className="font-display font-semibold mb-4">充值记录</h3>
         {txs.length === 0 && (
-          <p className="py-8 text-center text-gray-400 text-sm">
+          <p className="py-8 text-center text-[#5C6472]/80 text-sm">
             暂无充值记录
           </p>
         )}
         {txs.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left py-2 text-gray-500 font-medium">订单编号</th><th className="text-left py-2 text-gray-500 font-medium">状态</th><th className="text-right py-2 text-gray-500 font-medium">金额</th><th className="text-left py-2 text-gray-500 font-medium">支付方式</th><th className="text-right py-2 text-gray-500 font-medium">时间
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {txs.map((tx) => (<tr key={tx.id} className="border-b border-gray-50"><td className="py-2.5 font-mono text-xs">{tx.order_no || "—"}</td><td className="py-2.5"><span className={tx.status==="success"?"text-emerald-600":"text-red-600"}>{tx.status==="success"?"成功":tx.status||"—"}</span></td><td className="py-2.5 text-right font-mono text-xs text-emerald-600">+{formatAmount(tx.amount)} ￥</td><td className="py-2.5 text-xs">{tx.payment_method==="alipay"?"支付宝":tx.payment_method==="wechat"?"微信":tx.payment_method||"—"}</td><td className="py-2.5 text-right text-xs text-muted-foreground">{new Date(tx.created_at).toLocaleString("zh-CN")}</td></tr>))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>订单编号</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead className="text-right">金额</TableHead>
+                <TableHead>支付方式</TableHead>
+                <TableHead className="text-right">时间</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {txs.map((tx) => (
+                <TableRow key={tx.id}>
+                  <TableCell className="font-mono text-xs">{tx.order_no || "—"}</TableCell>
+                  <TableCell>
+                    <span className={tx.status === "success" ? "text-[#0C7A55]" : "text-[#C4372C]"}>
+                      {tx.status === "success" ? "成功" : tx.status || "—"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs text-[#0C7A55]">+{formatAmount(tx.amount)} ￥</TableCell>
+                  <TableCell className="text-xs">{tx.payment_method === "alipay" ? "支付宝" : tx.payment_method === "wechat" ? "微信" : tx.payment_method || "—"}</TableCell>
+                  <TableCell className="text-right text-xs text-[#5C6472]">{new Date(tx.created_at).toLocaleString("zh-CN")}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </div>
     </div>

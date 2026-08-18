@@ -43,6 +43,21 @@ const config: Config = {
           DEFAULT: "hsl(var(--card) / <alpha-value>)",
           foreground: "hsl(var(--card-foreground) / <alpha-value>)",
         },
+        brand: {
+          indigo: "var(--brand-indigo)",
+          violet: "var(--brand-violet)",
+          teal: "var(--brand-teal)",
+          green: "var(--brand-green)",
+          amber: "var(--brand-amber)",
+          red: "var(--brand-red)",
+          gold: "var(--brand-gold)",
+          ink: "var(--brand-ink)",
+        },
+      },
+      fontFamily: {
+        sans: ["Inter", "PingFang SC", "Microsoft YaHei", "system-ui", "sans-serif"],
+        display: ["Space Grotesk", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+        mono: ["JetBrains Mono", "Consolas", "monospace"],
       },
       borderRadius: {
         lg: "var(--radius)",

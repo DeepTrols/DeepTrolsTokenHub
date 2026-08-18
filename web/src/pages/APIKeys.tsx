@@ -1,12 +1,7 @@
-import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
-import { SectionPageLayout } from "@/components/SectionPageLayout";
+import { LoadingState } from "@/components/StateViews";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useState, useMemo } from "react";
 import { APIKeyData, UsageLog } from "../lib/api";
@@ -42,6 +37,26 @@ function computeWeeklyProgress(data: APIKeyData): string {
   if (!data.weekly_limit || data.weekly_limit === "0") return "";
   return `0 / ${data.weekly_limit} CNY`;
 }
+
+const statusVariant = (status: string) => {
+  switch (status) {
+    case "active": return "success";
+    case "disabled": return "secondary";
+    case "revoked": return "destructive";
+    case "over_limit": return "warning";
+    default: return "secondary";
+  }
+};
+
+const statusLabel = (status: string) => {
+  switch (status) {
+    case "active": return "启用";
+    case "disabled": return "已停用";
+    case "revoked": return "已撤销";
+    case "over_limit": return "超限";
+    default: return status;
+  }
+};
 
 export default function APIKeys() {
   const {
@@ -163,141 +178,115 @@ export default function APIKeys() {
     setExpandedId(expandedId === id ? null : id);
   };
 
-  const statusBadgeClass = (status: string) => {
-    switch (status) {
-      case "active": return "bg-green-100 text-green-700";
-      case "disabled": return "bg-gray-100 text-gray-500";
-      case "revoked": return "bg-red-100 text-red-600";
-      case "over_limit": return "bg-yellow-100 text-yellow-700";
-      default: return "bg-gray-100 text-gray-500";
-    }
-  };
-
-  const statusLabel = (status: string) => {
-    switch (status) {
-      case "active": return "启用";
-      case "disabled": return "已停用";
-      case "revoked": return "已撤销";
-      case "over_limit": return "超限";
-      default: return status;
-    }
-  };
-
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold">API 密钥</h2>
-          <p className="text-sm text-gray-500 mt-1">管理 API 密钥，控制模型访问权限与消费额度</p>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">API 密钥</h2>
+          <p className="text-[13px] text-[#5C6472] mt-1">管理 API 密钥，控制模型访问权限与消费额度</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium">
-          <Plus size={16} /> 创建密钥
-        </button>
+        <Button onClick={() => setShowCreate(true)}><Plus size={16} className="mr-1.5" />创建密钥</Button>
       </div>
 
       {newKey && (
-        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <div className="mb-6 p-4 glass-soft rounded-xl border-[#D3A94E]/40">
           <div className="flex items-center gap-2 mb-2">
-            <Key size={16} className="text-yellow-700" />
-            <p className="font-medium text-yellow-800">新密钥已创建</p>
+            <Key size={16} className="text-[#A06B12]" />
+            <p className="font-medium text-[#A06B12]">新密钥已创建</p>
           </div>
-          <code className="block bg-white px-4 py-2.5 rounded border border-yellow-300 text-sm font-mono mb-2 break-all">{newKey.plaintext}</code>
-          <p className="text-yellow-700 text-sm flex items-center gap-1"><EyeOff size={14} /> {newKey.warning || "请立即复制并安全保存，此密钥仅显示一次"}</p>
-          <button onClick={() => setNewKey(null)} className="mt-3 text-sm text-primary-600 hover:underline">我已保存，关闭提示</button>
+          <code className="block bg-white/70 px-4 py-2.5 rounded-lg border border-[#D3A94E]/40 text-sm font-mono mb-2 break-all">{newKey.plaintext}</code>
+          <p className="text-[#A06B12] text-sm flex items-center gap-1"><EyeOff size={14} /> {newKey.warning || "请立即复制并安全保存，此密钥仅显示一次"}</p>
+          <button onClick={() => setNewKey(null)} className="mt-3 text-sm text-[#4F6BED] hover:underline">我已保存，关闭提示</button>
         </div>
       )}
 
       {showCreate && (
-        <div className="mb-6 p-5 bg-white border border-gray-200 rounded-xl">
-          <h3 className="font-semibold mb-4">创建新密钥</h3>
+        <div className="mb-6 p-5 glass rounded-[22px]">
+          <h3 className="font-display font-semibold mb-4">创建新密钥</h3>
           <div className="space-y-4">
             {/* Boundary 1: Identity - Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">密钥名称</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：生产环境、测试环境" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500" />
+              <Label htmlFor="key-name" className="text-[12px] font-semibold text-[#5C6472]">密钥名称</Label>
+              <Input id="key-name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：生产环境、测试环境" />
             </div>
 
             {/* Boundary 2: Model boundary - Model whitelist */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                <Shield size={14} className="inline mr-1" />
-                模型白名单
-              </label>
-              <input
+              <Label htmlFor="key-models" className="text-[12px] font-semibold text-[#5C6472]"><Shield size={14} className="inline mr-1" />模型白名单</Label>
+              <Input
+                id="key-models"
                 type="text"
                 value={allowedModels}
                 onChange={(e) => setAllowedModels(e.target.value)}
                 placeholder="例如: gpt-4o, claude-sonnet"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                className="font-mono"
               />
-              <p className="text-xs text-gray-400 mt-1">用逗号分隔，留空表示不限制</p>
+              <p className="text-xs text-[#5C6472]/80 mt-1">用逗号分隔，留空表示不限制</p>
             </div>
 
             {/* Boundary 3: Source boundary - IP whitelist */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                <Shield size={14} className="inline mr-1" />
-                IP 白名单
-              </label>
+              <Label htmlFor="key-ips" className="text-[12px] font-semibold text-[#5C6472]"><Shield size={14} className="inline mr-1" />IP 白名单</Label>
               <textarea
+                id="key-ips"
                 value={sourceWhitelist}
                 onChange={(e) => setSourceWhitelist(e.target.value)}
                 placeholder="例如: 192.168.1.0/24, 10.0.0.0/8"
                 rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 resize-none"
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#4F6BED]/25 resize-none"
               />
-              <p className="text-xs text-gray-400 mt-1">支持 CIDR 格式，用逗号分隔，留空表示不限制</p>
+              <p className="text-xs text-[#5C6472]/80 mt-1">支持 CIDR 格式，用逗号分隔，留空表示不限制</p>
             </div>
 
             {/* Boundary 4: Budget boundary - Spend limits */}
-            <div className="border-t border-gray-100 pt-4">
-              <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-1">
-                <AlertTriangle size={14} />
+            <div className="border-t border-black/[0.06] pt-4">
+              <h4 className="text-sm font-medium text-[#161A23] mb-3 flex items-center gap-1">
+                <AlertTriangle size={14} className="text-[#D3A94E]" />
                 消费限额
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">月度限额 (CNY/月)</label>
-                  <input
+                  <Label htmlFor="key-monthly" className="text-xs font-medium text-[#5C6472] mb-1 block">月度限额 (CNY/月)</Label>
+                  <Input
+                    id="key-monthly"
                     type="number"
                     min="0"
                     step="0.01"
                     value={monthlyLimit}
                     onChange={(e) => setMonthlyLimit(e.target.value)}
                     placeholder="月度消费上限"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">周限额 (CNY/周)</label>
-                  <input
+                  <Label htmlFor="key-weekly" className="text-xs font-medium text-[#5C6472] mb-1 block">周限额 (CNY/周)</Label>
+                  <Input
+                    id="key-weekly"
                     type="number"
                     min="0"
                     step="0.01"
                     value={weeklyLimit}
                     onChange={(e) => setWeeklyLimit(e.target.value)}
                     placeholder="周消费上限"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">累计限额 (CNY 总计)</label>
-                  <input
+                  <Label htmlFor="key-cumulative" className="text-xs font-medium text-[#5C6472] mb-1 block">累计限额 (CNY 总计)</Label>
+                  <Input
+                    id="key-cumulative"
                     type="number"
                     min="0"
                     step="0.01"
                     value={cumulativeLimit}
                     onChange={(e) => setCumulativeLimit(e.target.value)}
                     placeholder="累计消费上限"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
                   />
                 </div>
               </div>
             </div>
 
             {/* Over-limit action */}
-            <div className="border-t border-gray-100 pt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">超限动作</label>
+            <div className="border-t border-black/[0.06] pt-4">
+              <span className="block text-sm font-medium text-[#161A23] mb-2">超限动作</span>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -306,10 +295,10 @@ export default function APIKeys() {
                     value="block"
                     checked={overLimitAction === "block"}
                     onChange={(e) => setOverLimitAction(e.target.value)}
-                    className="text-primary-600 focus:ring-primary-500"
+                    className="accent-[#4F6BED]"
                     aria-label="阻止 (block)"
                   />
-                  <span className="text-sm text-gray-700">阻止 (block)</span>
+                  <span className="text-sm text-[#161A23]">阻止 (block)</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -318,42 +307,35 @@ export default function APIKeys() {
                     value="warn"
                     checked={overLimitAction === "warn"}
                     onChange={(e) => setOverLimitAction(e.target.value)}
-                    className="text-primary-600 focus:ring-primary-500"
+                    className="accent-[#4F6BED]"
                     aria-label="警告 (warn)"
                   />
-                  <span className="text-sm text-gray-700">警告 (warn)</span>
+                  <span className="text-sm text-[#161A23]">警告 (warn)</span>
                 </label>
               </div>
             </div>
           </div>
           <div className="flex gap-3 mt-4">
-            <button onClick={handleCreate} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm">确认创建</button>
-            <button onClick={resetCreateForm} className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">取消</button>
+            <Button onClick={handleCreate}>确认创建</Button>
+            <Button variant="outline" onClick={resetCreateForm}>取消</Button>
           </div>
         </div>
       )}
 
       {loadError && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+        <div className="mb-4 p-4 glass-soft rounded-xl border-[#E5484D]/25 text-sm text-[#C4372C]">
           <p className="font-medium">加载失败</p>
           <p className="mt-1">{loadError}</p>
-          <button onClick={() => refetch()} className="mt-2 px-3 py-1 bg-red-600 text-white rounded text-xs">
-            重试
-          </button>
+          <Button variant="destructive" size="sm" onClick={() => refetch()} className="mt-2">重试</Button>
         </div>
       )}
-      {isLoading && (
-        <div className="p-12 text-center bg-white rounded-xl border">
-          <div className="animate-spin w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full mx-auto mb-3" />
-          <p className="text-gray-500">加载 API 密钥...</p>
-        </div>
-      )}
-      <div className="bg-white rounded-xl border border-gray-200">
+      {isLoading && <LoadingState message="加载 API 密钥..." />}
+      <div className="glass rounded-[22px] overflow-hidden">
         {!isLoading && keys.length === 0 && (
-          <div className="p-12 text-center text-gray-400">
-            <Key size={40} className="mx-auto mb-3 opacity-30" />
-            <p>暂无 API 密钥</p>
-            <p className="text-sm mt-1">点击上方按钮创建第一个密钥</p>
+          <div className="p-12 text-center">
+            <Key size={40} className="mx-auto mb-3 text-[#5C6472]/30" />
+            <p className="text-[#5C6472] font-medium">暂无 API 密钥</p>
+            <p className="text-sm mt-1 text-[#5C6472]/80">点击上方按钮创建第一个密钥</p>
           </div>
         )}
         {keys.map((key) => {
@@ -363,39 +345,37 @@ export default function APIKeys() {
           const canToggle = key.status === "active" || key.status === "disabled";
 
           return (
-            <div key={key.id} className="border-b border-gray-100 last:border-b-0">
+            <div key={key.id} className="border-b border-black/[0.06] last:border-b-0">
               <div
-                className="p-4 flex items-center justify-between hover:bg-gray-50 cursor-pointer"
+                className="p-4 flex items-center justify-between hover:bg-white/60 cursor-pointer transition-colors"
                 onClick={() => toggleExpand(key.id)}
               >
                 <div className="flex items-start gap-3 min-w-0 flex-1">
                   {/* Expand toggle + 7d active indicator */}
                   <div className="flex items-center gap-1.5 pt-0.5">
-                    {isExpanded ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
+                    {isExpanded ? <ChevronDown size={14} className="text-[#5C6472]/60" /> : <ChevronRight size={14} className="text-[#5C6472]/60" />}
                     {key.last_7d_active && (
-                      <span className="inline-block w-2 h-2 rounded-full bg-green-500" title="最近 7 天活跃" />
+                      <span className="inline-block w-2 h-2 rounded-full bg-[#1BA878] shadow-[0_0_8px_#1BA878]" title="最近 7 天活跃" />
                     )}
                   </div>
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-sm truncate">{key.name}</p>
-                      <span className={`px-2 py-0.5 rounded text-xs ${statusBadgeClass(key.status)}`}>
-                        {statusLabel(key.status)}
-                      </span>
+                      <Badge variant={statusVariant(key.status) as "success" | "secondary" | "destructive" | "warning"}>{statusLabel(key.status)}</Badge>
                     </div>
-                    <code className="text-xs text-gray-500 font-mono">{key.masked_key}</code>
+                    <code className="text-xs text-[#5C6472] font-mono">{key.masked_key}</code>
 
                     {/* Per-key usage stats */}
                     {(() => { const u = keyUsage[key.id]; if (!u) return null; return (
-                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                      <div className="flex items-center gap-3 mt-1 text-xs text-[#5C6472]">
                         <span className="flex items-center gap-1"><Zap size={10} />{u.calls} 次调用</span>
                         <span className="flex items-center gap-1"><BarChart3 size={10} />{u.tokens.toLocaleString()} tokens</span>
-                        <span className="font-mono text-indigo-600">{formatAmount(u.cost)} CNY</span>
+                        <span className="font-mono text-[#4F6BED]">{formatAmount(u.cost)} CNY</span>
                       </div>); })()}
 
                     {/* Boundary indicators row */}
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500 flex-wrap">
+                    <div className="flex items-center gap-3 mt-1.5 text-xs text-[#5C6472] flex-wrap">
                       {/* Model boundary */}
                       <span title={key.allowed_models?.join(", ") || ""}>
                         {modelCount > 0 ? `${modelCount} models` : "未限制"}
@@ -420,7 +400,7 @@ export default function APIKeys() {
 
                       <a
                         href={`/logs?key_id=${key.id}`}
-                        className="flex items-center gap-1 text-primary-600 hover:underline"
+                        className="flex items-center gap-1 text-[#4F6BED] hover:underline"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <ExternalLink size={10} />
@@ -433,7 +413,7 @@ export default function APIKeys() {
                 <div className="flex items-center gap-2 ml-3" onClick={(e) => e.stopPropagation()}>
                   {canToggle && (
                     <button
-                      className="p-1.5 text-gray-400 hover:text-gray-600 rounded"
+                      className="p-1.5 text-[#5C6472]/70 hover:text-[#161A23] hover:bg-white/70 rounded-lg transition-colors"
                       title={key.status === "active" ? "停用" : "启用"}
                       onClick={() => handleToggleStatus(key)}
                       aria-label={key.status === "active" ? "停用" : "启用"}
@@ -441,10 +421,10 @@ export default function APIKeys() {
                       {key.status === "active" ? <Ban size={14} /> : <Play size={14} />}
                     </button>
                   )}
-                  <button className="p-1.5 text-gray-400 hover:text-gray-600 rounded" title="复制" onClick={() => handleCopy(key)}>
+                  <button className="p-1.5 text-[#5C6472]/70 hover:text-[#161A23] hover:bg-white/70 rounded-lg transition-colors" title="复制" onClick={() => handleCopy(key)}>
                     <Copy size={14} />
                   </button>
-                  <button className="p-1.5 text-gray-400 hover:text-red-600 rounded" title="删除" onClick={() => handleDelete(key)} aria-label="删除">
+                  <button className="p-1.5 text-[#5C6472]/70 hover:text-[#C4372C] hover:bg-white/70 rounded-lg transition-colors" title="删除" onClick={() => handleDelete(key)} aria-label="删除">
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -452,56 +432,56 @@ export default function APIKeys() {
 
               {/* Expanded detail view */}
               {isExpanded && (
-                <div className="px-4 pb-4 pt-0 border-t border-gray-50 bg-gray-50/50">
+                <div className="px-4 pb-4 pt-0 border-t border-black/[0.06] bg-white/40">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
                     {/* Identity */}
-                    <div className="bg-white p-3 rounded-lg border border-gray-200">
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
+                    <div className="glass-soft rounded-xl p-3">
+                      <h4 className="text-xs font-semibold text-[#5C6472] uppercase tracking-wider mb-2 flex items-center gap-1">
                         <Key size={12} /> 身份边界
                       </h4>
                       <p className="text-sm font-medium">{key.name}</p>
-                      <p className="text-xs text-gray-400 mt-1">ID: {key.id}</p>
-                      <p className="text-xs text-gray-400">创建于 {new Date(key.created_at).toLocaleDateString("zh-CN")}</p>
+                      <p className="text-xs text-[#5C6472]/80 mt-1 font-mono">ID: {key.id}</p>
+                      <p className="text-xs text-[#5C6472]/80">创建于 {new Date(key.created_at).toLocaleDateString("zh-CN")}</p>
                     </div>
 
                     {/* Model boundary */}
-                    <div className="bg-white p-3 rounded-lg border border-gray-200">
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">模型边界</h4>
+                    <div className="glass-soft rounded-xl p-3">
+                      <h4 className="text-xs font-semibold text-[#5C6472] uppercase tracking-wider mb-2">模型边界</h4>
                       {modelCount > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {key.allowed_models!.map((m) => (
-                            <span key={m} className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs font-mono">{m}</span>
+                            <span key={m} className="px-2 py-0.5 bg-[#4F6BED]/10 text-[#4F6BED] rounded-md text-xs font-mono">{m}</span>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-gray-400">未限制 (所有模型可用)</p>
+                        <p className="text-xs text-[#5C6472]/80">未限制 (所有模型可用)</p>
                       )}
                     </div>
 
                     {/* Source boundary */}
-                    <div className="bg-white p-3 rounded-lg border border-gray-200">
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
+                    <div className="glass-soft rounded-xl p-3">
+                      <h4 className="text-xs font-semibold text-[#5C6472] uppercase tracking-wider mb-2 flex items-center gap-1">
                         <Shield size={12} /> 来源边界
                       </h4>
                       {hasIpWhitelist ? (
                         <div className="flex flex-wrap gap-1">
                           {key.source_whitelist!.map((ip) => (
-                            <span key={ip} className="px-2 py-0.5 bg-teal-50 text-teal-700 rounded text-xs font-mono">{ip}</span>
+                            <span key={ip} className="px-2 py-0.5 bg-[#0FA88B]/10 text-[#0FA88B] rounded-md text-xs font-mono">{ip}</span>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-gray-400">未限制 (允许所有 IP)</p>
+                        <p className="text-xs text-[#5C6472]/80">未限制 (允许所有 IP)</p>
                       )}
                     </div>
 
                     {/* Budget boundary */}
-                    <div className="bg-white p-3 rounded-lg border border-gray-200">
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
-                        <AlertTriangle size={12} /> 预算边界
+                    <div className="glass-soft rounded-xl p-3">
+                      <h4 className="text-xs font-semibold text-[#5C6472] uppercase tracking-wider mb-2 flex items-center gap-1">
+                        <AlertTriangle size={12} className="text-[#D3A94E]" /> 预算边界
                       </h4>
                       <div className="space-y-1.5 text-xs">
                         <div className="flex justify-between">
-                          <span className="text-gray-500">月度限额:</span>
+                          <span className="text-[#5C6472]">月度限额:</span>
                           <span className="font-mono">
                             {key.monthly_limit && key.monthly_limit !== "0"
                               ? computeMonthlyProgress(key)
@@ -509,7 +489,7 @@ export default function APIKeys() {
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-gray-500">周限额:</span>
+                          <span className="text-[#5C6472]">周限额:</span>
                           <span className="font-mono">
                             {key.weekly_limit && key.weekly_limit !== "0"
                               ? computeWeeklyProgress(key)
@@ -517,7 +497,7 @@ export default function APIKeys() {
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-gray-500">累计限额:</span>
+                          <span className="text-[#5C6472]">累计限额:</span>
                           <span className="font-mono">
                             {key.cumulative_limit && key.cumulative_limit !== "0"
                               ? `${key.cumulative_limit} CNY`
@@ -525,8 +505,8 @@ export default function APIKeys() {
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-gray-500">超限动作:</span>
-                          <span className={`font-medium ${key.over_limit_action === "block" ? "text-red-600" : "text-yellow-600"}`}>
+                          <span className="text-[#5C6472]">超限动作:</span>
+                          <span className={`font-medium ${key.over_limit_action === "block" ? "text-[#C4372C]" : "text-[#A06B12]"}`}>
                             {key.over_limit_action === "block" ? "阻止" : "警告"}
                           </span>
                         </div>
@@ -534,16 +514,14 @@ export default function APIKeys() {
                     </div>
 
                     {/* Status boundary */}
-                    <div className="bg-white p-3 rounded-lg border border-gray-200">
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">状态边界</h4>
+                    <div className="glass-soft rounded-xl p-3">
+                      <h4 className="text-xs font-semibold text-[#5C6472] uppercase tracking-wider mb-2">状态边界</h4>
                       <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-xs ${statusBadgeClass(key.status)}`}>
-                          {statusLabel(key.status)}
-                        </span>
+                        <Badge variant={statusVariant(key.status) as "success" | "secondary" | "destructive" | "warning"}>{statusLabel(key.status)}</Badge>
                         {canToggle && (
                           <button
                             onClick={() => handleToggleStatus(key)}
-                            className="text-xs text-primary-600 hover:underline"
+                            className="text-xs text-[#4F6BED] hover:underline"
                           >
                             {key.status === "active" ? "停用" : "启用"}
                           </button>
@@ -552,29 +530,29 @@ export default function APIKeys() {
                     </div>
 
                     {/* Evidence boundary */}
-                    <div className="bg-white p-3 rounded-lg border border-gray-200">
-                      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
+                    <div className="glass-soft rounded-xl p-3">
+                      <h4 className="text-xs font-semibold text-[#5C6472] uppercase tracking-wider mb-2 flex items-center gap-1">
                         <Clock size={12} /> 证据边界
                       </h4>
                       <div className="space-y-1.5 text-xs">
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-500">最后使用:</span>
+                          <span className="text-[#5C6472]">最后使用:</span>
                           <span>{formatRelativeTime(key.last_used_at || "")}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-500">7天活跃:</span>
+                          <span className="text-[#5C6472]">7天活跃:</span>
                           {key.last_7d_active ? (
-                            <span className="flex items-center gap-1 text-green-600">
-                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
+                            <span className="flex items-center gap-1 text-[#0C7A55]">
+                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#1BA878] shadow-[0_0_6px_#1BA878]" />
                               活跃
                             </span>
                           ) : (
-                            <span className="text-gray-400">不活跃</span>
+                            <span className="text-[#5C6472]/80">不活跃</span>
                           )}
                         </div>
                         <a
                           href={`/logs?key_id=${key.id}`}
-                          className="flex items-center gap-1 text-primary-600 hover:underline mt-1"
+                          className="flex items-center gap-1 text-[#4F6BED] hover:underline mt-1"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <ExternalLink size={10} />

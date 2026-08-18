@@ -7,11 +7,11 @@ function SectionPageLayout({ className, children, ...props }: SectionPageLayoutP
 }
 
 function PageTitle({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <h2 className={cn("text-2xl font-bold", className)}>{children}</h2>;
+  return <h2 className={cn("font-display text-[25px] font-bold tracking-tight", className)}>{children}</h2>;
 }
 
 function PageDescription({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <p className={cn("text-sm text-muted-foreground mt-1", className)}>{children}</p>;
+  return <p className={cn("text-[13px] text-[#5C6472] mt-1", className)}>{children}</p>;
 }
 
 function PageHeader({ children, className }: { children: React.ReactNode; className?: string }) {

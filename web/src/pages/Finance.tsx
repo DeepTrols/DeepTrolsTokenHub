@@ -104,7 +104,7 @@ export default function Finance() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="搜索账号 / 企业"
-              className="flex h-9 w-full rounded-md border border-input bg-background pl-9 pr-9 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-10 w-full glass-soft rounded-xl pl-9 pr-9 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-[#4F6BED] focus-visible:ring-2 focus-visible:ring-[#4F6BED]/20 disabled:cursor-not-allowed disabled:opacity-50"
             />
             {q && (
               <button
