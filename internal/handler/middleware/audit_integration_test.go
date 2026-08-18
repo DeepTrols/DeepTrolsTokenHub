@@ -46,17 +46,19 @@ func TestAuditAdminWrite_Integration_WithOldValue(t *testing.T) {
 
 	mw := AuditAdminWrite(pool)
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The handler attaches the pre-mutation snapshot through the shared
+		// holder; the middleware must persist it after the handler returns.
+		SetAuditOldValue(r.Context(), map[string]any{
+			"code":   "acme",
+			"name":   "Acme Corp",
+			"status": "active",
+		})
 		w.WriteHeader(http.StatusOK)
 	})
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/11111111-1111-1111-1111-111111111111", nil)
 	req.RemoteAddr = "10.0.0.10:1234"
 	ctx := contextWithUser(req.Context())
-	ctx = context.WithValue(ctx, CtxAuditOldValue, map[string]any{
-		"code":   "acme",
-		"name":   "Acme Corp",
-		"status": "active",
-	})
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 	mw(next).ServeHTTP(w, req)

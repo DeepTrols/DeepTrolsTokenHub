@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
@@ -13,14 +14,42 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// CtxAuditOldValue carries a JSON-able snapshot of the resource being
-// mutated (e.g. the full tenant before a hard delete). Handlers set it on the
-// request context; AuditAdminWrite persists it into audit_logs.old_value so
-// the operator can reconstruct what was removed.
-type ctxAuditOldValueKey struct{}
+// auditOldValueHolder is a mutable snapshot slot shared by reference between
+// the audit middleware and the handler. A context value is immutable once the
+// request is created, so the handler cannot attach a pre-mutation snapshot by
+// calling r.WithContext — it mutates the holder instead, and the middleware
+// reads it after the handler returns.
+type auditOldValueHolder struct {
+	mu sync.Mutex
+	v  any
+}
 
-// CtxAuditOldValue is the context key for the audit old-value snapshot.
-var CtxAuditOldValue = ctxAuditOldValueKey{}
+func (h *auditOldValueHolder) set(v any) {
+	h.mu.Lock()
+	h.v = v
+	h.mu.Unlock()
+}
+
+func (h *auditOldValueHolder) get() any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.v
+}
+
+type auditOldValueKey struct{}
+
+// WithAuditOldValue injects a mutable old-value holder into ctx.
+func WithAuditOldValue(ctx context.Context) context.Context {
+	return context.WithValue(ctx, auditOldValueKey{}, &auditOldValueHolder{})
+}
+
+// SetAuditOldValue stores a JSON-able snapshot on the holder carried by ctx.
+// It is a no-op when AuditAdminWrite has not injected a holder.
+func SetAuditOldValue(ctx context.Context, v any) {
+	if h, ok := ctx.Value(auditOldValueKey{}).(*auditOldValueHolder); ok {
+		h.set(v)
+	}
+}
 
 // recordAudit inserts a row into audit_logs. Errors are logged, never returned:
 // a failed audit write must not fail the underlying business operation.
@@ -76,8 +105,19 @@ func AuditAdminWrite(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 					}
 				}
 
-				oldValue := r.Context().Value(CtxAuditOldValue)
-				recordAudit(r.Context(), pool, actorID, method+" "+r.URL.Path, resourceType, resourceID, extractIPFromRemoteAddr(r.RemoteAddr), oldValue)
+				action := method + " " + r.URL.Path
+				ip := extractIPFromRemoteAddr(r.RemoteAddr)
+				// Inject the mutable holder and record AFTER the handler runs
+				// so a snapshot attached by the handler (e.g. the tenant row
+				// before a hard delete) is persisted. defer keeps the audit
+				// write even if the handler panics.
+				ctx := WithAuditOldValue(r.Context())
+				defer func() {
+					holder := ctx.Value(auditOldValueKey{}).(*auditOldValueHolder)
+					recordAudit(r.Context(), pool, actorID, action, resourceType, resourceID, ip, holder.get())
+				}()
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
 			}
 			next.ServeHTTP(w, r)
 		})

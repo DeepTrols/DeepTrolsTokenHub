@@ -353,6 +353,28 @@ func TestHandleImagesGenerations_InvalidImageCount_Returns400(t *testing.T) {
 	}
 }
 
+func TestHandleImagesGenerations_NonIntegerCount_Returns400(t *testing.T) {
+	for _, n := range []any{1.5, "2", true} {
+		t.Run(fmt.Sprintf("%v", n), func(t *testing.T) {
+			userID := uuid.New()
+			apiKeyID := uuid.New()
+			application, _, _ := newEndpointEnv(&mockExecutor{})
+
+			req := newEndpointRequest(userID, apiKeyID, "/v1/images/generations", map[string]any{
+				"model":  "dall-e-3",
+				"prompt": "cat",
+				"n":      n,
+			})
+			w := httptest.NewRecorder()
+			HandleImagesGenerations(application).ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("n=%v: status = %d, want 400 (must not truncate or default)", n, w.Code)
+			}
+		})
+	}
+}
+
 func TestHandleForwardedEndpoint_MethodNotAllowed_Returns405(t *testing.T) {
 	userID := uuid.New()
 	apiKeyID := uuid.New()

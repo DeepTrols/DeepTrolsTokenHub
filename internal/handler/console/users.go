@@ -1,7 +1,6 @@
 package console
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -314,14 +313,14 @@ func HandleDeleteUser(a *app.App) http.HandlerFunc {
 		// middleware records only the user UUID by default, which cannot be
 		// traced back to an email after the account is disabled.
 		if usr, err := a.Users.FindByID(r.Context(), userID); err == nil && usr != nil {
-			r = r.WithContext(context.WithValue(r.Context(), middleware.CtxAuditOldValue, map[string]any{
+			middleware.SetAuditOldValue(r.Context(), map[string]any{
 				"id":           usr.ID.String(),
 				"email":        usr.Email,
 				"display_name": usr.DisplayName,
 				"role":         usr.Role,
 				"user_type":    string(usr.UserType),
 				"status":       string(usr.Status),
-			}))
+			})
 		}
 
 		if err := a.Users.UpdateStatus(r.Context(), userID, domain.UserStatusDeleted); err != nil {

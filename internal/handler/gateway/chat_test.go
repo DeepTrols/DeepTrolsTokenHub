@@ -2504,6 +2504,7 @@ func TestHandleNonStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
 			return &gw.ExecuteResponse{
 				StatusCode: http.StatusInternalServerError,
 				Body:       map[string]any{"error": map[string]any{"message": "provider exploded"}},
+				ProviderReqID: "upstream-req-1",
 				DurationMs: 42,
 			}, nil
 		},
@@ -2530,6 +2531,9 @@ func TestHandleNonStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
 	}
 	if log.ErrorCode != "upstream_http_error" {
 		t.Errorf("ErrorCode = %s, want upstream_http_error", log.ErrorCode)
+	}
+	if log.ProviderRequestID != "upstream-req-1" {
+		t.Errorf("ProviderRequestID = %s, want the upstream x-request-id", log.ProviderRequestID)
 	}
 	if log.UsageSource != domain.UsageSourceEstimated {
 		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceEstimated)
@@ -2635,7 +2639,7 @@ func TestHandleNonStreamingChat_ClientCancel_LogsFailedDetached(t *testing.T) {
 	apiKeyID := uuid.New()
 	executor := &mockExecutor{
 		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
-			return nil, fmt.Errorf("upstream connection refused")
+			return nil, ctx.Err()
 		},
 	}
 	application, walletRepo, usageRepo := newNonStreamFailureEnv(executor, false)
@@ -2664,6 +2668,9 @@ func TestHandleNonStreamingChat_ClientCancel_LogsFailedDetached(t *testing.T) {
 	log := waitForUsageLog(t, usageRepo)
 	if log.Status != domain.UsageLogStatusFailed {
 		t.Errorf("Status = %s, want %s (evidence must survive disconnect)", log.Status, domain.UsageLogStatusFailed)
+	}
+	if log.ErrorCode != "client_disconnected" {
+		t.Errorf("ErrorCode = %s, want client_disconnected", log.ErrorCode)
 	}
 }
 

@@ -1128,6 +1128,9 @@ func logNonStreamFailure(application *app.App, requestType string, userID, apiKe
 	if lastErr != nil {
 		errorMessage = lastErr.Error()
 	}
+	if errors.Is(lastErr, context.Canceled) {
+		errorCode = "client_disconnected"
+	}
 	statusCode := 0
 	if lastResp != nil && lastResp.StatusCode >= 400 {
 		statusCode = lastResp.StatusCode
@@ -1145,6 +1148,14 @@ func logNonStreamFailure(application *app.App, requestType string, userID, apiKe
 	}
 	if attemptCount > 0 && errorMessage != "" {
 		errorMessage = fmt.Sprintf("%s (all %d candidates failed)", errorMessage, attemptCount)
+	}
+
+	// Prefer the upstream request id (x-request-id from the last failed
+	// attempt) so reconciliation can trace back to the provider; fall back to
+	// the platform request id when the upstream never answered.
+	providerReqID := requestID
+	if lastResp != nil && lastResp.ProviderReqID != "" {
+		providerReqID = lastResp.ProviderReqID
 	}
 
 	responseBody := map[string]any{}
@@ -1196,6 +1207,7 @@ func logNonStreamFailure(application *app.App, requestType string, userID, apiKe
 		ChannelID:         channelID,
 		InstanceID:        instanceID,
 		RoutePolicyID:     routePolicyID,
+		ProviderRequestID: providerReqID,
 		UsageSource:       domain.UsageSourceEstimated,
 		UsageRaw:          map[string]any{},
 		UsageNormalized:   map[string]any{},
@@ -1209,7 +1221,7 @@ func logNonStreamFailure(application *app.App, requestType string, userID, apiKe
 		ErrorCode:         errorCode,
 		ErrorMessage:      errorMessage,
 		Provider:          "litellm",
-		ProviderReqID:     requestID,
+		ProviderReqID:     providerReqID,
 		RequestBody:       body,
 		ResponseBody:      responseBody,
 		StatusCode:        statusCode,

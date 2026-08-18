@@ -516,7 +516,7 @@ func HandleDeleteTenant(a *app.App) http.HandlerFunc {
 		if tn.OwnerID != nil {
 			ownerID = tn.OwnerID.String()
 		}
-		r = r.WithContext(context.WithValue(r.Context(), middleware.CtxAuditOldValue, map[string]any{
+		middleware.SetAuditOldValue(r.Context(), map[string]any{
 			"id":            tn.ID.String(),
 			"code":          tn.Code,
 			"name":          tn.Name,
@@ -524,7 +524,7 @@ func HandleDeleteTenant(a *app.App) http.HandlerFunc {
 			"owner_id":      ownerID,
 			"credit_code":   tn.CreditCode,
 			"contact_email": tn.ContactEmail,
-		}))
+		})
 
 		if err := a.Tenants.Delete(r.Context(), tn.ID); err != nil {
 			if errors.Is(err, tenant.ErrNotFound) {

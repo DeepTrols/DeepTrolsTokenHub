@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"time"
 	"unicode/utf8"
@@ -576,29 +577,45 @@ func estimateEmbeddingsUsage(body map[string]any) *usageparser.NormalizedUsage {
 // validateImagesRequest requires an image count within 1..10. The prompt is
 // validated upstream (OpenAI-compatible providers return 400 when missing).
 func validateImagesRequest(body map[string]any) error {
-	if n := imageCountFromBody(body); n < 1 || n > 10 {
+	n, err := imageCountFromBody(body)
+	if err != nil {
+		return err
+	}
+	if n < 1 || n > 10 {
 		return fmt.Errorf("n must be between 1 and 10")
 	}
 	return nil
 }
 
-// imageCountFromBody returns the requested image count (default 1).
-func imageCountFromBody(body map[string]any) int {
-	n := 1
+// imageCountFromBody returns the requested image count (default 1). Only
+// integers are accepted: fractional counts (n=1.5) and non-numeric values
+// (n="2") are rejected instead of being silently truncated or defaulted.
+func imageCountFromBody(body map[string]any) (int, error) {
 	switch v := body["n"].(type) {
+	case nil:
+		return 1, nil
 	case float64:
-		n = int(v)
+		if v != math.Trunc(v) {
+			return 0, fmt.Errorf("n must be an integer")
+		}
+		return int(v), nil
 	case json.Number:
 		if iv, err := v.Int64(); err == nil {
-			n = int(iv)
+			return int(iv), nil
 		}
+		return 0, fmt.Errorf("n must be an integer")
+	default:
+		return 0, fmt.Errorf("n must be an integer")
 	}
-	return n
 }
 
 // estimateImagesUsage bills the requested image count.
 func estimateImagesUsage(body map[string]any) *usageparser.NormalizedUsage {
-	return &usageparser.NormalizedUsage{ImageCount: int64(imageCountFromBody(body))}
+	n, err := imageCountFromBody(body)
+	if err != nil || n < 1 {
+		n = 1
+	}
+	return &usageparser.NormalizedUsage{ImageCount: int64(n)}
 }
 
 // validateAudioSpeechRequest requires a non-empty input string.

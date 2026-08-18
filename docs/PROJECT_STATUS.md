@@ -524,3 +524,23 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - `go vet ./...` · `go build ./...` 全绿；`go test -p 1 ./...` 全量通过
 - **注记（测试基建）**：共享测试库曾受一个被中断运行的孤儿测试进程干扰（表现为随机 deadlock / FK 违规 / 计数错乱），已用 `pg_terminate_backend` 清掉其连接后全量复测通过；复现排查手法记录在 `docs/DEPLOYMENT.md` 与本次会话，非代码缺陷
 - 新增端点已注册；API 二进制重建重启后 /health 正常
+
+## 十四、2026-08-18 review 修复（审计 old_value 接线 + LOW 项）
+
+> 13 节提交后 code-reviewer 复审（APPROVE-WITH-FIXES）发现 1 个 MED 功能缺陷与 4 个 LOW，本节约当日修复。
+
+### 14.1 修复项
+
+| # | 严重级 | 问题 | 修复 |
+|---|--------|------|------|
+| 1 | MED | 审计 `old_value` 在生产链路恒为 NULL：中间件在 handler 执行**前**读 context，且 handler 用 `r.WithContext` 生成新 request，中间件持有的旧 request 永远看不到快照 | 改为共享可变 holder：`middleware.WithAuditOldValue` 注入 `*auditOldValueHolder`，handler 用 `SetAuditOldValue` 原地写入，中间件在 `next` 返回后（defer 兜底 panic）再 marshal 落库；集成测试改为"真实 handler 写 → 中间件落库"链路 |
+| 2 | LOW | 失败日志 `ProviderReqID` 用平台侧 requestID，对账无法回查上游 | `logNonStreamFailure` 优先透传最后一次失败响应的 `ProviderReqID`（usage_log 与 evidence 双字段），无上游响应时回退平台 requestID |
+| 3 | LOW | 非流式 `context.Canceled` 未单独分类（流式有 `client_disconnected`） | `errors.Is(lastErr, context.Canceled)` → `client_disconnected` |
+| 4 | LOW | `/v1/images/generations` 的 `n` 校验可绕过：`n=1.5` 被截断为 1、`n="2"` 静默回退默认 | `imageCountFromBody` 改为仅接受整数（`float64` 需 `== math.Trunc`），非整数/非数值 400；新增 `n=1.5 / "2" / true` 用例 |
+| 5 | LOW | `handleForwardedRawExecution` 与 JSON 管线重复约 200 行 | 记录为重构建议，非阻塞，后续抽公共管道 |
+
+### 14.2 验证
+
+- `go vet ./...` · `go build ./...` 全绿
+- `go test -p 1 ./...` 全量通过（gateway/middleware/console 及全仓）
+- 新增/更新测试：审计 old_value 真实链路集成、`ProviderRequestID` 透传、`client_disconnected` 分类、`n` 非整数拒绝
