@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -34,6 +35,8 @@ type App struct {
 	Pool    *pgxpool.Pool
 	Config  *config.Config
 	Healthy bool
+	// Slog is the process logger (structured JSON by default).
+	Slog *slog.Logger
 
 	// Redis client (nil when Redis is not configured or unavailable).
 	Redis *goredis.Client
@@ -84,6 +87,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 		Pool:    pool,
 		Config:  cfg,
 		Healthy: true,
+		Slog:    NewSlogLogger(cfg),
 	}
 
 	// Wire repositories.
@@ -150,6 +154,8 @@ func (a *App) initRateLimiter(ctx context.Context, cfg *config.Config) {
 // RegisterRoutes wires all HTTP endpoints onto the given chi router.
 func (a *App) RegisterRoutes(r chi.Router) {
 	r.Get("/health", healthHandler)
+	r.Get("/healthz", healthzHandler)
+	r.Get("/readyz", readyzHandler(a))
 }
 
 // Shutdown gracefully releases resources held by the App.

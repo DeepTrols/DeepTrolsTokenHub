@@ -64,6 +64,36 @@ func TestConfig_WeakSecretsRejectedInProduction(t *testing.T) {
 	}
 }
 
+// TestConfig_LogDefaults verifies LOG_FORMAT/LOG_LEVEL default to json/info
+// when unset and are read from the environment when provided.
+func TestConfig_LogDefaults(t *testing.T) {
+	os.Unsetenv("LOG_FORMAT")
+	os.Unsetenv("LOG_LEVEL")
+	os.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/test")
+	os.Setenv("LITELLM_BASE_URL", "http://localhost:4000")
+	os.Setenv("LITELLM_MASTER_KEY", "sk-test")
+	os.Setenv("JWT_SECRET", "test-jwt-secret-32-bytes-abcdefghijklmnop")
+	os.Setenv("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Server.LogFormat != "json" || cfg.Server.LogLevel != "info" {
+		t.Errorf("defaults = %s/%s, want json/info", cfg.Server.LogFormat, cfg.Server.LogLevel)
+	}
+
+	os.Setenv("LOG_FORMAT", "text")
+	os.Setenv("LOG_LEVEL", "debug")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Server.LogFormat != "text" || cfg.Server.LogLevel != "debug" {
+		t.Errorf("env values = %s/%s, want text/debug", cfg.Server.LogFormat, cfg.Server.LogLevel)
+	}
+}
+
 // TestConfig_ProductionRequiresSecureCookie verifies the fail-fast guard:
 // production mode (ENABLE_FAKE_PAYMENT=false) must refuse to start when
 // COOKIE_SECURE is false, because auth cookies would traverse plain HTTP.

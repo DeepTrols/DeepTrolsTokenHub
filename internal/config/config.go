@@ -67,6 +67,10 @@ type LiteLLMConfig struct {
 type ServerConfig struct {
 	Port string
 	Host string
+	// LogFormat is "json" or "text" (defaults to json).
+	LogFormat string
+	// LogLevel is debug|info|warn|error (defaults to info).
+	LogLevel string
 }
 
 type JWTConfig struct {
@@ -126,8 +130,10 @@ func Load() (*Config, error) {
 			MasterKey: llmKey,
 		},
 		Server: ServerConfig{
-			Port: envOrDefault("API_PORT", "8080"),
-			Host: envOrDefault("API_HOST", "0.0.0.0"),
+			Port:      envOrDefault("API_PORT", "8080"),
+			Host:      envOrDefault("API_HOST", "0.0.0.0"),
+			LogFormat: envOrDefault("LOG_FORMAT", "json"),
+			LogLevel:  envOrDefault("LOG_LEVEL", "info"),
 		},
 		JWT: JWTConfig{
 			Secret:      jwtSecret,

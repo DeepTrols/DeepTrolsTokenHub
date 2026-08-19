@@ -544,3 +544,24 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - `go vet ./...` · `go build ./...` 全绿
 - `go test -p 1 ./...` 全量通过（gateway/middleware/console 及全仓）
 - 新增/更新测试：审计 old_value 真实链路集成、`ProviderRequestID` 透传、`client_disconnected` 分类、`n` 非整数拒绝
+
+## 十五、2026-08-19 可观测性 Step 3：结构化日志 + /healthz + /readyz
+
+> Worker 分布式选主（Redis lease）已随 `internal/pkg/lease` + `cmd/worker/main.go withLease` 落地，本轮不再重复实现。
+
+### 15.1 变更
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 新增 `NewSlogLogger`：stdlib `log/slog`，`LOG_FORMAT=json\|text`（默认 json）、`LOG_LEVEL=debug\|info\|warn\|error`（默认 info），非法值回退默认，零新依赖 | `internal/app/logger.go`、`internal/config/config.go`、`.env.example` |
+| 2 | `App.Slog` 进程日志句柄，`NewApp` 初始化 | `internal/app/app.go` |
+| 3 | 新增 `RequestLogger` 中间件：method/path/status/duration_ms/request_id（客户端缺省自动生成并写入 `CtxRequestID` 供下游复用）/client_ip/user_id/api_key_id，不记录 body，按状态码分级 Info/Warn/Error；`GatewayAuth` 复用已生成 request_id（日志与计费证据同 id） | `internal/handler/middleware/requestlog.go`、`internal/handler/middleware/auth.go`、`cmd/api/main.go` |
+| 4 | `/health` 保持兼容；新增 `/healthz`（存活恒 200）与 `/readyz`（DB Ping + Redis Ping，2s 超时，任一失败 503 fail-closed，响应带 checks 明细） | `internal/app/health.go`、`internal/app/app.go` |
+| 5 | 测试：请求日志字段/分级/request_id 共享、healthz/readyz 单测与集成、LOG_FORMAT/LOG_LEVEL 默认与读取 | `internal/handler/middleware/requestlog_test.go`、`internal/app/health_test.go`、`internal/app/app_router_test.go`、`internal/config/config_test.go` |
+
+### 15.2 验证
+
+- `go vet ./...` · `go build ./...` 全绿
+- 全量 `go test -p 1 ./...` 通过（console 包 230s；repository 包在隔离/串行下全绿）
+- **测试基建注记（再次触发）**：被中断的测试进程会在共享 `deeptrols_test` 库残留数据与连接，导致随机 deadlock/FK 违规。本次重置流程：`DROP SCHEMA public CASCADE; CREATE SCHEMA public;` → `migrate up`（IPv4 地址）→ 终止孤儿 `go`/`*.test` 进程 → 全量复测通过。已建议将测试库改为每包独立 schema 或 CI 用独立库（后续项）
+- 遗留说明：存量 `log.Printf` 未迁移至 slog（记录为后续项）；Sentry/OTel 错误上报列为可选后续

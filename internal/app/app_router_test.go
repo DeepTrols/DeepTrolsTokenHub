@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,45 @@ func TestRegisterRoutes_HealthEndpoint(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+}
+
+// TestRegisterRoutes_LivenessAndReadiness verifies /healthz and /readyz are
+// registered; with a live database /readyz must report database ok.
+func TestRegisterRoutes_LivenessAndReadiness(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL not set; skipping integration test")
+	}
+
+	cfg := &config.Config{
+		DB: config.DBConfig{URL: url},
+	}
+
+	app, err := NewApp(cfg)
+	if err != nil {
+		t.Fatalf("NewApp failed: %v", err)
+	}
+	defer app.Shutdown()
+
+	r := chi.NewRouter()
+	app.RegisterRoutes(r)
+
+	liveness := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	lrec := httptest.NewRecorder()
+	r.ServeHTTP(lrec, liveness)
+	if lrec.Code != http.StatusOK {
+		t.Fatalf("/healthz status = %d, want 200", lrec.Code)
+	}
+
+	readiness := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rrec := httptest.NewRecorder()
+	r.ServeHTTP(rrec, readiness)
+	if rrec.Code != http.StatusOK {
+		t.Fatalf("/readyz status = %d, want 200; body=%s", rrec.Code, rrec.Body.String())
+	}
+	if !strings.Contains(rrec.Body.String(), `"database":"ok"`) {
+		t.Fatalf("/readyz body missing database ok: %s", rrec.Body.String())
 	}
 }
 

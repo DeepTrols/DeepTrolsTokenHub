@@ -64,6 +64,7 @@ func main() {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+	r.Use(middleware.RequestLogger(application.Slog))
 
 	// Register app-level routes (health, etc.).
 	application.RegisterRoutes(r)
