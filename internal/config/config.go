@@ -100,15 +100,9 @@ type CookieConfig struct {
 func Load() (*Config, error) {
 	// Pre-fetch required values; a missing variable is a returned error,
 	// not a panic.
-	var dbURL, llmBase, llmKey, jwtSecret, encKey string
+	var dbURL, jwtSecret, encKey string
 	var err error
 	if dbURL, err = requireEnv("DATABASE_URL"); err != nil {
-		return nil, err
-	}
-	if llmBase, err = requireEnv("LITELLM_BASE_URL"); err != nil {
-		return nil, err
-	}
-	if llmKey, err = requireEnv("LITELLM_MASTER_KEY"); err != nil {
 		return nil, err
 	}
 	if jwtSecret, err = requireEnv("JWT_SECRET"); err != nil {
@@ -126,8 +120,11 @@ func Load() (*Config, error) {
 			URL: os.Getenv("REDIS_URL"),
 		},
 		LiteLLM: LiteLLMConfig{
-			BaseURL:   llmBase,
-			MasterKey: llmKey,
+			// Optional: only needed when routing through an externally
+			// deployed LiteLLM proxy. The bundled compose no longer runs
+			// LiteLLM; channel instances carry their own base_url/api_key.
+			BaseURL:   envOrDefault("LITELLM_BASE_URL", ""),
+			MasterKey: envOrDefault("LITELLM_MASTER_KEY", ""),
 		},
 		Server: ServerConfig{
 			Port:      envOrDefault("API_PORT", "8080"),
@@ -184,7 +181,7 @@ func (c *Config) validate() error {
 			"change-me-in-production-jwt-secret", // docker-compose default JWT
 			"abcdefghijklmnopqrstuvwxyz123456",   // docker-compose default ENCRYPTION_KEY
 			"deeptrols@2026",                     // README / compose default admin password
-			"sk-litellm-master-dev",              // compose default LiteLLM key
+			"sk-litellm-master-dev",              // legacy LiteLLM default key
 		}
 		for _, w := range weakSecrets {
 			if c.JWT.Secret == w || c.Encryption.Key == w ||

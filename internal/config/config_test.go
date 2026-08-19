@@ -373,6 +373,40 @@ func TestConfig_RedisURLIsOptional(t *testing.T) {
 	}
 }
 
+// TestConfig_LiteLLMVarsAreOptional verifies that the API starts without
+// LITELLM_BASE_URL / LITELLM_MASTER_KEY (LiteLLM is no longer bundled in
+// docker-compose; the vars are only needed for an external proxy).
+func TestConfig_LiteLLMVarsAreOptional(t *testing.T) {
+	os.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/test")
+	os.Setenv("JWT_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
+	os.Setenv("ENCRYPTION_KEY", "abcdefghijklmnopqrstuvwxyz123456")
+	os.Setenv("ADMIN_EMAIL", "admin@test.com")
+	os.Setenv("ADMIN_PASSWORD", "password123")
+	defer func() {
+		os.Unsetenv("DATABASE_URL")
+		os.Unsetenv("LITELLM_BASE_URL")
+		os.Unsetenv("LITELLM_MASTER_KEY")
+		os.Unsetenv("JWT_SECRET")
+		os.Unsetenv("ENCRYPTION_KEY")
+		os.Unsetenv("ADMIN_EMAIL")
+		os.Unsetenv("ADMIN_PASSWORD")
+	}()
+
+	os.Unsetenv("LITELLM_BASE_URL")
+	os.Unsetenv("LITELLM_MASTER_KEY")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error when LITELLM vars are optional: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if cfg.LiteLLM.BaseURL != "" || cfg.LiteLLM.MasterKey != "" {
+		t.Errorf("LiteLLM config = %q/%q, want empty/empty", cfg.LiteLLM.BaseURL, cfg.LiteLLM.MasterKey)
+	}
+}
+
 // TestConfig_CookieConfigDefault tests that the CookieConfig defaults
 // are set correctly when no env vars are provided.
 func TestConfig_CookieConfigDefault(t *testing.T) {

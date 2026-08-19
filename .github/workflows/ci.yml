@@ -27,8 +27,6 @@ jobs:
     env:
       DATABASE_URL: postgresql://deeptrols:deeptrols_dev@localhost:5432/deeptrols_test?sslmode=disable
       TEST_DATABASE_URL: postgresql://deeptrols:deeptrols_dev@localhost:5432/deeptrols_test?sslmode=disable
-      LITELLM_BASE_URL: http://localhost:4000
-      LITELLM_MASTER_KEY: ci-test-key
       JWT_SECRET: ci-test-jwt-secret-0123456789abcdef0123456789abcdef
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
       ADMIN_EMAIL: ci@deeptrols.test

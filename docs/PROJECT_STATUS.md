@@ -97,7 +97,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| Docker | docker compose up -d 一键启动 6 容器（api + worker + web + postgres + redis + litellm） |
+| Docker | docker compose up -d 一键启动 5 容器（api + worker + web + postgres + redis） |
 | 热重载 | Air（Go）+ Vite HMR（前端），代码保存即生效 |
 
 ---
@@ -218,7 +218,7 @@
 
 ### 已知限制
 
-- **LiteLLM 无上游 API Key**：`litellm-config.yaml` 中引用了 `${OPENAI_API_KEY}` 和 `${ANTHROPIC_API_KEY}`，但未在 docker-compose 或 `.env` 中设置。LiteLLM 容器可启动但模型列表为空。直连 Provider 的模型发现不受影响（Go API 直接调用上游 `/v1/models`，不经过 LiteLLM）。
+- **LiteLLM 容器已移除（2026-08-19）**：`litellm` 服务与 `litellm-config.yaml` 已从 docker-compose 摘除；`LITELLM_BASE_URL` / `LITELLM_MASTER_KEY` 改为可选环境变量（仅独立部署外部 LiteLLM 代理时使用）。网关执行器直连渠道实例的 base_url，不依赖 LiteLLM。
 
 
 ## 八、2026-08-10 四用户类型 Phase 2 完成记录

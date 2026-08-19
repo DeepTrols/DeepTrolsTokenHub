@@ -13,10 +13,6 @@ services:
     environment:
       POSTGRES_PASSWORD: deeptrols_dev
 
-  litellm:
-    environment:
-      LITELLM_MASTER_KEY: sk-litellm-master-dev
-
   api:
     build:
       dockerfile: Dockerfile.dev
@@ -24,7 +20,6 @@ services:
       DATABASE_URL: postgresql://deeptrols:deeptrols_dev@postgres:5432/deeptrols?sslmode=disable
       # 容器内必须指向 redis 服务名（.env 的 localhost 只用于宿主机 go run）
       REDIS_URL: redis://redis:6379/0
-      LITELLM_MASTER_KEY: sk-litellm-master-dev
       JWT_SECRET: change-me-in-production-jwt-secret
       ENCRYPTION_KEY: abcdefghijklmnopqrstuvwxyz123456
       ADMIN_PASSWORD: deeptrols@2026
@@ -46,8 +41,6 @@ services:
     environment:
       DATABASE_URL: postgresql://deeptrols:deeptrols_dev@postgres:5432/deeptrols?sslmode=disable
       REDIS_URL: redis://redis:6379/0
-      LITELLM_BASE_URL: http://litellm:4000
-      LITELLM_MASTER_KEY: sk-litellm-master-dev
       JWT_SECRET: change-me-in-production-jwt-secret
       ENCRYPTION_KEY: abcdefghijklmnopqrstuvwxyz123456
       ADMIN_PASSWORD: deeptrols@2026

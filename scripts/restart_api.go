@@ -21,8 +21,6 @@ func main() {
 	apiCmd.Env = append(os.Environ(),
 		"DATABASE_URL=postgresql://deeptrols:deeptrols_dev@localhost:5432/deeptrols?sslmode=disable",
 		"REDIS_URL=redis://localhost:6379/0",
-		"LITELLM_BASE_URL=http://localhost:4000",
-		"LITELLM_MASTER_KEY=sk-litellm-master-dev",
 		"JWT_SECRET=change-me-in-production-jwt-secret",
 		"ENCRYPTION_KEY=abcdefghijklmnopqrstuvwxyz123456",
 	)

@@ -87,13 +87,13 @@ web/                         # React 前端（21 页面）
 docker compose up -d
 ```
 
-启动 6 个容器：`api` + `worker` + `web` + `postgres` + `redis` + `litellm`。首次启动后自动创建管理员账户。
+启动 5 个容器：`api` + `worker` + `web` + `postgres` + `redis`。首次启动后自动创建管理员账户。
 
 ### 3. 本地开发启动
 
 ```bash
 # 1. 启动基础设施
-docker compose up -d postgres redis litellm
+docker compose up -d postgres redis
 
 # 2. 配置环境变量
 cp .env.example .env
@@ -116,8 +116,6 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 |------|------|-----------|
 | `DATABASE_URL` | PostgreSQL 连接串 | `postgresql://deeptrols:deeptrols_dev@localhost:5432/deeptrols` |
 | `REDIS_URL` | Redis 连接串 | `redis://localhost:6379/0` |
-| `LITELLM_BASE_URL` | LiteLLM 代理地址 | `http://localhost:4000` |
-| `LITELLM_MASTER_KEY` | LiteLLM 主密钥 | `sk-litellm-master-dev` |
 | `JWT_SECRET` | JWT 签名密钥 | 至少 32 字节 |
 | `ENCRYPTION_KEY` | AES-256 加密密钥 | 必须正好 32 字节 |
 | `CORS_ORIGIN` | 前端域名 | `http://localhost:5173` |
@@ -127,7 +125,7 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 自动创建的管理员 | `deeptrols@admin.com` / `deeptrols@2026` |
 | `ENABLE_FAKE_PAYMENT` | **演示充值开关（资金安全）** | **`false`（生产必须保持）** |
 
-> ⚠️ **`ENABLE_FAKE_PAYMENT`**：`false`（默认）时 `/wallet/topup`、`/wallet/redeem` 返回 403，注册与管理员不再自动赠送余额；同时 API 启动时**拒绝已知弱密钥**（JWT/加密/管理员密码/LLM Key 命中默认值时直接退出）。开发环境需要造币口时设 `true`。
+> ⚠️ **`ENABLE_FAKE_PAYMENT`**：`false`（默认）时 `/wallet/topup`、`/wallet/redeem` 返回 403，注册与管理员不再自动赠送余额；同时 API 启动时**拒绝已知弱密钥**（JWT/加密/管理员密码命中默认值时直接退出）。开发环境需要造币口时设 `true`。
 >
 > ⚠️ **生产密钥**：docker-compose 模板中的默认值均为 DEV-ONLY。生产部署请 `cp .env.example .env` 后设置强随机密钥（`openssl rand -hex 32` / `openssl rand -hex 16`），`ENABLE_FAKE_PAYMENT` 保持 `false`。
 
@@ -337,7 +335,6 @@ make web-build     # 前端生产构建
 |------|------|------|
 | `DATABASE_URL` | localhost | RDS / 云数据库 |
 | `REDIS_URL` | localhost | Redis 服务（启用密码） |
-| `LITELLM_BASE_URL` | localhost:4000 | 独立部署的 LiteLLM |
 | `CORS_ORIGIN` | localhost:5173 | 前端域名 |
 | `COOKIE_SECURE` | **false** | **true**（HTTPS only） |
 | `JWT_SECRET` | 任意 | `openssl rand -hex 32` |
@@ -354,9 +351,8 @@ make web-build     # 前端生产构建
 | `web` | 3000 | React 前端（Vite HMR） |
 | `postgres` | 5432 | PostgreSQL 16（持久化卷） |
 | `redis` | 6379 | Redis 7 |
-| `litellm` | 4000 | LiteLLM 代理 |
 
-`docker compose up -d` 一键启动全部 6 个服务（含 worker）。
+`docker compose up -d` 一键启动全部 5 个服务（含 worker）。
 
 > **开发模式**：`docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`
 > 使用弱密钥 + 开启演示充值（`ENABLE_FAKE_PAYMENT=true`）。**dev 覆盖仅限本地，严禁用于生产**。
@@ -371,4 +367,3 @@ make web-build     # 前端生产构建
 | `docs/AI聚合平台_产品需求文档_PRD.md` | 产品需求文档 |
 | `docs/architecture-audit-2026-08-04.md` | 架构审计报告 |
 | `docs/全面审核报告-2026-08-05.md` | 全面审核报告（P0 修复清单） |
-

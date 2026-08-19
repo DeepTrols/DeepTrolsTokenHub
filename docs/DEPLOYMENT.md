@@ -19,8 +19,6 @@
 |---|---|---|
 | `DATABASE_URL` | 强密码 + SSL（`sslmode=require` 或云厂商 CA） | 数据库控制台 |
 | `REDIS_URL` | 启用密码，走内网/TLS | `redis-cli CONFIG SET requirepass ...` |
-| `LITELLM_BASE_URL` | 内网地址；勿把 LiteLLM 暴露公网 | — |
-| `LITELLM_MASTER_KEY` | ≥ 32 字节强随机 | `openssl rand -hex 32` |
 | `JWT_SECRET` | ≥ 32 字节强随机，泄露=全站会话伪造 | `openssl rand -hex 32` |
 | `ENCRYPTION_KEY` | 恰好 32 字节强随机，泄露=全部 API Key 明文暴露 | `openssl rand -hex 16` |
 | `ADMIN_PASSWORD` | ≥ 12 字节强密码，首登后立即轮换 | 密码管理器生成 |
@@ -45,7 +43,7 @@ go build -trimpath -ldflags "-s -w" -o bin/worker ./cmd/worker
 健康检查：
 
 - 存活探针：`GET /health`（200 且 `{"status":"ok"}`）
-- 就绪探针：`GET /readyz`（校验 DB / Redis / LiteLLM 连通性；未实现时以 `/health` 代替，并尽快补上）
+- 就绪探针：`GET /readyz`（校验 DB / Redis 连通性；Redis 未配置时仅校验 DB）
 
 ## 3. 数据库迁移
 
@@ -73,7 +71,7 @@ migrate -path migrations -database "$DATABASE_URL" down 1
 - `JWT_SECRET`：滚动发布（新值生效后旧 token 全部失效，通知用户重新登录）。
 - `ENCRYPTION_KEY`：当前实现不支持多密钥解密，轮换会破坏已存储的 API Key。
   如需轮换，必须提供重新加密数据的迁移工具后再操作。
-- `LITELLM_MASTER_KEY` / 各渠道 `api_key`：在下游渠道侧轮换后更新库内配置。
+- 各渠道 `api_key`：在下游渠道侧轮换后更新库内配置。
 
 ## 5. 备份与恢复
 

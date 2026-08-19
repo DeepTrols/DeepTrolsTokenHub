@@ -8,7 +8,6 @@
 #   #   ENCRYPTION_KEY     openssl rand -hex 16
 #   #   ADMIN_PASSWORD     强密码
 #   #   POSTGRES_PASSWORD  强密码
-#   #   LITELLM_MASTER_KEY 强密钥
 #   #   ENABLE_FAKE_PAYMENT=false（必须）
 #   docker compose up -d --build
 #
@@ -21,8 +20,6 @@
 x-api-env: &api-env
   DATABASE_URL: ${DATABASE_URL:-postgresql://deeptrols:deeptrols_dev@postgres:5432/deeptrols?sslmode=disable}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-  LITELLM_BASE_URL: ${LITELLM_BASE_URL:-http://litellm:4000}
-  LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-master-dev}
   API_PORT: "8080"
   API_HOST: 0.0.0.0
   JWT_SECRET: ${JWT_SECRET:-change-me-in-production-jwt-secret}
@@ -62,19 +59,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
-  litellm:
-    image: ghcr.io/berriai/litellm:main-stable
-    ports:
-      - "4000:4000"
-    environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-master-dev}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-deeptrols}:${POSTGRES_PASSWORD:-deeptrols_dev}@postgres:5432/litellm
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - ./litellm-config.yaml:/app/config.yaml
 
   api:
     build: .
