@@ -733,6 +733,25 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 **结论**：TDD 的价值在"不变量断言"，不在"流程形式"；真正的兜底是变更后对着现实的验证。
 
+## 二十二、2026-08-19 生产就绪审计：docs/PRODUCTION_READINESS.md
+
+> 基于全仓代码审计 + 开发库真实数据核对（usage_logs / wallet_transactions / model_pricing 三角校验）生成上线检查清单。
+
+**关键发现（Blocker 摘要）：**
+
+| # | 发现 | 证据 |
+|---|------|------|
+| B1 | 定价为占位值：deepseek-v4-flash/pro 输入输出同价 0.001 元/1K，低于官方峰谷价 3~27 倍，无缓存命中维度 | `model_pricing` 实际数据 vs DeepSeek 官方价目（2026-08-17 生效） |
+| B2 | 账外注资：注册赠送余额直接 INSERT wallets 不写流水 | `handler/console/auth.go:262`；4 个钱包余额与流水对不上（如 5194e1bb 差 346.9） |
+| B3 | 无 usage 的请求扣 0（免费） | `calculateActualCosts` 无 usage 返回零成本 |
+| B5 | 结算超额降级路径仍在（证据已标 undercharged） | `chat.go` settle fallback |
+| B6 | 历史 usage_log 的 wallet_charged=0 | 开发库 3 条旧记录 |
+| B7 | 备份不可恢复教训 | `residue_models_*.sql` 为二进制乱码 |
+
+**已具备**：计费引擎数学正确（charge 总和 == final_cost 总和，失败正确 release）、5 不变量、鉴权基线、可观测性、并行测试基建。
+
+**建议路线图**：定价引擎（售价/成本分离 + 模板 + 加价率）→ 钱包账本收口 → 无 usage 计费策略 → 真实支付 + 月度账单 → 恢复演练 + 干净环境部署验证。
+
 ## 二十二、2026-08-19 Redis 实时负载追踪（路由发动机）
 
 > 背景：路由此前只读 DB `current_load`（运行时从不维护，无数据可读），"4 种降级策略"
