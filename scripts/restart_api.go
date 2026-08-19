@@ -20,10 +20,7 @@ func main() {
 	)
 
 	// Kill whatever currently listens on 8080.
-	cmd := exec.Command("cmd", "/c", "for /f \"tokens=5\" %a in ('netstat -ano ^| findstr :8080 ^| findstr LISTENING') do taskkill /F /PID %a")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
+	killListeners("8080")
 
 	// Load environment from the repo .env (authoritative), then start the API
 	// with stdout/stderr appended to the same logs used by the running dev setup.
@@ -57,6 +54,38 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("API started (PID: %d)\n", apiCmd.Process.Pid)
+}
+
+// killListeners terminates every process whose local address is
+// <host>:<port> in LISTENING state (parsed from netstat -ano). A failed kill
+// is logged but not fatal: the API start below will surface a bind error if
+// the port is still taken.
+func killListeners(port string) {
+	out, err := exec.Command("netstat", "-ano").Output()
+	if err != nil {
+		fmt.Printf("netstat failed: %v\n", err)
+		return
+	}
+	killed := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "LISTENING") {
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) < 5 || !strings.HasSuffix(f[1], ":"+port) {
+			continue
+		}
+		pid := f[len(f)-1]
+		if killed[pid] {
+			continue
+		}
+		killed[pid] = true
+		if err := exec.Command("taskkill", "/F", "/PID", pid).Run(); err != nil {
+			fmt.Printf("taskkill %s failed: %v\n", pid, err)
+		} else {
+			fmt.Printf("killed listener PID %s on :%s\n", pid, port)
+		}
+	}
 }
 
 // loadEnvFile parses a KEY=VALUE .env file (ignoring comments and blanks) and
