@@ -343,3 +343,32 @@ func TestListExcludesDeleted(t *testing.T) {
 		t.Errorf("Count ExcludeDeleted = %d, want 1", n)
 	}
 }
+
+// TestListHandlesNullDisplayName verifies List survives rows whose
+// display_name is NULL (e.g. legacy or directly inserted rows). The scan
+// previously failed with "cannot scan NULL into *string".
+func TestListHandlesNullDisplayName(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateAll(t, repo.pool)
+
+	now := time.Now().UTC()
+	if _, err := repo.pool.Exec(ctx,
+		`INSERT INTO users (id, email, password_hash, display_name, role, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, NULL, 'user', 'active', $4, $5)`,
+		uuid.New(), "null-display@test.com", "hashed", now, now,
+	); err != nil {
+		t.Fatalf("insert user with NULL display_name: %v", err)
+	}
+
+	users, err := repo.List(ctx, ListFilter{ExcludeDeleted: true}, 20, 0)
+	if err != nil {
+		t.Fatalf("List with NULL display_name row: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("List = %d users, want 1", len(users))
+	}
+	if users[0].DisplayName != "" {
+		t.Errorf("DisplayName = %q, want empty string for NULL", users[0].DisplayName)
+	}
+}

@@ -39,6 +39,9 @@ tmp/
 # Runtime logs
 api.log
 
+# Database backups (never commit)
+backups/
+
 # Local tool caches (never commit)
 web/.impeccable/hook.cache.json
 web/tsconfig.tsbuildinfo

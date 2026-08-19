@@ -9,21 +9,18 @@ import (
 	"github.com/deeptrols/api/internal/config"
 )
 
-// testDBURL prefers TEST_DATABASE_URL (the dedicated test database) and falls
-// back to DATABASE_URL, matching internal/repository/testutil.SetupPool.
-// The app's DB integration tests must never silently run against the dev DB.
+// testDBURL returns the dedicated test database URL. The app's DB integration
+// tests must never silently run against the dev DB, so DATABASE_URL is never
+// used as a fallback.
 func testDBURL() string {
-	if u := os.Getenv("TEST_DATABASE_URL"); u != "" {
-		return u
-	}
-	return os.Getenv("DATABASE_URL")
+	return os.Getenv("TEST_DATABASE_URL")
 }
 
 // requireDBEnv skips the test if no test database URL is set.
 func requireDBEnv(t *testing.T) {
 	t.Helper()
 	if testDBURL() == "" {
-		t.Skip("TEST_DATABASE_URL/DATABASE_URL not set; skipping integration test")
+		t.Skip("TEST_DATABASE_URL not set; skipping integration test")
 	}
 }
 

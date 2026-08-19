@@ -47,11 +47,13 @@ func HandleListUsers(a *app.App) http.HandlerFunc {
 		limit, offset := parsePagination(r)
 		users, err := a.Users.List(r.Context(), filter, limit, offset)
 		if err != nil {
+			log.Printf("users: list error: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to list users"})
 			return
 		}
 		total, err := a.Users.Count(r.Context(), filter)
 		if err != nil {
+			log.Printf("users: count error: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to count users"})
 			return
 		}

@@ -602,3 +602,27 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 全量 `go test -p 1 ./...` 通过（console 包 230s；repository 包在隔离/串行下全绿）
 - **测试基建注记（再次触发）**：被中断的测试进程会在共享 `deeptrols_test` 库残留数据与连接，导致随机 deadlock/FK 违规。本次重置流程：`DROP SCHEMA public CASCADE; CREATE SCHEMA public;` → `migrate up`（IPv4 地址）→ 终止孤儿 `go`/`*.test` 进程 → 全量复测通过。已建议将测试库改为每包独立 schema 或 CI 用独立库（后续项）
 - 遗留说明：存量 `log.Printf` 未迁移至 slog（记录为后续项）；Sentry/OTel 错误上报列为可选后续
+
+## 十六、2026-08-19 数据事故复盘 + 测试库隔离修复 + users 列表 500 修复
+
+### 16.1 数据事故（重要）
+
+- **事故**：为修复共享测试库死锁问题，执行了 `DROP SCHEMA public CASCADE` 重置 `deeptrols_test`，未先确认其中是否含用户配置数据、未备份。用户此前在测试库配置的渠道数据随之丢失，无法恢复（无备份、无 WAL 归档基础备份）。
+- **教训**：任何"重置数据库"操作必须先备份并明确确认；测试库也可能承载资产数据，不能默认可丢弃。
+- **止血**：已对 `deeptrols` / `deeptrols_test` / `deeptrols_test2` 执行 `pg_dump` 备份至 `backups/2026-08-19/`（已加入 .gitignore），后续改动前一律先备份。
+- **运行库澄清**：运行中的 API 通过 `.env` 的 `DATABASE_URL` 连接 `deeptrols`（开发库），并非测试库；网页控制台操作写入开发库。已明确固定以 `deeptrols` 为操作库。
+
+### 16.2 测试库彻底隔离（防止测试清空业务库）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `SetupPool` 不再回退 `DATABASE_URL`、不再使用硬编码默认 DSN：`TEST_DATABASE_URL` 缺失直接跳过测试 | `internal/repository/testutil/db.go` |
+| 2 | 双保险：DSN 库名必须 `*_test` 才允许连接；`TruncateTables`/`TruncateAll` 前校验池连接的库名必须是 `*_test`，否则拒绝 TRUNCATE | `internal/repository/testutil/db.go` |
+| 3 | app 集成测试只读 `TEST_DATABASE_URL`，删除 `DATABASE_URL` 回退 | `internal/app/app_test.go` |
+
+### 16.3 个人管理 "Failed to list users" 500 修复
+
+- **根因**：`scanUser` 对 `display_name` 用普通 `string` 扫描，而库中存在 `display_name IS NULL` 的行（直接插入/遗留数据）→ `cannot scan NULL into *string`，`GET /api/admin/users` 500。
+- **修复**：`display_name` 改为 `*string` 指针扫描，NULL 归一为空字符串；新增回归测试 `TestListHandlesNullDisplayName`（直接插入 NULL display_name 行后 List 必须成功）。
+- **顺带**：`HandleListUsers`/`HandleCountUsers` 失败时记录真实错误日志（可观测性），不再静默。
+- **验证**：接口实测 200 返回用户列表；`go test -p 1 ./...` 全量通过。

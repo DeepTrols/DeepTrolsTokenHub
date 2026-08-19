@@ -31,13 +31,13 @@ var _ Repository = (*PostgresRepository)(nil)
 //	user_type, phone, avatar_url, created_at, updated_at
 func scanUser(row pgx.Row) (*domain.User, error) {
 	var u domain.User
-	var role, phone, avatarURL *string
+	var displayName, role, phone, avatarURL *string
 	var userType string
 	err := row.Scan(
 		&u.ID,
 		&u.Email,
 		&u.PasswordHash,
-		&u.DisplayName,
+		&displayName,
 		&role,
 		&u.Status,
 		&userType,
@@ -48,6 +48,9 @@ func scanUser(row pgx.Row) (*domain.User, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("user scan: %w", err)
+	}
+	if displayName != nil {
+		u.DisplayName = *displayName
 	}
 	if role != nil {
 		u.Role = *role
