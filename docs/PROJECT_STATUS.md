@@ -698,3 +698,19 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 | 5 | Redis 负载"自动释放"语义澄清 | 必须显式 DECR（defer 兜底）+ 心跳刷新 TTL，不能只靠 TTL 过期（活跃计数器会被清零、负载信号失真）；功能清单已标注 |
 | 6 | 多币种/FX 标注按需 | 国内 CNY 场景暂非必需，功能清单标注为"按需启用，非 MVP 必做" |
 | 7 | 测试覆盖率门禁如实标注 | ≥80% 为愿景目标，CI 尚未强制（AGENTS.md / CLAUDE.md 已注明） |
+
+## 二十、2026-08-19 收尾批次：结算降级修复 · 残留清理 · 运维脚本 · 迁移 000010
+
+| # | 变更 | 说明 |
+|---|------|------|
+| 1 | **结算超额静默降级修复**（`13fc17a`） | settle 失败（实际成本 > 预留金）fallback commit 时，usage 证据现在写入 `ErrorCode="undercharged"`、`WalletCharged=实扣金额`、`ErrorMessage` 含 actual/charged/shortfall；`FinalCost` 保留真实成本。覆盖非流式 / 流式 / 转发端点（chat.go + endpoints.go） |
+| 2 | **CI 增加 race 检测**（`cf305c2`） | `go test ./... -race -count=1`（Ubuntu runner 自带 gcc） |
+| 3 | **restart_api.go 修复**（`9f47b2b`） | 旧脚本指向不存在的 `deeptrols-api` 路径且 env 不全（会触发生产 fail-fast 拒启）；改为仓库内 `bin/api.exe` + 从 `.env` 加载完整环境 + 日志追加 |
+| 4 | **残留模型清理**（`cef8069`） | 开发库 130 个 bytedance 零使用模型 + 130 渠道 + 130 实例 + 260 定价行已删除（先 dry-run 确认、保留 deepseek 真实渠道）；新增 `scripts/cleanup_residue_models.go`（dry-run 默认 / `-apply` 先备份再删 / 拒绝 `_test` 库 / 零使用兜底） |
+| 5 | **历史 key 回填迁移 000010**（`0851105`） | 按 usage_logs 回填 `last_used_at IS NULL` 的 key（近 7 天同时置 `last_7d_active`），down 为 no-op；已应用到开发库（version=10），2 个 key 全部回填 |
+| 6 | **设计文档同步**（`f196c83`） | AI聚合网关_完整文档.md 顶部加"执行层现状"标注并修正架构图；coai/new-api 对比文档加"历史快照"标注 |
+| 7 | **进程重启** | API（15:22）与 worker（15:44）均已重建二进制并重启，日志追加不变；worker 健康检查已自动切换到清理后的 2 个渠道 |
+
+**过程教训（记录）**：
+- 清理工具的初版备份用 `RawValues()` 直接拼 INSERT，UUID/金额落盘为二进制乱码，**该备份不可恢复**——被删的 130 个 bytedance 残留无法从备份还原（影响低：零使用测试残留，真实 deepseek 数据未受影响）。已改为 `COPY ... TO STDOUT` 文本格式，psql 可直接恢复；今后任何"先备份再删"的工具都必须验证备份文件可读可恢复，不能只确认文件生成了。
+- 全量并行测试（含迁移 000010 自迁移）全绿：console 包 ~77s，总耗时 ~83s。
