@@ -48,8 +48,6 @@ func createBootstrapAdmin(t *testing.T, a *App) uuid.UUID {
 }
 
 func TestEnsurePlatformTenant(t *testing.T) {
-	requireDBEnv(t)
-
 	t.Run("creates platform tenant and owner membership", func(t *testing.T) {
 		a := bootstrapApp(t)
 		adminID := createBootstrapAdmin(t, a)

@@ -2,7 +2,7 @@ package testutil
 
 import (
 	"context"
-	"os"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,26 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// SetupPool creates a connection pool from TEST_DATABASE_URL and skips the
-// test when it is unset. It deliberately does NOT fall back to DATABASE_URL
-// or to a hardcoded default: the tests TRUNCATE tables, and must never run
-// against a database that could hold real configuration or business data.
+// SetupPool creates a connection pool for the calling package's private schema
+// (created and migrated on first use) and skips the test when TEST_DATABASE_URL
+// is unset. It deliberately does NOT fall back to DATABASE_URL or to a
+// hardcoded default: the tests TRUNCATE tables, and must never run against a
+// database that could hold real configuration or business data.
 func SetupPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
-	dsn := os.Getenv("TEST_DATABASE_URL")
+	dsn := SchemaDSN(t)
 	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set; skipping repository integration test")
 		return nil
 	}
-	assertTestDatabase(t, dsn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	pool, err := db.NewPool(ctx, dsn)
 	if err != nil {
-		t.Skipf("DATABASE_URL not available: %v", err)
+		t.Skipf("TEST_DATABASE_URL not available: %v", err)
 		return nil
 	}
 	t.Cleanup(func() { pool.Close() })
@@ -42,13 +41,23 @@ func SetupPool(t *testing.T) *pgxpool.Pool {
 // repository tests TRUNCATE a data-bearing database.
 func assertTestDatabase(t *testing.T, dsn string) {
 	t.Helper()
+	if err := validateTestDSN(dsn); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// validateTestDSN fails when the DSN does not point at a database whose name
+// ends with "_test", so a misconfigured environment can never let repository
+// tests TRUNCATE a data-bearing database.
+func validateTestDSN(dsn string) error {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		t.Fatalf("parse TEST_DATABASE_URL: %v", err)
+		return fmt.Errorf("parse TEST_DATABASE_URL: %w", err)
 	}
 	if !strings.HasSuffix(cfg.ConnConfig.Database, "_test") {
-		t.Fatalf("TEST_DATABASE_URL must point at a *_test database, got %q", cfg.ConnConfig.Database)
+		return fmt.Errorf("TEST_DATABASE_URL must point at a *_test database, got %q", cfg.ConnConfig.Database)
 	}
+	return nil
 }
 
 // assertPoolIsTestDatabase guards TRUNCATE itself as a second line of

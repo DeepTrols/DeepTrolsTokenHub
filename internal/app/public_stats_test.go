@@ -12,9 +12,7 @@ import (
 // TestPublicStatsHandler_ReturnsModelCount verifies the public stats endpoint
 // answers 200 with a non-negative model count (integration, test DB).
 func TestPublicStatsHandler_ReturnsModelCount(t *testing.T) {
-	requireDBEnv(t)
-
-	cfg := &config.Config{DB: config.DBConfig{URL: testDBURL()}}
+	cfg := &config.Config{DB: config.DBConfig{URL: testDBURL(t)}}
 	application, err := NewApp(cfg)
 	if err != nil {
 		t.Fatalf("NewApp failed: %v", err)

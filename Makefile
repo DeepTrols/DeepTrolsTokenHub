@@ -16,12 +16,20 @@ run-worker:
 test:
 	go test ./... -cover -count=1
 
-# Repository tests need -p 1 because they share a Postgres database
+# Repository tests provision a private schema per package, so they are
+# parallel-safe across packages and against other concurrent test runs.
 test-repo:
-	go test -p 1 ./internal/repository/... -cover -count=1
+	go test ./internal/repository/... -cover -count=1
 
 test-race:
-	go test -p 1 ./... -race -count=1
+	go test ./... -race -count=1
+
+# List leftover per-package test schemas (dry-run); add -apply to drop them.
+test-db-gc:
+	go run ./scripts/gc_test_schemas.go
+
+test-db-gc-apply:
+	go run ./scripts/gc_test_schemas.go -apply
 
 test-coverage:
 	go test ./... -coverprofile=coverage.out

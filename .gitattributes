@@ -1,0 +1,8 @@
+# Normalize line endings: the CI gofmt gate requires LF on every Go file,
+# and mixed CRLF/LF commits have broken it before.
+*.go text eol=lf
+*.sql text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.mod text eol=lf
+Makefile text eol=lf

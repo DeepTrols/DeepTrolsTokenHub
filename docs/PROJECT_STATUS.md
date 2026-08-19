@@ -633,3 +633,32 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 新增 `middleware.IPRateLimit`（无鉴权公开端点限流）+ 测试；`app.PublicStatsHandler` + 集成测试。
 - 前端 `Login.tsx`：`useEffect` 拉取统计，失败时显示占位符。
 - **注记**：开发库当前 132 个 active 模型（130 bytedance + 2 deepseek）为早期测试未隔离时的 provider 自动发现残留，非真实配置；如需要可清理（待确认，不擅自删除）。
+
+## 十八、2026-08-19 测试基建债清偿：每包独立 schema，取消 `-p 1` 串行
+
+### 18.1 背景
+
+- 此前的 repository/handler/app DB 集成测试共享 `deeptrols_test` 的 public schema，必须 `go test -p 1` 串行；两个 `go test ./...` 进程并发会互踩 `TRUNCATE CASCADE`（40P01 死锁 / 23503 FK 违规 / 数据"消失或变多"假失败）。
+- 十六节的 `DROP SCHEMA public CASCADE` 事故与 15.5 注记中的"孤儿测试进程干扰"同根因：**共享可变 schema + 互斥不足**。
+
+### 18.2 方案：每包每进程一个私有 schema
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | 新增根包 `migrations`：`//go:embed *.sql` 内嵌全部迁移文件，测试不依赖 golang-migrate CLI 或预迁移库 | `migrations/embed.go` |
+| 2 | 新增 `testutil.SchemaDSN(t)`：按调用方包路径（`runtime.Caller` 取 `internal/` 或 `cmd/` 之后目录）生成 `t_<pkg>_<8位hex>` schema；每进程每包 `sync.Once` 建 schema + 全量迁移；DSN 追加 `options=-c search_path=<schema>,public`（pgx 不认 `search_path` 启动参数，实测需走 `options`） | `internal/repository/testutil/schema.go` |
+| 3 | `SetupPool` 改为消费 `SchemaDSN`，签名不变 → 14 个 DB 测试包零改动自动隔离 | `internal/repository/testutil/db.go` |
+| 4 | `internal/app` 三个集成测试文件改用 `testutil.SchemaDSN(t)`（`testDBURL(t)`），不再直接读环境变量 | `internal/app/app_test.go`、`app_router_test.go`、`public_stats_test.go`、`bootstrap_test.go` |
+| 5 | 迁移 000001 的 `CREATE EXTENSION` 显式 `WITH SCHEMA public`：否则扩展会装进第一个 `t_xxx` schema，后续新 schema（search_path 只含自身 + public）将看不到 `uuid_generate_v4()`。已应用库为幂等 no-op | `migrations/000001_init.up.sql` |
+| 6 | GC 脚本：回收遗留 `t_<pkg>_<hex>` schema。护栏：库名必须 `*_test` + 精确模式 `^t_[a-z0-9_]+_[0-9a-f]{8}$` + 默认 dry-run，`-apply` 才真删；绝不触碰 public | `scripts/gc_test_schemas.go` |
+| 7 | Makefile：`test-repo`/`test-race` 去掉 `-p 1`；新增 `test-db-gc` / `test-db-gc-apply` | `Makefile` |
+| 8 | CI：移除 golang-migrate 安装与预迁移步骤（测试自迁移），`go test ./... -count=1` 直接并行 | `.github/workflows/ci.yml` |
+| 9 | `.gitattributes` 固化 Go/SQL/YAML/Makefile 为 LF 行尾：此前 subagent 提交过 CRLF 文件导致 gofmt 门禁挂 | `.gitattributes`（新增） |
+
+### 18.3 验证
+
+- `go test ./... -count=1`（无 `-p 1`）全量并行通过，总耗时 220.7s（其中 console 包自身 214.1s）；此前串行总耗时更长且会互踩。
+- 双进程并发复现：两个 `go test` 同时跑 `internal/repository/user`（旧事故场景）双双全绿，各用各的 schema。
+- GC：dry-run 精确列出 17 个 harness schema；`-apply` 全清；复跑 0 残留。
+- 新增测试：`internal/repository/testutil/schema_test.go`（包键推导、schema 命名/校验、DSN 构建、`_test` 守卫、隔离 + 迁移断言、fresh schema 迁移）。
+- 遗留说明：每个新进程会留下一个 schema（不删是为了与并发进程隔离），用 `make test-db-gc`（dry-run）查看、`make test-db-gc-apply` 回收；测试库本身仍是可丢弃资产，重置前照旧先备份。

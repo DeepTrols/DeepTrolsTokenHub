@@ -2,35 +2,27 @@ package app
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/deeptrols/api/internal/config"
+	"github.com/deeptrols/api/internal/repository/testutil"
 )
 
-// testDBURL returns the dedicated test database URL. The app's DB integration
-// tests must never silently run against the dev DB, so DATABASE_URL is never
-// used as a fallback.
-func testDBURL() string {
-	return os.Getenv("TEST_DATABASE_URL")
-}
-
-// requireDBEnv skips the test if no test database URL is set.
-func requireDBEnv(t *testing.T) {
+// testDBURL returns a DSN for the calling package's private test schema. It
+// skips the test when TEST_DATABASE_URL is unset and refuses to run against a
+// database whose name does not end with "_test", so the app's DB integration
+// tests can never silently hit the dev database.
+func testDBURL(t *testing.T) string {
 	t.Helper()
-	if testDBURL() == "" {
-		t.Skip("TEST_DATABASE_URL not set; skipping integration test")
-	}
+	return testutil.SchemaDSN(t)
 }
 
 // TestNewApp_Success creates an App with a real database pool and verifies health.
 func TestNewApp_Success(t *testing.T) {
-	requireDBEnv(t)
-
 	cfg := &config.Config{
 		DB: config.DBConfig{
-			URL: testDBURL(),
+			URL: testDBURL(t),
 		},
 	}
 

@@ -1,9 +1,12 @@
 -- 000001_init.up.sql
 -- Core schema for AI Token Aggregation Platform MVP
 
--- Extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- Extensions. WITH SCHEMA public pins their objects to a schema every session
+-- can see: test isolation provisions per-package schemas whose search_path
+-- includes public, so unqualified calls like uuid_generate_v4() keep working
+-- on fresh databases. IF NOT EXISTS keeps this a no-op on migrated databases.
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA public;
 
 -- ============================================================================
 -- Users & Authentication

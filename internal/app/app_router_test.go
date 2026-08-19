@@ -15,10 +15,7 @@ import (
 // TestRegisterRoutes_HealthEndpoint verifies that RegisterRoutes
 // attaches the /health endpoint that responds with 200.
 func TestRegisterRoutes_HealthEndpoint(t *testing.T) {
-	url := testDBURL()
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL/DATABASE_URL not set; skipping integration test")
-	}
+	url := testDBURL(t)
 
 	cfg := &config.Config{
 		DB: config.DBConfig{URL: url},
@@ -46,10 +43,7 @@ func TestRegisterRoutes_HealthEndpoint(t *testing.T) {
 // TestRegisterRoutes_LivenessAndReadiness verifies /healthz and /readyz are
 // registered; with a live database /readyz must report database ok.
 func TestRegisterRoutes_LivenessAndReadiness(t *testing.T) {
-	url := testDBURL()
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL/DATABASE_URL not set; skipping integration test")
-	}
+	url := testDBURL(t)
 
 	cfg := &config.Config{
 		DB: config.DBConfig{URL: url},
@@ -85,10 +79,7 @@ func TestRegisterRoutes_LivenessAndReadiness(t *testing.T) {
 // TestShutdown_ClosesPool verifies that Shutdown releases the pool
 // and subsequent operations fail gracefully.
 func TestShutdown_ClosesPool(t *testing.T) {
-	url := testDBURL()
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL/DATABASE_URL not set; skipping integration test")
-	}
+	url := testDBURL(t)
 
 	cfg := &config.Config{
 		DB: config.DBConfig{URL: url},

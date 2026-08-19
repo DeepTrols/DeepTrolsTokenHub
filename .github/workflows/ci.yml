@@ -56,16 +56,8 @@ jobs:
       - name: go build
         run: go build ./...
 
-      - name: Install golang-migrate
-        run: |
-          curl -sL https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz | tar xz
-          sudo mv migrate /usr/local/bin/
-
-      - name: Apply migrations
-        run: migrate -path migrations -database "$DATABASE_URL" up
-
-      - name: Run tests (serial, shared DB)
-        run: go test -p 1 ./... -count=1
+      - name: Run tests (per-package isolated schemas, parallel)
+        run: go test ./... -count=1
 
   frontend:
     name: Frontend (tsc / lint)
