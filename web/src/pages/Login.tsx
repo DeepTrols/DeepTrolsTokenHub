@@ -24,14 +24,14 @@ const ACCOUNT_COPY: Record<AccountType, { description: string; accountPlaceholde
   },
 };
 
-/** 一把密钥即可调用的模型（登录页展示，非模型目录数据源）。 */
+/** 一把密钥即可调用的模型（登录页展示，非模型目录数据源）。以国产模型为主。 */
 const MODELS = [
-  { name: "GPT-4o", vendor: "OpenAI", color: "#0FA88B" },
-  { name: "Claude", vendor: "Anthropic", color: "#E5484D" },
-  { name: "Gemini", vendor: "Google", color: "#4F6BED" },
-  { name: "DeepSeek", vendor: "DeepSeek", color: "#D3A94E" },
-  { name: "Qwen", vendor: "Alibaba", color: "#8B6FE8" },
-  { name: "Llama", vendor: "Meta", color: "#C9A96A" },
+  { name: "DeepSeek", vendor: "深度求索", color: "#0FA88B" },
+  { name: "通义千问", vendor: "阿里云 Qwen", color: "#8B6FE8" },
+  { name: "智谱 GLM", vendor: "智谱AI", color: "#4F6BED" },
+  { name: "Kimi", vendor: "月之暗面", color: "#E5484D" },
+  { name: "豆包", vendor: "字节跳动", color: "#C9A96A" },
+  { name: "混元", vendor: "腾讯云", color: "#D3A94E" },
 ];
 
 const FEATURES = [
@@ -89,7 +89,7 @@ export default function Login() {
               <path d="M2 6 C30 1 55 7 80 4 C105 1 130 6 158 3" fill="none" stroke="#F2644B" strokeWidth="3" strokeLinecap="round" />
             </svg>
           </h1>
-          <p className="text-[15px] text-[#5C6472] max-w-[520px]">一个 API Key，统一接入 GPT · Claude · Gemini · DeepSeek 等主流模型，切换模型不改密钥。计费、风控、对账，一屏看清。</p>
+          <p className="text-[15px] text-[#5C6472] max-w-[520px]">一个 API Key，统一接入 DeepSeek · 通义千问 · 智谱 · Kimi 等国产主流模型，切换模型不改密钥。计费、风控、对账，一屏看清。</p>
 
           {/* 一把密钥 → 所有模型：可视化 */}
           <div className="glass-soft rounded-2xl p-5 mt-7">
