@@ -131,17 +131,17 @@ export default function Login() {
                 <span className="text-[#5C6472]">-H</span> <span className="text-[#0FA88B]">"Authorization: Bearer sk-dt-••••••"</span>
               </div>
               <div className="pl-4">
-                <span className="text-[#5C6472]">-d</span> <span className="text-[#C9A96A]">{'{"model": "gpt-4o"}'}</span>
+                <span className="text-[#5C6472]">-d</span> <span className="text-[#C9A96A]">{'{"model": "deepseek-chat"}'}</span>
               </div>
               <div className="pt-2 border-t border-black/5 text-[#5C6472]"># 同一把密钥，切换任意模型</div>
               <div>
-                <span className="text-[#0FA88B]">gpt-4o</span>
+                <span className="text-[#0FA88B]">deepseek-v3</span>
                 <span className="text-[#5C6472]"> · </span>
-                <span className="text-[#E5484D]">claude-sonnet-4</span>
+                <span className="text-[#E5484D]">qwen-max</span>
                 <span className="text-[#5C6472]"> · </span>
-                <span className="text-[#4F6BED]">gemini-2.5-pro</span>
+                <span className="text-[#4F6BED]">glm-4</span>
                 <span className="text-[#5C6472]"> · </span>
-                <span className="text-[#D3A94E]">deepseek-v3</span>
+                <span className="text-[#D3A94E]">moonshot-v1-8k</span>
               </div>
             </div>
           </div>
