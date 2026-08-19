@@ -38,9 +38,13 @@ tmp/
 
 # Runtime logs
 api.log
+*.log
 
 # Database backups (never commit)
 backups/
+
+# Local Go build cache (created by sandboxed builds)
+.gocache/
 
 # Local tool caches (never commit)
 web/.impeccable/hook.cache.json
