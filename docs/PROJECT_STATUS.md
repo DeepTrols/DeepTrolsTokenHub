@@ -545,6 +545,43 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - `go test -p 1 ./...` 全量通过（gateway/middleware/console 及全仓）
 - 新增/更新测试：审计 old_value 真实链路集成、`ProviderRequestID` 透传、`client_disconnected` 分类、`n` 非整数拒绝
 
+## 十五、2026-08-19 可观测性（生产就绪 Step 3）
+
+> **目标**：让生产故障"看得见、分得清、查得到"——结构化日志 + 请求日志中间件、`/healthz` + `/readyz` 依赖探活、Worker 分布式选主（复用已有实现，本次纳入文档并验证）。
+
+### 15.1 结构化日志（零新依赖，stdlib `log/slog`）
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `NewSlogLogger`：按 `LOG_FORMAT`（json\|text，默认 json）与 `LOG_LEVEL`（debug\|info\|warn\|error，默认 info）创建 JSON/Text handler；非法值回退默认，不阻断启动 | `internal/app/logger.go` |
+| 2 | `ServerConfig` 增加 `LogFormat`/`LogLevel`（`envOrDefault`）；`.env.example` 补充说明 | `internal/config/config.go`、`.env.example` |
+| 3 | `RequestLogger` 中间件：每请求一条结构化日志（method/path/status/duration_ms/request_id/client_ip/user_id/api_key_id）；**不记录** body/query/请求头（避免敏感数据）；状态分级 5xx→Error、4xx→Warn、其余 Info；`statusRecorder` 透传 **Flusher/Hijacker/Pusher/ReaderFrom**（网关 SSE 流式端点依赖 Flusher，缺失会直接破坏流式转发）；无 `X-Request-ID` 时生成，并写入 `CtxRequestID` 向下游传播；`GatewayAuth` 优先复用 context 中的 request_id（HTTP 日志与 usage 证据链共用同一 ID） | `internal/handler/middleware/requestlog.go`、`internal/handler/middleware/auth.go` |
+| 4 | 挂载：`r.Use(middleware.RequestLogger(application.Slog))`（CORS 之后、业务路由之前，安全头保持最先） | `cmd/api/main.go` |
+
+### 15.2 健康检查双端点
+
+| # | 端点 | 语义 |
+|---|------|------|
+| 1 | `/health` | 保持向后兼容，恒 `{"status":"ok"}` |
+| 2 | `/healthz` | 存活探针，进程在即 200 |
+| 3 | `/readyz` | 就绪探针：2s 超时 `Pool.Ping` 探 DB；Redis 配置时 `Ping` 探 Redis；任一失败 503 + `{"status":"not_ready","checks":{...}}`；Redis 未配置（单机 dev）不判失败，配置了不可达则 fail-closed |
+
+### 15.3 Worker 分布式选主（复用已有实现）
+
+`internal/pkg/lease`（Redis `SET NX EX`）+ `cmd/worker/main.go` `withLease`：健康检查（60s 周期）与对账（1h 周期）仅在持有 lease 时执行；Redis 错误 fail-closed（跳过周期，避免多实例重复执行）；无 Redis 时单实例全放行。已在先前提交中实现，本次纳入验证范围（`lease_test.go` 全绿）。
+
+### 15.4 测试（TDD，先 RED 后 GREEN）
+
+- `requestlog_test.go`：结构化字段、生成/传播 request_id（含客户端传入）、状态分级、**Flusher/Hijacker 透传**、隐式 200
+- `health_test.go` / `app_router_test.go`：`/healthz` 恒 200；`/readyz` nil 依赖 200；真实 DB 下 `/readyz` 返回 `database:ok`
+- `config_test.go`：`LOG_FORMAT`/`LOG_LEVEL` 默认值与环境解析
+
+### 15.5 验证与测试基建注记
+
+- `go vet ./...` · `go build ./...` 全绿；全量 `go test -p 1 -count=1 ./...` 通过
+- **环境干扰排查（重要）**：本地存在一个外部循环进程，每 1–2 分钟经 Codex 应用 command-runner 自动执行 `go test -p 1 ./... -count=1`（脚本写 `%TEMP%\deeptrols-fulltest.log`）。它与任何手动全量测试并发执行时，两会话对共享测试库互相 `TRUNCATE CASCADE`，导致 console 包随机死锁（40P01）/ FK 违规（23503）/ 数据"消失或变多"的**假失败**（单测隔离复现均通过）。**规避方式**：使用独立 `TEST_DATABASE_URL` 指向专用测试库（本次新建 `deeptrols_test2` 并迁移至 v9）后全量全绿。已向根 agent 请求停止该循环；若再次出现同样症状，优先检查是否又有第二个 `go test ./...` 在跑。
+- **既有测试基建债（记录，非本步引入）**：`internal/app` 的 DB 集成测试读 `DATABASE_URL`（而非 `TEST_DATABASE_URL`），在 `DATABASE_URL` 未设置的 CI 环境会**静默跳过** DB 用例；建议后续统一为 `SetupPool` 语义（先 `TEST_DATABASE_URL` 后 `DATABASE_URL`），否则 `/readyz` 集成测试在 CI 不生效。
+
 ## 十五、2026-08-19 可观测性 Step 3：结构化日志 + /healthz + /readyz
 
 > Worker 分布式选主（Redis lease）已随 `internal/pkg/lease` + `cmd/worker/main.go withLease` 落地，本轮不再重复实现。
