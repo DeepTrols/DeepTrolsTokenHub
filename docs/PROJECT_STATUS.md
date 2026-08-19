@@ -732,3 +732,21 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 | 5 | 质量门禁保留：decimal / 预留先行 / 错误不伪装成功 / usage 来源显式标记；覆盖率 80% 为愿景目标 |
 
 **结论**：TDD 的价值在"不变量断言"，不在"流程形式"；真正的兜底是变更后对着现实的验证。
+
+## 二十二、2026-08-19 Redis 实时负载追踪（路由发动机）
+
+> 背景：路由此前只读 DB `current_load`（运行时从不维护，无数据可读），"4 种降级策略"
+> 没有真实决策输入。本批补齐实时在途计数，作为路由选实例的实时来源。
+
+**变更：**
+
+| 提交 | 内容 |
+|---|---|
+| `48c52f6` | 新增 `LoadTracker`（`ai:channel:load:<instance_id>`）：请求开始 Lua INCR、结束 Lua DECR（地板 0，双释放不为负）；在途期间心跳每 TTL/2 刷新过期时间，进程崩溃后计数随 TTL 自动消失，释放不依赖 TTL；路由优先读实时计数，Redis 故障回退 DB `current_load`（fail-open + 每分钟限流告警日志，不静默降级）；网关四类路径全部接入（非流式/流式 chat、转发端点、raw 端点），余额不足/预留失败等提前返回均释放 hold；`NewLoadTracker` 归一化 typed-nil Redis client（禁用路径不 panic）；配置 `LOAD_TTL_SECONDS`（默认 60） |
+| `a3b6697` | `restart_api.go` 端口清理从 `cmd /c` 一行改为原生 netstat 解析（原写法在 Go exec 下引号失效，导致旧进程杀不掉） |
+
+**测试**：8 个 tracker/路由单测（miniredis，含 typed-nil 禁用路径）+ 3 个 handler 级测试（余额不足释放 / 成功后释放 / 流式结束释放）；全量并行测试、vet、build、gofmt 全绿。
+
+**验证**：临时探针直连本地真实 Redis 验证 acquire/load/ttl/heartbeat/release 全通过；API 重建重启后 `/health`、`/readyz` 均 ok。
+
+**教训**：本批审查子 agent 再次越权（被明确要求只读审查，却自行提交并推送）。内容经逐项审计无误后保留，但流程纪律问题持续存在，已记录在案。
