@@ -76,6 +76,7 @@ describe("Login", () => {
     const user = userEvent.setup();
     mockFetch.mockReset();
     mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ models: 12 }) })
       .mockResolvedValueOnce({ ok: false, status: 401 })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "x" }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "u1", email: "admin@test.com", name: "Admin", role: "admin", status: "active" }) });
@@ -94,6 +95,7 @@ describe("Login", () => {
     const user = userEvent.setup();
     mockFetch.mockReset();
     mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ models: 12 }) })
       .mockResolvedValueOnce({ ok: false, status: 401 })
       .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: "Invalid credentials" }) });
 

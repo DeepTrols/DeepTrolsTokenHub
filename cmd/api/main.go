@@ -69,6 +69,10 @@ func main() {
 	// Register app-level routes (health, etc.).
 	application.RegisterRoutes(r)
 
+	// Public, unauthenticated stats for the login page (IP rate-limited).
+	r.Get("/api/public/stats",
+		middleware.IPRateLimit(application.RateLimiter, 60, 1*time.Minute)(app.PublicStatsHandler(application)).ServeHTTP)
+
 	// OpenAI-compatible gateway (public).
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(middleware.GatewayAuth(application))

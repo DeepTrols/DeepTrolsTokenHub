@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Coins, Scale, ShieldCheck, FileCheck2, ArrowRight, KeyRound } from "lucide-react";
 import { useAuth } from "../lib/auth";
@@ -49,6 +49,26 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // Real active-model count from the public stats endpoint, so the landing
+  // stat matches the actual catalog instead of a hardcoded number.
+  const [modelCount, setModelCount] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/public/stats")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data.models === "number") {
+          setModelCount(String(data.models));
+        }
+      })
+      .catch(() => {
+        /* keep the placeholder when stats are unavailable */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const copy = ACCOUNT_COPY[accountType];
 
@@ -170,7 +190,7 @@ export default function Login() {
 
           <div className="flex gap-3 flex-wrap mt-7">
             {[
-              { k: "128", v: "在线模型", c: "#4F6BED" },
+              { k: modelCount ?? "—", v: "在线模型", c: "#4F6BED" },
               { k: "4.2M", v: "今日调用", c: "#0FA88B" },
               { k: "99.99%", v: "服务可用率", c: "#1BA878" },
               { k: "1 个", v: "密钥搞定", c: "#8B6FE8" },

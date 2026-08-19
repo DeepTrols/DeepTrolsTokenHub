@@ -131,6 +131,29 @@ func AdminRateLimit(limiter ratelimit.RateLimiter, limit int, window time.Durati
 	}
 }
 
+// IPRateLimit rate-limits unauthenticated public endpoints by client IP.
+// Public endpoints still need a tripwire so a bot cannot hammer them.
+func IPRateLimit(limiter ratelimit.RateLimiter, limit int, window time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := "rl:ip:" + extractIPFromRemoteAddr(r.RemoteAddr)
+
+			allowed, retryAfter, err := limiter.Allow(r.Context(), key, limit, window)
+			if err != nil {
+				log.Printf("ratelimit: ip allow error: %v", err)
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if !allowed {
+				writeRateLimited(w, "Too many requests, please try again later", retryAfter)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // writeRateLimited writes a 429 response with a Retry-After header.
 // The header is ceil(remaining seconds)+1 so a client retrying at the exact
 // window boundary is nudged just past it.

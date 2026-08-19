@@ -626,3 +626,10 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - **修复**：`display_name` 改为 `*string` 指针扫描，NULL 归一为空字符串；新增回归测试 `TestListHandlesNullDisplayName`（直接插入 NULL display_name 行后 List 必须成功）。
 - **顺带**：`HandleListUsers`/`HandleCountUsers` 失败时记录真实错误日志（可观测性），不再静默。
 - **验证**：接口实测 200 返回用户列表；`go test -p 1 ./...` 全量通过。
+
+## 十七、2026-08-19 登录页模型数量动态化 + 公开统计接口
+
+- 新增公开接口 `GET /api/public/stats`（IP 限流 60/min）：返回 `{"models": <active 模型数>}`，登录页"在线模型"不再写死 128，改为挂载时拉取真实数量。
+- 新增 `middleware.IPRateLimit`（无鉴权公开端点限流）+ 测试；`app.PublicStatsHandler` + 集成测试。
+- 前端 `Login.tsx`：`useEffect` 拉取统计，失败时显示占位符。
+- **注记**：开发库当前 132 个 active 模型（130 bytedance + 2 deepseek）为早期测试未隔离时的 provider 自动发现残留，非真实配置；如需要可清理（待确认，不擅自删除）。

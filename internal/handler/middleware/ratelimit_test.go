@@ -308,6 +308,37 @@ func TestTeamRateLimit_FallsBackToIP(t *testing.T) {
 	}
 }
 
+// TestIPRateLimit_SameIPHitsLimit verifies the public IP rate limiter keys by
+// client IP and returns 429 once the limit is exhausted.
+func TestIPRateLimit_SameIPHitsLimit(t *testing.T) {
+	limit := 3
+	window := 1 * time.Minute
+	limiter := ratelimit.NewMemoryRateLimiter()
+	mw := IPRateLimit(limiter, limit, window)
+
+	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := mw(nextHandler)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/public/stats", nil)
+	req.RemoteAddr = "198.51.100.9:12345"
+
+	for i := 0; i < limit; i++ {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200", i+1, w.Code)
+		}
+	}
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("6th request: status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+}
+
 // TestLoginRateLimit_ContentTypeIsJSON verifies the 429 response has
 // Content-Type: application/json.
 func TestLoginRateLimit_ContentTypeIsJSON(t *testing.T) {
