@@ -3,8 +3,10 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
@@ -85,6 +87,17 @@ func GatewayAuth(application *app.App) func(http.Handler) http.Handler {
 				writeGatewayError(w, http.StatusForbidden, "API key is disabled")
 				return
 			}
+
+			// Record last_used_at for console visibility. Best-effort and
+			// detached: a transient DB failure must never fail the gateway
+			// request, and the update must survive a client disconnect.
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := application.APIKeys.UpdateLastUsed(ctx, key.ID); err != nil {
+					log.Printf("gateway: update last_used key=%s: %v", key.ID, err)
+				}
+			}()
 
 			// Store resolved identity in context.
 			ctx := r.Context()

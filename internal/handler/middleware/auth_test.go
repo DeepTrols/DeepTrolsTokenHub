@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/config"
@@ -619,6 +621,10 @@ func TestConsoleAuth_InvalidJWTInCookie_401(t *testing.T) {
 // mockAPIKeyRepo implements apikey.Repository for testing GatewayAuth.
 type mockAPIKeyRepo struct {
 	findByHashFn func(ctx context.Context, keyHash string) (*domain.APIKey, error)
+
+	mu                   sync.Mutex
+	updateLastUsedCalled int
+	lastUpdatedKeyID     uuid.UUID
 }
 
 func (m *mockAPIKeyRepo) FindByHash(ctx context.Context, keyHash string) (*domain.APIKey, error) {
@@ -636,6 +642,10 @@ func (m *mockAPIKeyRepo) ListByUser(ctx context.Context, userID uuid.UUID, tenan
 func (m *mockAPIKeyRepo) Create(ctx context.Context, key *domain.APIKey) error { return nil }
 func (m *mockAPIKeyRepo) Update(ctx context.Context, key *domain.APIKey) error { return nil }
 func (m *mockAPIKeyRepo) UpdateLastUsed(ctx context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.updateLastUsedCalled++
+	m.lastUpdatedKeyID = id
 	return nil
 }
 func (m *mockAPIKeyRepo) GetSpend(ctx context.Context, keyID uuid.UUID, periodType string) (*domain.APIKeySpend, error) {
@@ -718,6 +728,87 @@ func TestGatewayAuth_ValidActiveKey_200_StoresContextValues(t *testing.T) {
 	}
 	if capturer.RequestID != "req-12345" {
 		t.Errorf("CtxRequestID = %q, want %q", capturer.RequestID, "req-12345")
+	}
+}
+
+func TestGatewayAuth_ValidKey_RecordsLastUsed(t *testing.T) {
+	plaintextKey := "dt-last-used-key"
+	expectedKeyID := uuid.New()
+	repo := &mockAPIKeyRepo{
+		findByHashFn: func(ctx context.Context, keyHash string) (*domain.APIKey, error) {
+			if keyHash != keyhash.Hash(plaintextKey, "test-hmac-secret-32-bytes-!!!!") {
+				return nil, nil
+			}
+			return &domain.APIKey{
+				ID:     expectedKeyID,
+				Status: domain.APIKeyStatusActive,
+				UserID: uuid.New(),
+			}, nil
+		},
+	}
+
+	application := appWithMockRepo(repo)
+	capturer := &gatewayContextCapturer{}
+	mw := GatewayAuth(application)
+	handler := mw(capturer)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer "+plaintextKey)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	// UpdateLastUsed runs in a detached goroutine; poll briefly for it.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for {
+		repo.mu.Lock()
+		called := repo.updateLastUsedCalled
+		repo.mu.Unlock()
+		if called > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if repo.updateLastUsedCalled == 0 {
+		t.Fatal("UpdateLastUsed was never called for a valid key")
+	}
+	if repo.lastUpdatedKeyID != expectedKeyID {
+		t.Errorf("UpdateLastUsed id = %v, want %v", repo.lastUpdatedKeyID, expectedKeyID)
+	}
+}
+
+func TestGatewayAuth_InvalidKey_DoesNotRecordLastUsed(t *testing.T) {
+	repo := &mockAPIKeyRepo{
+		findByHashFn: func(ctx context.Context, keyHash string) (*domain.APIKey, error) {
+			return nil, nil // unknown hash
+		},
+	}
+	application := appWithMockRepo(repo)
+	mw := GatewayAuth(application)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("next handler should not be called")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer sk-invalid-key")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if repo.updateLastUsedCalled != 0 {
+		t.Errorf("UpdateLastUsed called %d times for an invalid key, want 0", repo.updateLastUsedCalled)
 	}
 }
 
