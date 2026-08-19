@@ -2423,11 +2423,23 @@ func TestHandleNonStreamingChat_FailoverToSecondChannel(t *testing.T) {
 // failure tests. When multiChannel is true the router exposes two candidates
 // (baseURL 9999 then 8888) so failover paths can be exercised.
 func newNonStreamFailureEnv(executor gw.Executor, multiChannel bool) (*app.App, *mockWalletRepo, *mockUsageRepo) {
+	return newNonStreamEnv(executor, multiChannel, "")
+}
+
+// newNonStreamEnv builds a non-streaming chat test environment. instanceProvider
+// is written into the channel instance config's "provider" key (empty = no
+// provider in config, exercising the "direct" fallback).
+func newNonStreamEnv(executor gw.Executor, multiChannel bool, instanceProvider string) (*app.App, *mockWalletRepo, *mockUsageRepo) {
 	channelID1 := uuid.New()
 	channelID2 := uuid.New()
 	instanceID1 := uuid.New()
 	instanceID2 := uuid.New()
 	modelID := uuid.New()
+
+	instanceConfig := map[string]any{}
+	if instanceProvider != "" {
+		instanceConfig = map[string]any{"provider": instanceProvider}
+	}
 
 	modelRepo := &mockModelRepo{
 		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
@@ -2446,9 +2458,9 @@ func newNonStreamFailureEnv(executor gw.Executor, multiChannel bool) (*app.App, 
 		},
 		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
 			if multiChannel && cid == channelID2 {
-				return []domain.ChannelInstance{{ID: instanceID2, ChannelID: channelID2, BaseURL: "http://localhost:8888/v1", ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+				return []domain.ChannelInstance{{ID: instanceID2, ChannelID: channelID2, BaseURL: "http://localhost:8888/v1", ProviderRoute: "gpt-4o", Config: instanceConfig, Status: domain.InstanceStatusActive}}, nil
 			}
-			return []domain.ChannelInstance{{ID: instanceID1, ChannelID: channelID1, BaseURL: "http://localhost:9999/v1", ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+			return []domain.ChannelInstance{{ID: instanceID1, ChannelID: channelID1, BaseURL: "http://localhost:9999/v1", ProviderRoute: "gpt-4o", Config: instanceConfig, Status: domain.InstanceStatusActive}}, nil
 		},
 	}
 	pricingRepo := &mockPricingRepo{
@@ -2502,10 +2514,10 @@ func TestHandleNonStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
 	executor := &mockExecutor{
 		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
 			return &gw.ExecuteResponse{
-				StatusCode: http.StatusInternalServerError,
-				Body:       map[string]any{"error": map[string]any{"message": "provider exploded"}},
+				StatusCode:    http.StatusInternalServerError,
+				Body:          map[string]any{"error": map[string]any{"message": "provider exploded"}},
 				ProviderReqID: "upstream-req-1",
-				DurationMs: 42,
+				DurationMs:    42,
 			}, nil
 		},
 	}
@@ -2731,5 +2743,91 @@ func TestHandleNonStreamingChat_Success_NoFailureLog(t *testing.T) {
 	log := waitForUsageLog(t, usageRepo)
 	if log.Status != domain.UsageLogStatusCompleted {
 		t.Errorf("Status = %s, want %s (success must not be recorded as failed)", log.Status, domain.UsageLogStatusCompleted)
+	}
+}
+
+// ============================================================================
+// Provider attribution in evidence (LiteLLM removal)
+// ============================================================================
+
+func TestUpstreamProvider_FromInstanceConfig(t *testing.T) {
+	got := upstreamProvider(&gw.RouteResult{
+		Instance: &domain.ChannelInstance{Config: map[string]any{"provider": "deepseek"}},
+	})
+	if got != "deepseek" {
+		t.Errorf("upstreamProvider = %q, want %q", got, "deepseek")
+	}
+}
+
+func TestUpstreamProvider_FallbackDirect(t *testing.T) {
+	got := upstreamProvider(&gw.RouteResult{
+		Instance: &domain.ChannelInstance{Config: map[string]any{}},
+	})
+	if got != "direct" {
+		t.Errorf("upstreamProvider = %q, want %q", got, "direct")
+	}
+}
+
+func TestUpstreamProvider_NilRoute(t *testing.T) {
+	if got := upstreamProvider(nil); got != "unknown" {
+		t.Errorf("upstreamProvider(nil) = %q, want %q", got, "unknown")
+	}
+}
+
+func TestHandleNonStreamingChat_EvidenceProviderFromInstanceConfig(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			respBody := validResponseBody()
+			usage, _ := usageparser.ParseOpenAIUsage(respBody)
+			return &gw.ExecuteResponse{StatusCode: http.StatusOK, Body: respBody, Usage: usage,
+				UsageSource: usageparser.SourceUpstream, ProviderReqID: "chatcmpl-provider-1", DurationMs: 12}, nil
+		},
+	}
+	application, _, usageRepo := newNonStreamEnv(executor, false, "deepseek")
+
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	waitForUsageLog(t, usageRepo)
+	if usageRepo.lastEvidence == nil {
+		t.Fatal("provider evidence was never recorded")
+	}
+	if got := usageRepo.lastEvidence.Provider; got != "deepseek" {
+		t.Errorf("evidence provider = %q, want %q (must not be litellm)", got, "deepseek")
+	}
+}
+
+func TestHandleNonStreamingChat_EvidenceProviderFallbackDirect(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			respBody := validResponseBody()
+			usage, _ := usageparser.ParseOpenAIUsage(respBody)
+			return &gw.ExecuteResponse{StatusCode: http.StatusOK, Body: respBody, Usage: usage,
+				UsageSource: usageparser.SourceUpstream, ProviderReqID: "chatcmpl-direct-1", DurationMs: 12}, nil
+		},
+	}
+	application, _, usageRepo := newNonStreamEnv(executor, false, "")
+
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	waitForUsageLog(t, usageRepo)
+	if usageRepo.lastEvidence == nil {
+		t.Fatal("provider evidence was never recorded")
+	}
+	if got := usageRepo.lastEvidence.Provider; got != "direct" {
+		t.Errorf("evidence provider = %q, want %q", got, "direct")
 	}
 }

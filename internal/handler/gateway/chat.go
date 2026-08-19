@@ -847,6 +847,22 @@ func stringOrDefault(s, fallback string) string {
 	return fallback
 }
 
+// upstreamProvider returns the provider name recorded in provider evidence.
+// Channel instances created via provider discovery carry their real provider
+// (e.g. "deepseek", "bytedance") in config; instances without one are direct
+// OpenAI-compatible upstreams ("direct"). A nil route (routing failed before
+// any attempt) is recorded as "unknown" so evidence never fabricates a
+// provider that was not actually used.
+func upstreamProvider(routeResult *gw.RouteResult) string {
+	if routeResult == nil || routeResult.Instance == nil {
+		return "unknown"
+	}
+	if p, ok := routeResult.Instance.Config["provider"].(string); ok && p != "" {
+		return p
+	}
+	return "direct"
+}
+
 // tenantIDOrDefault returns tenantID if non-nil, otherwise returns uuid.Nil.
 func tenantIDOrDefault(tenantID *uuid.UUID) uuid.UUID {
 	if tenantID != nil {
@@ -945,7 +961,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 		ChargeLines:       costs.ChargeLines,
 		Status:            status,
 		ErrorMessage:      errMsg,
-		Provider:          "litellm",
+		Provider:          upstreamProvider(routeResult),
 		ProviderReqID:     resp.ProviderReqID,
 		ResponseBody:      resp.Body,
 		StatusCode:        resp.StatusCode,
@@ -1015,7 +1031,7 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *
 		QuotaDeducted:     quotaDeducted,
 		ChargeLines:       costs.ChargeLines,
 		Status:            status,
-		Provider:          "litellm",
+		Provider:          upstreamProvider(routeResult),
 		ProviderReqID:     resp.ProviderReqID,
 		ResponseBody:      resp.Body,
 		StatusCode:        resp.StatusCode,
@@ -1100,7 +1116,7 @@ func logStreamFailure(application *app.App, userID, apiKeyID uuid.UUID, tenantID
 		Status:            status,
 		ErrorCode:         errorCode,
 		ErrorMessage:      errorMessage,
-		Provider:          "litellm",
+		Provider:          upstreamProvider(routeResult),
 		ProviderReqID:     requestID,
 		RequestBody:       body,
 		ResponseBody:      responseBody,
@@ -1220,7 +1236,7 @@ func logNonStreamFailure(application *app.App, requestType string, userID, apiKe
 		Status:            domain.UsageLogStatusFailed,
 		ErrorCode:         errorCode,
 		ErrorMessage:      errorMessage,
-		Provider:          "litellm",
+		Provider:          upstreamProvider(routeResult),
 		ProviderReqID:     providerReqID,
 		RequestBody:       body,
 		ResponseBody:      responseBody,
