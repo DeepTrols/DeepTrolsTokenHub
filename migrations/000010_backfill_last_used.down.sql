@@ -1,0 +1,3 @@
+-- 000010_backfill_last_used.down.sql
+-- No-op: the original NULL state of backfilled rows is not recoverable, and
+-- reverting to NULL would just re-introduce the "never used" display bug.
