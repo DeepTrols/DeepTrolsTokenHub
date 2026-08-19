@@ -1,5 +1,8 @@
 # New API vs DeepTrols 对比分析
 
+> ⚠️ 历史快照（2026-08-04）。文中"Provider 覆盖 LiteLLM 间接"基于当时设计；
+> 内置 LiteLLM 已于 2026-08-19 移除，现为渠道实例 OpenAI 兼容直连。
+
 > 2026-08-04 | New API = `G:\workspace\demo\new-api-main` (AGPLv3, ~135K 行 Go)
 
 ## 定位

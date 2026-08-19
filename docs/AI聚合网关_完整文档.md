@@ -1,5 +1,12 @@
 # AI Token 聚合平台 · 完整架构文档
 
+> **执行层现状（2026-08-19）**：本文是设计决策记录，正文章节仍以 LiteLLM 作为执行层前提展开讨论。
+> 代码现状已变更：内置 LiteLLM 已于 2026-08-19 从 docker-compose 移除，网关由渠道实例
+> base_url 直连上游（OpenAI 兼容），不再经过 LiteLLM；HMAC 请求签名重新定位为"可选能力，
+> 仅建议用于平台回调/webhook 验签"，不适用于 OpenAI 兼容网关入口。正文中"LiteLLM 转发 /
+> spend 证据 / HMAC 企业客户签名"等描述属于原设计意图，落地以代码与
+> docs/PROJECT_STATUS.md 十九节为准。
+
 ## 目录
 
 - **第1篇：开篇：从0到1打造一个AI Token聚合平台**
@@ -334,7 +341,7 @@ LiteLLM 的 spend log 能不能直接当客户账单？
 │
 ┌───────────────────▼──────────────────────────┐
 │ 执行面 Execution Plane │
-│ LiteLLM / Provider Adapter / 路由 / Fallback │
+│ OpenAI 兼容直连 / Provider Adapter / 路由 / Fallback │
 └───────────────────┬──────────────────────────┘
 │
 ┌───────────────────▼──────────────────────────┐
