@@ -274,14 +274,19 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
 	}
+	walletCharged := finalCost
+	underfunded := false
 	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
 		// Wallet cannot cover a final cost larger than the reserve —
-		// fall back to committing the reserved amount and flag the
-		// difference for reconciliation.
+		// commit the reserved amount and RECORD the shortfall in the
+		// evidence chain (invariant: errors must never be disguised as
+		// success; reconciliation needs to see the undercharge).
 		log.Printf("gateway: settle error tx=%s final=%s: %v (falling back to reserved commit)", reserveResult.TransactionID, finalCost, settleErr)
 		if commitErr := application.Charger.Commit(r.Context(), reserveResult.TransactionID); commitErr != nil {
 			log.Printf("gateway: commit error tx=%s: %v", reserveResult.TransactionID, commitErr)
 		}
+		walletCharged = holdAmount
+		underfunded = true
 	}
 	if application.QuotaChecker != nil {
 		application.QuotaChecker.Settle(r.Context(), quotaReservation, actualQuotaTokens(resp, body), requestID)
@@ -323,7 +328,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	// Log usage in background with a detached context so it survives
 	// the HTTP request lifecycle.
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, quotaDeducted)
+	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, quotaDeducted, walletCharged, underfunded)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
@@ -584,6 +589,8 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	// Settle reserved funds against the REAL final cost with a detached
 	// context so the settlement succeeds even if the client disconnects
 	// mid-stream (r.Context() would be cancelled).
+	walletCharged := decimal.Zero
+	underfunded := false
 	if reserveResult != nil {
 		commitCtx, commitCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer commitCancel()
@@ -591,14 +598,17 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		if actualCosts != nil {
 			finalCost = actualCosts.ListCost
 		}
+		walletCharged = finalCost
 		if settleErr := application.Charger.Settle(commitCtx, reserveResult.TransactionID, finalCost); settleErr != nil {
 			// Wallet cannot cover a final cost larger than the reserve —
-			// fall back to committing the reserved amount and flag the
-			// difference for reconciliation.
+			// commit the reserved amount and RECORD the shortfall in the
+			// evidence chain so reconciliation can see the undercharge.
 			log.Printf("gateway: stream settle error tx=%s final=%s: %v (falling back to reserved commit)", reserveResult.TransactionID, finalCost, settleErr)
 			if commitErr := application.Charger.Commit(commitCtx, reserveResult.TransactionID); commitErr != nil {
 				log.Printf("gateway: stream commit error tx=%s: %v", reserveResult.TransactionID, commitErr)
 			}
+			walletCharged = holdAmount
+			underfunded = true
 		}
 		// Reconcile the quota reservation against actual tokens consumed.
 		if application.QuotaChecker != nil {
@@ -642,7 +652,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	}
 
 	// Log usage in background with detached context.
-	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, quotaDeducted, domain.UsageLogStatusCompleted)
+	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, quotaDeducted, domain.UsageLogStatusCompleted, walletCharged, underfunded)
 }
 
 // resolveStreamAPIKeyID extracts the API key ID for streaming logging.
@@ -879,7 +889,7 @@ func tenantIDOrDefaultPtr(tenantID *uuid.UUID) *uuid.UUID {
 
 // logUsageWithCosts records the usage log with real costs from the pricer.
 // Uses a detached context (30s timeout) independent of the HTTP request lifecycle.
-func logUsageWithCosts(r *http.Request, application *app.App, requestType string, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, quotaDeducted int64) {
+func logUsageWithCosts(r *http.Request, application *app.App, requestType string, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, quotaDeducted int64, walletCharged decimal.Decimal, underfunded bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -960,12 +970,20 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 		QuotaDeducted:     quotaDeducted,
 		ChargeLines:       costs.ChargeLines,
 		Status:            status,
+		ErrorCode:         "",
 		ErrorMessage:      errMsg,
+		WalletCharged:     walletCharged,
 		Provider:          upstreamProvider(routeResult),
 		ProviderReqID:     resp.ProviderReqID,
 		ResponseBody:      resp.Body,
 		StatusCode:        resp.StatusCode,
 		DurationMs:        resp.DurationMs,
+	}
+	if underfunded {
+		params.ErrorCode = "undercharged"
+		params.ErrorMessage = fmt.Sprintf(
+			"wallet underfunded: actual=%s charged=%s shortfall=%s",
+			finalCost, walletCharged, finalCost.Sub(walletCharged))
 	}
 
 	if _, err := application.Logger.Record(ctx, params); err != nil {
@@ -974,7 +992,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 }
 
 // logStreamUsage records usage for streaming requests.
-func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, quotaDeducted int64, status domain.UsageLogStatus) {
+func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, quotaDeducted int64, status domain.UsageLogStatus, walletCharged decimal.Decimal, underfunded bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1031,11 +1049,20 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *
 		QuotaDeducted:     quotaDeducted,
 		ChargeLines:       costs.ChargeLines,
 		Status:            status,
+		ErrorCode:         "",
+		ErrorMessage:      "",
+		WalletCharged:     walletCharged,
 		Provider:          upstreamProvider(routeResult),
 		ProviderReqID:     resp.ProviderReqID,
 		ResponseBody:      resp.Body,
 		StatusCode:        resp.StatusCode,
 		DurationMs:        resp.DurationMs,
+	}
+	if underfunded {
+		params.ErrorCode = "undercharged"
+		params.ErrorMessage = fmt.Sprintf(
+			"wallet underfunded: actual=%s charged=%s shortfall=%s",
+			finalCost, walletCharged, finalCost.Sub(walletCharged))
 	}
 
 	if _, err := application.Logger.Record(ctx, params); err != nil {

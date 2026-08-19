@@ -547,6 +547,125 @@ func TestHandleNonStreamingChat_Success(t *testing.T) {
 	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceUpstream {
 		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceUpstream)
 	}
+	if usageRepo.lastUsageLog.WalletCharged.IsZero() {
+		t.Error("WalletCharged should be non-zero after a successful settle")
+	}
+	if !usageRepo.lastUsageLog.WalletCharged.Equal(usageRepo.lastUsageLog.FinalCost) {
+		t.Errorf("WalletCharged = %s, want FinalCost %s", usageRepo.lastUsageLog.WalletCharged, usageRepo.lastUsageLog.FinalCost)
+	}
+}
+
+// ============================================================================
+// Test: settle underfunded -- evidence must record the shortfall, never a
+// silent commit of the reserved amount.
+// ============================================================================
+
+func TestHandleNonStreamingChat_SettleUnderfunded_MarksEvidence(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	modelID := uuid.New()
+
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			respBody := map[string]any{
+				"id":      "chatcmpl-underfunded",
+				"object":  "chat.completion",
+				"created": int64(1700000000),
+				"model":   "gpt-4o",
+				"choices": []any{
+					map[string]any{
+						"index":         float64(0),
+						"message":       map[string]any{"role": "assistant", "content": "long"},
+						"finish_reason": "stop",
+					},
+				},
+				// 100k output tokens: far beyond the estimate-based hold.
+				"usage": map[string]any{
+					"prompt_tokens":     float64(20),
+					"completion_tokens": float64(100000),
+					"total_tokens":      float64(100020),
+				},
+			}
+			usage, _ := usageparser.ParseOpenAIUsage(respBody)
+			return &gw.ExecuteResponse{
+				StatusCode:    http.StatusOK,
+				Body:          respBody,
+				Usage:         usage,
+				UsageSource:   usageparser.SourceUpstream,
+				ProviderReqID: "chatcmpl-underfunded",
+				DurationMs:    500,
+			}, nil
+		},
+	}
+
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{{ID: channelID, ModelID: modelID, Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 1, MaxConcurrency: 10}}, nil
+		},
+		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{{ID: instanceID, ChannelID: channelID, BaseURL: "http://localhost:9999/v1", ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+		},
+	}
+	pricingRepo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return makePricingEntries(), nil
+		},
+	}
+
+	txID := uuid.New()
+	walletRepo := &mockWalletRepo{
+		findByUserFn: func(ctx context.Context, uid uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error) {
+			return &domain.Wallet{ID: uuid.New(), UserID: uid, Balance: decimal.NewFromFloat(100.0), Frozen: decimal.Zero}, nil
+		},
+		reserveFn: func(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+			return &domain.WalletTransaction{ID: txID, WalletID: walletID, Amount: amount, IdempotencyKey: idempotencyKey, TxType: domain.WalletTxReserve}, nil
+		},
+		settleFn: func(ctx context.Context, tID uuid.UUID, amount decimal.Decimal) error {
+			// Simulate "wallet cannot cover final cost larger than reserve".
+			return fmt.Errorf("insufficient funds to cover final cost %s", amount)
+		},
+		commitFn: func(ctx context.Context, tID uuid.UUID) error { return nil },
+	}
+	usageRepo := &mockUsageRepo{}
+	application := newTestApp(executor, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	if walletRepo.settleCalled == 0 {
+		t.Error("settle should have been attempted")
+	}
+	if walletRepo.commitCalled == 0 {
+		t.Error("commit fallback should have been called after settle failure")
+	}
+	if walletRepo.releaseCalled > 0 {
+		t.Error("release should NOT be called when the request succeeded")
+	}
+
+	log := waitForUsageLog(t, usageRepo)
+	if log.ErrorCode != "undercharged" {
+		t.Errorf("ErrorCode = %q, want %q", log.ErrorCode, "undercharged")
+	}
+	if log.ErrorMessage == "" {
+		t.Error("ErrorMessage should describe the shortfall")
+	}
+	if log.WalletCharged.IsZero() {
+		t.Error("WalletCharged should equal the committed reserved amount")
+	}
+	if !log.WalletCharged.LessThan(log.FinalCost) {
+		t.Errorf("WalletCharged %s should be less than FinalCost %s", log.WalletCharged, log.FinalCost)
+	}
 }
 
 // ============================================================================

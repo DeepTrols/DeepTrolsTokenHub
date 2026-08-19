@@ -310,11 +310,17 @@ func handleForwardedRawExecution(
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
 	}
+	walletCharged := finalCost
+	underfunded := false
 	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
+		// Commit the reserved amount and RECORD the shortfall in the
+		// evidence chain; never disguise an undercharge as full settlement.
 		log.Printf("gateway: %s settle error tx=%s final=%s: %v (falling back to reserved commit)", endpoint, reserveResult.TransactionID, finalCost, settleErr)
 		if commitErr := application.Charger.Commit(r.Context(), reserveResult.TransactionID); commitErr != nil {
 			log.Printf("gateway: %s commit error tx=%s: %v", endpoint, reserveResult.TransactionID, commitErr)
 		}
+		walletCharged = holdAmount
+		underfunded = true
 	}
 	if application.QuotaChecker != nil && quotaReservation != nil {
 		application.QuotaChecker.Settle(r.Context(), quotaReservation, actualUsage.TotalTokens, requestID)
@@ -324,7 +330,7 @@ func handleForwardedRawExecution(
 	}
 
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, synthetic, routeResult, actualCosts, actualUsage.TotalTokens)
+	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, synthetic, routeResult, actualCosts, actualUsage.TotalTokens, walletCharged, underfunded)
 
 	if raw.ContentType != "" {
 		w.Header().Set("Content-Type", raw.ContentType)
@@ -507,14 +513,17 @@ func handleForwardedEndpointExecution(
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
 	}
+	walletCharged := finalCost
+	underfunded := false
 	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
-		// Wallet cannot cover a final cost larger than the reserve — fall back
-		// to committing the reserved amount and flag the difference for
-		// reconciliation.
+		// Commit the reserved amount and RECORD the shortfall in the
+		// evidence chain; never disguise an undercharge as full settlement.
 		log.Printf("gateway: %s settle error tx=%s final=%s: %v (falling back to reserved commit)", endpoint, reserveResult.TransactionID, finalCost, settleErr)
 		if commitErr := application.Charger.Commit(r.Context(), reserveResult.TransactionID); commitErr != nil {
 			log.Printf("gateway: %s commit error tx=%s: %v", endpoint, reserveResult.TransactionID, commitErr)
 		}
+		walletCharged = holdAmount
+		underfunded = true
 	}
 	if application.QuotaChecker != nil && quotaReservation != nil {
 		application.QuotaChecker.Settle(r.Context(), quotaReservation, actualUsage.TotalTokens, requestID)
@@ -528,7 +537,7 @@ func handleForwardedEndpointExecution(
 	// Log usage in background with a detached context so it survives the HTTP
 	// request lifecycle.
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, actualUsage.TotalTokens)
+	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, actualUsage.TotalTokens, walletCharged, underfunded)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
