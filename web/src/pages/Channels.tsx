@@ -205,6 +205,11 @@ export default function Channels() {
                 </div>
               </div>
               <div className="space-y-2">
+                <Label>Base URL</Label>
+                <Input value={chBaseURL} onChange={(e) => setChBaseURL(e.target.value)} placeholder="默认自动填充" className="font-mono" />
+                <p className="text-xs text-muted-foreground">自定义接口地址，代理或私有部署时使用</p>
+              </div>
+              <div className="space-y-2">
                 <Label>API Key *</Label>
                 <Input type="password" value={chApiKey} onChange={(e) => setChApiKey(e.target.value)} placeholder={editingId ? "留空保持不变" : "sk-..."} className="font-mono" />
               </div>
@@ -226,11 +231,6 @@ export default function Channels() {
 
             <TabsContent value="advanced" className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Base URL</Label>
-                  <Input value={chBaseURL} onChange={(e) => setChBaseURL(e.target.value)} placeholder="默认自动填充" className="font-mono" />
-                  <p className="text-xs text-muted-foreground">自定义接口地址，代理或私有部署时使用</p>
-                </div>
                 <div className="space-y-2">
                   <Label>池类型</Label>
                   <Select value={chPoolType} onValueChange={setChPoolType}>
