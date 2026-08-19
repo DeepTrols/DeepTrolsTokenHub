@@ -682,3 +682,19 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - `go test ./... -count=1`（无 `-p 1`，本机 16 核全并行）连续两轮全绿：76.7s / 66.6s；console 包 54-101s。
 - 连接监视：并行高峰 `pg_stat_activity` 总连接峰值 ~22（上限 100），此前打满。
 - gofmt / `go vet ./...` / `go build ./...` 全绿。
+
+## 十九、2026-08-19 文档与代码一致性修正
+
+> 目标：让文档描述与代码现状一致，并修正几条经推敲后发现"有问题"的文档要求。
+> 修正方式：活动文档（AGENTS.md / CLAUDE.md / README / 功能清单）直接改；本节作为变更记录，
+> 上文旧记录一律不删改。
+
+| # | 修正点 | 说明 |
+|---|--------|------|
+| 1 | LiteLLM 相关描述全部同步 | 架构图执行面、技术栈"执行代理"、README 目录注释、功能清单执行层描述统一改为"OpenAI 兼容直连（渠道实例 base_url）"并注明 LiteLLM 于 2026-08-19 移除；原"LiteLLM 转发 ✅ 已实现/已接入"系虚假完成项，一并更正 |
+| 2 | HMAC 鉴权要求重新定位 | 原要求"网关 method+path+body 签名 + 时间窗 + nonce"与 OpenAI 兼容定位冲突（客户端 SDK 只认 Bearer，签名会让所有兼容客户端失效）；功能清单改为"可选能力，仅建议用于平台回调/webhook 验签" |
+| 3 | Seedance 回调端点归类 | `/v1/providers/doubao/seedance/callback` 是上游→平台的 webhook，非客户端 API，不应走 /v1 Bearer 鉴权，需独立验签；功能清单已标注 |
+| 4 | 健康评分阈值以代码为准 | 实现为 ≥70 healthy / 30-69 degraded / <30 unhealthy；旧记录 3.2#5"<30 degraded / >70 recovering"措辞作废 |
+| 5 | Redis 负载"自动释放"语义澄清 | 必须显式 DECR（defer 兜底）+ 心跳刷新 TTL，不能只靠 TTL 过期（活跃计数器会被清零、负载信号失真）；功能清单已标注 |
+| 6 | 多币种/FX 标注按需 | 国内 CNY 场景暂非必需，功能清单标注为"按需启用，非 MVP 必做" |
+| 7 | 测试覆盖率门禁如实标注 | ≥80% 为愿景目标，CI 尚未强制（AGENTS.md / CLAUDE.md 已注明） |

@@ -3,7 +3,7 @@
 > 对照 `AI聚合网关_完整文档.md`（10 篇 + 附录）逐项审计
 > 审计日期: 2026-07-30
 > **更新日期: 2026-08-12**（本次：AI 配额池（三层账 + 幂等）✅ 已实现；配额管理（Admin）由只读升级为创建/分配）
-> 上次：2026-08-05（复核更正：TOTP / 审计日志 / 对账 L1 / 字段保护 / Worker Redis lease / 健康评分 已实现；Price Snapshot 降级为 🟡；租户隔离更正为 fail-closed）
+> 上次：2026-08-19（文档一致性修正：LiteLLM 移除同步 / HMAC 请求签名重新定位为可选 / Seedance 回调归类为 webhook / 健康阈值以代码为准 / Redis 自动释放语义澄清 / FX 标注按需；详见 docs/PROJECT_STATUS.md 十九节）
 
 ---
 
@@ -14,7 +14,7 @@
 |------|---------|---------|
 | API Key 鉴权（Bearer token） | 前缀 + HMAC-SHA256 哈希 | ✅ 已实现 |
 | API Key 六边界治理 | 模型/IP/累计/周/月/超限动作 | ✅ 已实现（35 测试） |
-| HMAC 鉴权 | method + path + body SHA256 + ±300s + Redis nonce | ❌ 未实现 |
+| HMAC 请求签名（可选） | 仅建议用于平台回调/webhook 验签；⚠️ 不适用于 OpenAI 兼容网关入口（客户端 SDK 只认 Bearer，签名会让所有兼容客户端失效） | ❌ 未实现 |
 | JWT 用户鉴权 | HS256 + httpOnly cookie + 服务端 logout | ✅ 已实现 |
 | 租户隔离 | Host header → tenant_domains 表 | ✅ 已实现（fail-closed，未知域名 403） |
 | 模型目录 | 含定价 + 租户过滤 | ✅ 已实现 |
@@ -32,7 +32,7 @@
 ### 执行面 (Execution Plane)
 | 能力 | 架构要求 | 实现状态 |
 |------|---------|---------|
-| LiteLLM 转发 | `/v1/chat/completions` | ✅ 已实现 |
+| OpenAI 兼容直连转发 | `/v1/chat/completions` | ✅ 已实现（渠道实例直连上游；内置 LiteLLM 已于 2026-08-19 移除） |
 | 加权最少负载路由 | weight / max_concurrency | ✅ 已实现 |
 | RoutePolicy 路由 | 候选 channel + 4 fallback | ✅ 已实现 |
 | Channel 实例管理 | base_url + provider_route | ✅ 已实现 |
@@ -47,12 +47,12 @@
 | POST /v1/videos/generations | Seedance 视频创建 | ❌ 未实现 |
 | GET/DELETE /v1/videos/generations/:id | 视频任务查询/取消 | ❌ 未实现 |
 | GET /v1/videos/generations/:id/content/:index | 视频下载 | ❌ 未实现 |
-| POST /v1/providers/doubao/seedance/callback | Seedance 回调 | ❌ 未实现 |
+| POST /v1/providers/doubao/seedance/callback | Seedance 回调（⚠️ 上游→平台的 webhook，非客户端 API：需独立验签，不应走 /v1 Bearer 鉴权） | ❌ 未实现 |
 | POST /v1/audio/transcriptions | 语音转文字 | ❌ 未实现 |
 | POST /v1/audio/speech | 文字转语音 | ❌ 未实现 |
 | POST /v1beta/models/{model}:generateContent | Gemini 原生图片 | ❌ 未实现 |
 | Redis 实时负载追踪 | ai:channel:load 键 + Lua | ❌ 未实现（用 DB current_load） |
-| 多实例并发跟踪 | INCR/DECR + 自动释放 | ❌ 未实现 |
+| 多实例并发跟踪 | INCR/DECR + 显式 DECR（defer 兜底）+ 心跳刷新 TTL（⚠️ 不能只靠 TTL 过期，否则活跃计数器会被清零、负载信号失真） | ❌ 未实现 |
 
 ### 资金面 (Money Plane)
 | 能力 | 架构要求 | 实现状态 |
@@ -73,7 +73,7 @@
 | 支付/充值 | 真实支付集成 | ❌ mock 数据 |
 | 月度账单 | 汇总账单 | ❌ 未实现 |
 | 余额预警 | 低于阈值通知 | ❌ 未实现 |
-| FX 汇率 | 多币种支持 | ❌ 未实现 |
+| FX 汇率 | 多币种支持（⚠️ 国内 CNY 场景暂非必需，标注为按需启用，非 MVP 必做） | ❌ 未实现 |
 
 ### 证据面 (Evidence Plane)
 | 能力 | 架构要求 | 实现状态 |
@@ -117,11 +117,11 @@
 
 ---
 
-## 第三篇：执行层架构（LiteLLM + 自研 Adapter）
+## 第三篇：执行层架构（OpenAI 兼容直连 + 自研 Adapter）
 
 | 组件 | 作用 | 状态 |
 |------|------|------|
-| LiteLLM（代理转发） | OpenAI-compatible chat 执行 | ✅ 已接入 |
+| OpenAI 兼容直连 | OpenAI-compatible chat 执行 | ✅ 已实现（内置 LiteLLM 已于 2026-08-19 移除） |
 | Provider Sync | 调用上游 /v1/models API 自动发现模型 | ✅ POST /providers/{id}/sync |
 | Gemini Native Adapter | 图片生成（非 chat 协议） | ❌ |
 | Seedance Native Adapter | 视频创建/查询/下载/取消/回调 | ❌ |
@@ -239,7 +239,7 @@
 | 路由决策（RouteContext + RoutePolicy） | ✅ |
 | 配额检查（Check→429） | ✅ 路由后 / Reserve 前 |
 | 预算预留（上游调用前 Reserve） | ✅ |
-| 执行转发（LiteLLM / Native Adapter） | 🟡 仅 Chat |
+| 执行转发（OpenAI 兼容直连 / Native Adapter） | 🟡 仅 Chat |
 | 流式 usage 提取（最后 chunk） | ✅ |
 | 计费提交（同步 / 异步 Outbox） | ✅ |
 | 配额扣除（Deduct→quota_ledger） | ✅ 成功后异步 best-effort |

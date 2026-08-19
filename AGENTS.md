@@ -8,7 +8,7 @@
 
 ```
 控制面 (Control)  → API Key / HMAC / 租户隔离 / 模型目录 / 限额
-执行面 (Execution) → LiteLLM / Provider Adapter / 路由 / Fallback
+执行面 (Execution) → OpenAI 兼容直连 / Provider Adapter / 路由 / Fallback
 资金面 (Money)    → Usage Log / Charge Line / 钱包 / 配额 / 价格快照
 证据面 (Evidence) → Raw Usage / Provider Cost / Invoice / Release Evidence
 ```
@@ -20,7 +20,7 @@
 | 后端 | Go 1.22 + chi + pgx + Redis |
 | 数据库 | PostgreSQL 16 |
 | 缓存 | Redis 7 |
-| 执行代理 | LiteLLM |
+| 执行代理 | OpenAI 兼容直连（渠道实例 base_url；内置 LiteLLM 已于 2026-08-19 移除） |
 | 前端 | React 18 + TypeScript + Vite + Tailwind CSS |
 
 ## 开发工作流（强制）
@@ -35,7 +35,7 @@
 ```
 
 **质量门禁：**
-- 测试覆盖率 ≥ 80%
+- 测试覆盖率 ≥ 80%（当前为愿景目标，CI 尚未强制）
 - 金额计算必须用 decimal，禁止 float
 - 预算预留必须在上游调用之前
 - 错误不能伪装成成功

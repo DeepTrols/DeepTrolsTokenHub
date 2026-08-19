@@ -6,7 +6,7 @@
 
 ```
 控制面 (Control)  → API Key / JWT / 租户隔离 / 模型目录 / 配额 / 路由策略
-执行面 (Execution) → LiteLLM / Provider Adapter / 加权路由 / Fallback / 响应缓存
+执行面 (Execution) → OpenAI 兼容直连 / Provider Adapter / 加权路由 / Fallback / 响应缓存
 资金面 (Money)    → Reserve→Commit→Release / 钱包 / 配额消费 / Price Snapshot
 证据面 (Evidence) → Usage Log / Charge Line / Provider Evidence / 对账 L0+L1
 ```
@@ -18,7 +18,7 @@
 | 后端 | Go 1.22 + chi v5 + pgx v5 + go-redis v9 |
 | 数据库 | PostgreSQL 16 |
 | 缓存 | Redis 7 |
-| 执行代理 | LiteLLM |
+| 执行代理 | OpenAI 兼容直连（渠道实例 base_url；内置 LiteLLM 已于 2026-08-19 移除） |
 | 前端 | React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui + TanStack Query |
 
 ## 项目结构
@@ -47,7 +47,7 @@ internal/
     auth/                    # 认证服务（JWT 签发/密码/TOTP/登录历史）
     billing/                 # 计费引擎（Reserve/Commit/Release + 定价 + 配额）
     cache/                   # 响应缓存（SHA256→Redis，命中零计费）
-    gateway/                 # 网关服务（路由 + LiteLLM 执行）
+    gateway/                 # 网关服务（路由 + OpenAI 兼容直连执行）
     model/                   # 模型管理
     reconciliation/          # 对账服务
     tenant/                  # 租户管理
@@ -67,8 +67,8 @@ internal/
     ratelimit/               # 限流（Redis 优先 + 内存降级）
     redis/                   # go-redis 客户端封装
     totp/                    # TOTP RFC 6238（生成/验证/URI）
-    usageparser/             # 上游 usage 解析（OpenAI/LiteLLM 格式）
-migrations/                  # PostgreSQL DDL（3 次迁移，24+ 张表）
+    usageparser/             # 上游 usage 解析（OpenAI 兼容格式）
+migrations/                  # PostgreSQL DDL（9 次迁移 000001~000009，24+ 张表）
 web/                         # React 前端（21 页面）
 ```
 
