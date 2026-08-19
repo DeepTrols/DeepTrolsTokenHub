@@ -442,6 +442,88 @@ func TestRoute_LowestLoadInstanceSelected(t *testing.T) {
 	}
 }
 
+type mockLoadSource struct {
+	loads map[uuid.UUID]int64
+	err   error
+}
+
+func (m mockLoadSource) Load(ctx context.Context, instanceID uuid.UUID) (int64, error) {
+	if m.err != nil {
+		return 0, m.err
+	}
+	return m.loads[instanceID], nil
+}
+
+func TestRoute_RedisLoadOverridesDBLoad(t *testing.T) {
+	model := makeTestModel("gpt-4o", domain.ModelStatusActive)
+	chID := uuid.New()
+	// DB says A is idle (2) and B is loaded (8); Redis says the opposite.
+	instA := makeTestInstance(uuid.New(), chID, "https://litellm.example.com", "openai/gpt-4o", 2)
+	instB := makeTestInstance(uuid.New(), chID, "https://litellm.example.com", "openai/gpt-4o", 8)
+
+	models := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return model, nil
+		},
+	}
+	channels := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{
+				makeTestChannel(chID, model.ID, domain.ChannelStatusActive, 100, 100),
+			}, nil
+		},
+		listInstancesFn: func(ctx context.Context, channelID uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{instA, instB}, nil
+		},
+	}
+	router := NewRouter(models, channels)
+	router.SetLoadSource(mockLoadSource{loads: map[uuid.UUID]int64{
+		instA.ID: 10, // A is actually busy in Redis
+		instB.ID: 1,  // B is actually free
+	}})
+
+	result, err := router.Route(context.Background(), makeIdentity(nil), "gpt-4o")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Instance.ID != instB.ID {
+		t.Errorf("Instance.ID = %s, want %s (Redis load must override DB current_load)", result.Instance.ID, instB.ID)
+	}
+}
+
+func TestRoute_LoadSourceError_FallsBackToDBLoad(t *testing.T) {
+	model := makeTestModel("gpt-4o", domain.ModelStatusActive)
+	chID := uuid.New()
+	lowLoadInst := makeTestInstance(uuid.New(), chID, "https://litellm.example.com", "openai/gpt-4o", 2)
+	highLoadInst := makeTestInstance(uuid.New(), chID, "https://litellm.example.com", "openai/gpt-4o", 8)
+
+	models := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return model, nil
+		},
+	}
+	channels := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{
+				makeTestChannel(chID, model.ID, domain.ChannelStatusActive, 100, 100),
+			}, nil
+		},
+		listInstancesFn: func(ctx context.Context, channelID uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{highLoadInst, lowLoadInst}, nil
+		},
+	}
+	router := NewRouter(models, channels)
+	router.SetLoadSource(mockLoadSource{err: errors.New("redis down")})
+
+	result, err := router.Route(context.Background(), makeIdentity(nil), "gpt-4o")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Instance.ID != lowLoadInst.ID {
+		t.Errorf("Instance.ID = %s, want %s (DB fallback on load source error)", result.Instance.ID, lowLoadInst.ID)
+	}
+}
+
 func TestRoute_TenantAllowed(t *testing.T) {
 	model := makeTestModel("tenant-model", domain.ModelStatusActive)
 	tenantID := uuid.New()

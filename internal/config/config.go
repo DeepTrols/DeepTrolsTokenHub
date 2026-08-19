@@ -12,15 +12,19 @@ import (
 
 // Config holds all application configuration loaded from environment.
 type Config struct {
-	DB            DBConfig
-	Redis         RedisConfig
-	LiteLLM       LiteLLMConfig
-	Server        ServerConfig
-	JWT           JWTConfig
-	Encryption    EncryptionConfig
-	Bootstrap     BootstrapConfig
-	Cookie        CookieConfig
-	ResponseCache ResponseCacheConfig
+	DB    DBConfig
+	Redis RedisConfig
+	// LoadTTLSeconds is the Redis load-counter TTL; the counter's heartbeat
+	// refreshes it while a request is in flight, and a crashed process's
+	// counter expires after this window.
+	LoadTTLSeconds int
+	LiteLLM        LiteLLMConfig
+	Server         ServerConfig
+	JWT            JWTConfig
+	Encryption     EncryptionConfig
+	Bootstrap      BootstrapConfig
+	Cookie         CookieConfig
+	ResponseCache  ResponseCacheConfig
 	// FakePayment enables the demo-only topup faucet and signup bonus.
 	// MUST be false in production. When false, the topup endpoint returns 403
 	// and no bonus balance is granted.
@@ -119,6 +123,7 @@ func Load() (*Config, error) {
 		Redis: RedisConfig{
 			URL: os.Getenv("REDIS_URL"),
 		},
+		LoadTTLSeconds: envOrDefaultInt("LOAD_TTL_SECONDS", 60),
 		LiteLLM: LiteLLMConfig{
 			// Optional: only needed when routing through an externally
 			// deployed LiteLLM proxy. The bundled compose no longer runs

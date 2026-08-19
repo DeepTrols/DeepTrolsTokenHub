@@ -234,9 +234,17 @@ func handleForwardedRawExecution(
 		}
 		upstreamModel := stringOrDefault(cand.UpstreamModel, modelName)
 
+		// Track real-time in-flight load for this instance (best-effort).
+		var loadHold *gw.LoadHold
+		if application.LoadTracker != nil {
+			loadHold, _ = application.LoadTracker.Acquire(r.Context(), cand.Instance.ID)
+		}
 		if !wallet.CanReserve(holdAmount) {
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 			releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
+			if loadHold != nil {
+				loadHold.Release()
+			}
 			return
 		}
 		rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, holdAmount, attemptID)
@@ -244,11 +252,17 @@ func handleForwardedRawExecution(
 			log.Printf("gateway: %s reserve error: %v", endpoint, rerr)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 			releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
+			if loadHold != nil {
+				loadHold.Release()
+			}
 			return
 		}
 		reserveResult = rr
 
 		raw, lastErr = executor.ExecuteEndpointRaw(r.Context(), baseURL, apiKey, upstreamModel, endpoint, body)
+		if loadHold != nil {
+			loadHold.Release()
+		}
 		upstreamFailed = lastErr != nil || (raw != nil && raw.StatusCode >= 400)
 		if !upstreamFailed {
 			lastRouteResult = &cand
@@ -452,9 +466,17 @@ func handleForwardedEndpointExecution(
 		}
 		upstreamModel := stringOrDefault(cand.UpstreamModel, modelName)
 
+		// Track real-time in-flight load for this instance (best-effort).
+		var loadHold *gw.LoadHold
+		if application.LoadTracker != nil {
+			loadHold, _ = application.LoadTracker.Acquire(r.Context(), cand.Instance.ID)
+		}
 		if !wallet.CanReserve(holdAmount) {
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 			releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
+			if loadHold != nil {
+				loadHold.Release()
+			}
 			return
 		}
 		rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, holdAmount, attemptID)
@@ -462,11 +484,17 @@ func handleForwardedEndpointExecution(
 			log.Printf("gateway: %s reserve error: %v", endpoint, rerr)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 			releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
+			if loadHold != nil {
+				loadHold.Release()
+			}
 			return
 		}
 		reserveResult = rr
 
 		resp, lastErr = executor.ExecuteEndpoint(r.Context(), baseURL, apiKey, upstreamModel, endpoint, body)
+		if loadHold != nil {
+			loadHold.Release()
+		}
 		upstreamFailed = lastErr != nil || (resp != nil && resp.StatusCode >= 400)
 		if !upstreamFailed {
 			lastRouteResult = &cand

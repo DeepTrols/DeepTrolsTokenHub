@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"sync"
+	"time"
 
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/repository/channel"
@@ -26,13 +29,34 @@ type RouteResult struct {
 	RoutePolicyID *uuid.UUID
 }
 
+// LoadSource supplies real-time in-flight counts per channel instance. The
+// database current_load column is never maintained at runtime, so routing
+// falls back to it only when no live source is wired or Redis errors out.
+type LoadSource interface {
+	Load(ctx context.Context, instanceID uuid.UUID) (int64, error)
+}
+
 type Router struct {
 	models   model.Repository
 	channels channel.Repository
+	loads    LoadSource
 }
+
+// loadFallbackLog throttle prevents a Redis outage from flooding the logs on
+// every routed request: at most one warning per instance per minute.
+var (
+	loadFallbackLogMu   sync.Mutex
+	loadFallbackLogLast = map[string]time.Time{}
+)
 
 func NewRouter(models model.Repository, channels channel.Repository) *Router {
 	return &Router{models: models, channels: channels}
+}
+
+// SetLoadSource wires a real-time load source (e.g. the Redis LoadTracker).
+// Nil or disabled sources leave routing on the database current_load column.
+func (r *Router) SetLoadSource(loads LoadSource) {
+	r.loads = loads
 }
 
 func (r *Router) Route(ctx context.Context, identity *domain.RequestIdentity, publicModelCode string) (*RouteResult, error) {
@@ -132,9 +156,11 @@ func (r *Router) RouteCandidates(ctx context.Context, identity *domain.RequestId
 			continue
 		}
 		instance := instances[0]
+		bestLoad := effectiveLoad(ctx, r.loads, instance)
 		for _, inst := range instances[1:] {
-			if inst.CurrentLoad < instance.CurrentLoad {
+			if l := effectiveLoad(ctx, r.loads, inst); l < bestLoad {
 				instance = inst
+				bestLoad = l
 			}
 		}
 		channelCopy := ch // avoid loop-variable aliasing
@@ -149,6 +175,35 @@ func (r *Router) RouteCandidates(ctx context.Context, identity *domain.RequestId
 		return nil, ErrNoChannelAvailable
 	}
 	return results, nil
+}
+
+// effectiveLoad returns the real-time in-flight count when a load source is
+// available, falling back to the database current_load on error or when the
+// source is disabled.
+func effectiveLoad(ctx context.Context, loads LoadSource, inst domain.ChannelInstance) int64 {
+	if loads == nil {
+		return int64(inst.CurrentLoad)
+	}
+	if l, err := loads.Load(ctx, inst.ID); err == nil {
+		return l
+	} else {
+		logLoadFallback(inst.ID, err)
+	}
+	return int64(inst.CurrentLoad)
+}
+
+// logLoadFallback records a load-source failure at most once per minute per
+// instance. Routing itself fails open to the DB current_load column, but the
+// degraded mode must be observable (not silently masquerade as success).
+func logLoadFallback(instanceID uuid.UUID, err error) {
+	loadFallbackLogMu.Lock()
+	defer loadFallbackLogMu.Unlock()
+	key := instanceID.String()
+	if last, ok := loadFallbackLogLast[key]; ok && time.Since(last) < time.Minute {
+		return
+	}
+	loadFallbackLogLast[key] = time.Now()
+	log.Printf("gateway: load source unavailable for instance %s, falling back to DB current_load: %v", key, err)
 }
 
 // sortCandidatesByScore orders channels by routing preference descending:

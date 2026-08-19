@@ -62,6 +62,10 @@ type App struct {
 	Pricer       *billing.Pricer
 	QuotaChecker *billing.QuotaChecker
 	Router       *gateway.Router
+	// LoadTracker tracks per-instance in-flight counts in Redis. It is always
+	// non-nil; when Redis is unavailable it is a no-op tracker and routing
+	// falls back to the DB current_load column.
+	LoadTracker *gateway.LoadTracker
 
 	// Executor for chat completions (injected for testability).
 	Executor gateway.Executor
@@ -121,6 +125,12 @@ func NewApp(cfg *config.Config) (*App, error) {
 	// Wire response cache — MUST run after initRateLimiter so a.Redis is set.
 	// If Redis is unavailable, caching is silently disabled (no-op).
 	a.ResponseCache = cache.New(a.Redis, cfg.ResponseCache.ToServiceConfig())
+
+	// Wire real-time load tracking — MUST run after initRateLimiter so
+	// a.Redis is set. Without Redis the tracker is a no-op and routing falls
+	// back to the database current_load column.
+	a.LoadTracker = gateway.NewLoadTracker(a.Redis, time.Duration(cfg.LoadTTLSeconds)*time.Second)
+	a.Router.SetLoadSource(a.LoadTracker)
 
 	return a, nil
 }

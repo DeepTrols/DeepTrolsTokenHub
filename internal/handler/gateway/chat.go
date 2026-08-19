@@ -209,10 +209,19 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		}
 		upstreamModel := stringOrDefault(cand.UpstreamModel, modelName)
 
+		// Track real-time in-flight load for this instance (best-effort:
+		// a Redis hiccup must never fail the request).
+		var loadHold *gw.LoadHold
+		if application.LoadTracker != nil {
+			loadHold, _ = application.LoadTracker.Acquire(r.Context(), cand.Instance.ID)
+		}
 		if !wallet.CanReserve(holdAmount) {
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 			if application.QuotaChecker != nil {
 				application.QuotaChecker.Release(r.Context(), quotaReservation, requestID)
+			}
+			if loadHold != nil {
+				loadHold.Release()
 			}
 			return
 		}
@@ -223,11 +232,17 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 			if application.QuotaChecker != nil {
 				application.QuotaChecker.Release(r.Context(), quotaReservation, requestID)
 			}
+			if loadHold != nil {
+				loadHold.Release()
+			}
 			return
 		}
 		reserveResult = rr
 
 		resp, lastErr = executor.Execute(r.Context(), baseURL, apiKey, upstreamModel, body)
+		if loadHold != nil {
+			loadHold.Release()
+		}
 		upstreamFailed = lastErr != nil || (resp != nil && resp.StatusCode >= 400)
 		if !upstreamFailed {
 			routeResult = &cand
@@ -447,6 +462,14 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	client := application.HttpClient
 	if client == nil {
 		client = &http.Client{Timeout: 120 * time.Second}
+	}
+	// Track in-flight load for the whole stream duration (best-effort).
+	var loadHold *gw.LoadHold
+	if application.LoadTracker != nil {
+		loadHold, _ = application.LoadTracker.Acquire(r.Context(), routeResult.Instance.ID)
+	}
+	if loadHold != nil {
+		defer loadHold.Release()
 	}
 	startTime := time.Now()
 	resp, err := client.Do(upstreamReq)
