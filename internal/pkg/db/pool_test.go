@@ -3,16 +3,30 @@ package db
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// dbURL fetches DATABASE_URL or skips the test.
+// dbURL fetches TEST_DATABASE_URL or skips the test. It deliberately does not
+// fall back to DATABASE_URL: these tests touch a live PostgreSQL server and
+// must never run against a data-bearing database. The *_test suffix guard is
+// duplicated here (instead of reusing repository/testutil) because importing
+// testutil from this package would create an import cycle.
 func dbURL(t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
+	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("DATABASE_URL not set; skipping integration test")
+		t.Skip("TEST_DATABASE_URL not set; skipping integration test")
+	}
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatalf("parse TEST_DATABASE_URL: %v", err)
+	}
+	if !strings.HasSuffix(cfg.ConnConfig.Database, "_test") {
+		t.Fatalf("TEST_DATABASE_URL must point at a *_test database, got %q", cfg.ConnConfig.Database)
 	}
 	return url
 }
@@ -21,7 +35,10 @@ func dbURL(t *testing.T) string {
 func TestNewPool_ValidURL(t *testing.T) {
 	url := dbURL(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 30s instead of 10s: a full parallel `go test ./...` starts every package
+	// provisioning its schema at once, so a Ping can take seconds while the DB
+	// is busy with concurrent migrations. Normal ping latency is sub-second.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	pool, err := NewPool(ctx, url)
@@ -77,7 +94,7 @@ func TestNewPool_EmptyURL(t *testing.T) {
 func TestNewPool_Close(t *testing.T) {
 	url := dbURL(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	pool, err := NewPool(ctx, url)
@@ -98,7 +115,7 @@ func TestNewPool_Close(t *testing.T) {
 func TestPool_Stats_PostConnect(t *testing.T) {
 	url := dbURL(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	pool, err := NewPool(ctx, url)

@@ -302,7 +302,7 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 
 ```bash
 make test          # 全部测试（含覆盖率）
-make test-repo     # 仓库层测试（需串行 -p 1，共享数据库）
+make test-repo     # 仓库层测试（每包独立 schema，可并行）
 make test-race     # 竞态检测
 make test-coverage # 覆盖率报告（coverage.html）
 make lint          # go vet + staticcheck

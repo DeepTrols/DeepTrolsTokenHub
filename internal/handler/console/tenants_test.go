@@ -47,7 +47,7 @@ func appForTenantsTest(t *testing.T) *app.App {
 // seedUserForTenantsTest creates a user with bcrypt hash.
 func seedUserForTenantsTest(t *testing.T, a *app.App, email, password, displayName string) *domain.User {
 	t.Helper()
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("bcrypt.GenerateFromPassword: %v", err)
 	}

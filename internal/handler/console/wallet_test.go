@@ -46,7 +46,7 @@ func appForWalletTest(t *testing.T) *app.App {
 // seedUserForWalletTest creates a user with bcrypt hash.
 func seedUserForWalletTest(t *testing.T, a *app.App, email, password, displayName string) *domain.User {
 	t.Helper()
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("bcrypt.GenerateFromPassword: %v", err)
 	}

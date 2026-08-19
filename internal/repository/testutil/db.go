@@ -3,37 +3,31 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/deeptrols/api/internal/pkg/db"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// SetupPool creates a connection pool for the calling package's private schema
-// (created and migrated on first use) and skips the test when TEST_DATABASE_URL
-// is unset. It deliberately does NOT fall back to DATABASE_URL or to a
-// hardcoded default: the tests TRUNCATE tables, and must never run against a
-// database that could hold real configuration or business data.
+// SetupPool returns the calling package's shared, schema-isolated connection
+// pool. The private schema is created and fully migrated on first use, and the
+// pool is reused by every test in the package (it lives for the test binary).
+// It skips the test when TEST_DATABASE_URL is unset. It deliberately does NOT
+// fall back to DATABASE_URL or to a hardcoded default: the tests TRUNCATE
+// tables, and must never run against a database that could hold real
+// configuration or business data.
 func SetupPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
-	dsn := SchemaDSN(t)
+	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set; skipping repository integration test")
 		return nil
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	pool, err := db.NewPool(ctx, dsn)
-	if err != nil {
-		t.Skipf("TEST_DATABASE_URL not available: %v", err)
-		return nil
-	}
-	t.Cleanup(func() { pool.Close() })
-	return pool
+	assertTestDatabase(t, dsn)
+	st := stateForPackage(t)
+	return st.ensurePool(t, dsn)
 }
 
 // assertTestDatabase fails the test when the DSN does not point at a database
@@ -72,16 +66,38 @@ func assertPoolIsTestDatabase(t *testing.T, pool *pgxpool.Pool) {
 }
 
 // TruncateTables removes all rows from the named tables using TRUNCATE CASCADE.
-// No FK ordering needed — CASCADE follows all references.
+// No FK ordering needed — CASCADE follows all references. All tables are
+// truncated in a single statement: doing one round-trip per table makes every
+// integration test pay ~25x the DB latency, which dominates the console suite.
 func TruncateTables(t *testing.T, pool *pgxpool.Pool, tables ...string) {
 	t.Helper()
 	assertPoolIsTestDatabase(t, pool)
-	ctx := context.Background()
+	if len(tables) == 0 {
+		return
+	}
 	for _, table := range tables {
-		if _, err := pool.Exec(ctx, "TRUNCATE TABLE "+table+" CASCADE"); err != nil {
-			t.Fatalf("failed to truncate %s: %v", table, err)
+		if !validTableName(table) {
+			t.Fatalf("refusing to TRUNCATE unsafe table name %q", table)
 		}
 	}
+	ctx := context.Background()
+	stmt := "TRUNCATE TABLE " + strings.Join(tables, ", ") + " CASCADE"
+	if _, err := pool.Exec(ctx, stmt); err != nil {
+		t.Fatalf("failed to truncate tables: %v", err)
+	}
+}
+
+// validTableName rejects anything but a bare lowercase identifier. Table names
+// in tests are hardcoded, but TRUNCATE is destructive enough that the
+// statement builder refuses anything unusual as defense in depth.
+func validTableName(name string) bool {
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			continue
+		}
+		return false
+	}
+	return len(name) > 0
 }
 
 // TruncateAll removes rows from all tables in FK-safe order.

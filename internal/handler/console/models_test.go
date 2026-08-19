@@ -302,7 +302,7 @@ func TestHandleListModels_ResponseContentTypeJSON(t *testing.T) {
 // seedUserForLoginHistory creates a user with bcrypt hash.
 func seedUserForLoginHistory(t *testing.T, a *app.App, email, password, displayName string) *domain.User {
 	t.Helper()
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("bcrypt.GenerateFromPassword: %v", err)
 	}

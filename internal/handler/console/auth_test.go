@@ -56,7 +56,7 @@ func appForConsoleTest(t *testing.T) *app.App {
 // seedUserForConsoleTest creates a user with a bcrypt password hash and returns the domain.User.
 func seedUserForConsoleTest(t *testing.T, a *app.App, email, password, displayName string) *domain.User {
 	t.Helper()
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("bcrypt.GenerateFromPassword: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestHandleLogin_BannedUser(t *testing.T) {
 	// Arrange
 	a := appForConsoleTest(t)
 	// Create user directly with banned status
-	hash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte("password"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("bcrypt: %v", err)
 	}

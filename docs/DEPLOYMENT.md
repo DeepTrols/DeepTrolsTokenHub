@@ -94,7 +94,8 @@ pg_dump "$DATABASE_URL" -Fc -f deeptrols_$(date +%F).dump
 - 灰度：API 新版本先在 1 个实例验证 `/health`、登录、一次真实网关调用，
   观察错误率与计费日志后再全量。
 - 回滚：二进制回退到上一发布版本；若涉及新迁移，按第 3 节 `down 1` 回滚。
-- 任何发布必须先在 staging 跑一遍 `go test -p 1 ./...` 与迁移 up/down 往返。
+- 任何发布必须先在 staging 跑一遍 `go test ./... -count=1`（每包独立 schema，
+  可并行）与迁移 up/down 往返。
 
 ## 8. 上线后第一周观察项
 

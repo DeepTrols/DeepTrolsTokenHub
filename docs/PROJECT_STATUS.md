@@ -662,3 +662,23 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - GC：dry-run 精确列出 17 个 harness schema；`-apply` 全清；复跑 0 残留。
 - 新增测试：`internal/repository/testutil/schema_test.go`（包键推导、schema 命名/校验、DSN 构建、`_test` 守卫、隔离 + 迁移断言、fresh schema 迁移）。
 - 遗留说明：每个新进程会留下一个 schema（不删是为了与并发进程隔离），用 `make test-db-gc`（dry-run）查看、`make test-db-gc-apply` 回收；测试库本身仍是可丢弃资产，重置前照旧先备份。
+
+### 18.4 同日第二轮收尾：共享池 / 扩展锁 / 连接上限 / 遗留雷区清理
+
+第一轮全量并行虽绿（220.7s），但暴露出三类问题，本轮一并修复：
+
+| # | 变更 | 文件 |
+|---|------|------|
+| 1 | `SetupPool` 每包改用进程级共享连接池（`packageState` 拆 `schemaOnce` + `poolOnce`，`ensurePool` 懒建），不再每测试新建/关闭 pool，省掉反复建连开销 | `internal/repository/testutil/schema.go`、`db.go` |
+| 2 | 并发 provisioning 的 `CREATE EXTENSION` 用 `pg_advisory_lock`（session 级）串行化：CI 并行 / 双进程并发时扩展创建不再竞态 | `internal/repository/testutil/schema.go` |
+| 3 | **连接数上限修复**：`db.NewPool` 生产默认 `MinConns=2/MaxConns=20` 对测试过大——16 个包并行 + 本地 api/worker 开发服务的池子会把 `max_connections=100` 打满，后启动的包 `ping` 超时（`context deadline exceeded`）。harness 全部改惰性小池（`MinConns=0, MaxConns=4`）；实测并行高峰总连接数从触顶降到峰值 ~22 | `internal/repository/testutil/schema.go` |
+| 4 | console 测试 8 处 bcrypt seed 从 `DefaultCost/12` 改 `MinCost`：console 包耗时从 214s 降至 ~55-100s（随并行负载波动） | `internal/handler/console/*_test.go` |
+| 5 | `internal/pkg/db` 三个连库测试建池超时 10s→30s：抗并行迁移高峰的瞬时抖动 | `internal/pkg/db/pool_test.go` |
+| 6 | **删除雷区** `scripts/admin_fix_test.go` + `del_admin_test.go`：硬编码连接开发库 `deeptrols`，`TestFixAdmin` 每次 `go test ./...` 都会真实 UPDATE admin 密码（无回滚），CI 下因 `deeptrols` 库不存在必红；对应运维脚本（build-ignored）保留可手动 `go run` | `scripts/` |
+| 7 | 清理文档残留：README `make test-repo` 注释、DEPLOYMENT 发布前验证命令中的 `-p 1` 串行说法 | `README.md`、`docs/DEPLOYMENT.md` |
+| 8 | 新增测试：`TestProvisionSchema_ConcurrentDifferentSchemas`（扩展锁并发验证）；`TestSetupPool_SameSchemaAcrossCalls` 增加 pool 指针复用断言（防回归到每调用建池） | `internal/repository/testutil/schema_test.go` |
+
+**验证**：
+- `go test ./... -count=1`（无 `-p 1`，本机 16 核全并行）连续两轮全绿：76.7s / 66.6s；console 包 54-101s。
+- 连接监视：并行高峰 `pg_stat_activity` 总连接峰值 ~22（上限 100），此前打满。
+- gofmt / `go vet ./...` / `go build ./...` 全绿。

@@ -16,8 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deeptrols/api/internal/pkg/db"
 	"github.com/deeptrols/api/migrations"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -38,9 +39,13 @@ var (
 // A package provisions exactly one schema (once) and all of its tests share
 // it; tests within a package already truncate between cases.
 type packageState struct {
-	once   sync.Once
-	schema string
-	err    error
+	schemaOnce sync.Once
+	schema     string
+	schemaErr  error
+
+	poolOnce sync.Once
+	pool     *pgxpool.Pool
+	poolErr  error
 }
 
 // SchemaDSN returns a TEST_DATABASE_URL-derived DSN that routes every query of
@@ -69,15 +74,71 @@ func SchemaDSN(t *testing.T) string {
 
 func (s *packageState) ensure(t *testing.T, dsn string) {
 	t.Helper()
-	s.once.Do(func() {
+	s.schemaOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		s.err = provisionSchema(ctx, dsn, s.schema)
+		s.schemaErr = provisionSchema(ctx, dsn, s.schema)
 	})
-	if s.err != nil {
-		t.Fatalf("testutil: provision schema %s: %v", s.schema, s.err)
+	if s.schemaErr != nil {
+		t.Fatalf("testutil: provision schema %s: %v", s.schema, s.schemaErr)
 	}
 }
+
+// ensurePool lazily creates the package's shared connection pool, which all
+// tests in the package reuse. It lives for the whole test binary: closing it
+// after any single test would break the tests that follow, and Go reaps the
+// connections when the test process exits.
+func (s *packageState) ensurePool(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	s.ensure(t, dsn)
+	s.poolOnce.Do(func() {
+		schemaURL, err := schemaDSN(dsn, s.schema)
+		if err != nil {
+			s.poolErr = err
+			return
+		}
+		cfg, err := pgxpool.ParseConfig(schemaURL)
+		if err != nil {
+			s.poolErr = fmt.Errorf("parse schema DSN: %w", err)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		s.pool, s.poolErr = newTestPool(ctx, cfg)
+	})
+	if s.poolErr != nil {
+		t.Fatalf("testutil: create schema pool: %v", s.poolErr)
+	}
+	return s.pool
+}
+
+// newTestPool builds a lazy, small connection pool for harness use. The
+// production db.NewPool defaults (MinConns=2, MaxConns=20) are far too large
+// when up to -p packages provision schemas in parallel: every package would
+// hold multiple connections for the whole test binary and exhaust PostgreSQL's
+// max_connections. Tests within a package run sequentially (no t.Parallel),
+// so a handful of connections is ample.
+func newTestPool(ctx context.Context, cfg *pgxpool.Config) (*pgxpool.Pool, error) {
+	cfg.MinConns = 0
+	cfg.MaxConns = 4
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return pool, nil
+}
+
+// provisionLockKey serializes the whole schema provisioning (extensions,
+// CREATE SCHEMA, and migrations) across concurrently starting test packages.
+// Extensions are database-global objects installed in public, and many
+// packages running DDL at once can exhaust connection slots on small Postgres
+// instances; one package provisioning at a time keeps both concerns bounded.
+// The lock is advisory and session-scoped.
+const provisionLockKey int64 = 746880011
 
 // stateForPackage returns the provisioning state for the calling package.
 func stateForPackage(t *testing.T) *packageState {
@@ -202,35 +263,55 @@ func provisionSchema(ctx context.Context, dsn, schema string) error {
 		return err
 	}
 
-	admin, err := db.NewPool(ctx, dsn)
+	// One dedicated session: the advisory lock is session-scoped, so the lock,
+	// extension creation, schema creation, and migrations all run here. This
+	// also keeps provisioning at a single connection instead of two pools.
+	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
-		return fmt.Errorf("connect admin pool: %w", err)
+		return fmt.Errorf("connect admin session: %w", err)
 	}
-	defer admin.Close()
+	defer conn.Close(context.Background())
+
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", provisionLockKey); err != nil {
+		return fmt.Errorf("acquire provision lock: %w", err)
+	}
+	defer func() {
+		// Best-effort release on the same session; closing the connection also
+		// drops the lock if this defer ever runs after a failure.
+		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", provisionLockKey)
+	}()
+
+	// Extensions are global; create them in public before the private schema
+	// (the migration files also carry IF NOT EXISTS statements, which are then
+	// no-ops).
+	for _, ext := range []string{`"uuid-ossp"`, `"pgcrypto"`} {
+		if _, err := conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS "+ext+" WITH SCHEMA public"); err != nil {
+			return fmt.Errorf("create extension %s: %w", ext, err)
+		}
+	}
 
 	// Plain CREATE SCHEMA (not IF NOT EXISTS) so a collision with another
 	// concurrently running test process fails loudly instead of sharing state.
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+	if _, err := conn.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
 		return fmt.Errorf("create schema %s: %w", schema, err)
 	}
 
-	schemaURL, err := schemaDSN(dsn, schema)
-	if err != nil {
-		return err
+	if _, err := conn.Exec(ctx, "SET search_path = "+schema+", public"); err != nil {
+		return fmt.Errorf("set search_path: %w", err)
 	}
-	pool, err := db.NewPool(ctx, schemaURL)
-	if err != nil {
-		return fmt.Errorf("connect schema pool: %w", err)
-	}
-	defer pool.Close()
+	return applyMigrations(ctx, conn)
+}
 
-	return applyMigrations(ctx, pool)
+// sqlExecer is the subset of *pgx.Conn / *pgxpool.Pool used by the migration
+// runner.
+type sqlExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
 // applyMigrations runs every .up.sql migration in filename order. pgx uses the
 // simple query protocol when no arguments are supplied, so multi-statement
 // migration files execute as-is.
-func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
+func applyMigrations(ctx context.Context, execer sqlExecer) error {
 	entries, err := migrations.Files.ReadDir(".")
 	if err != nil {
 		return fmt.Errorf("read embedded migrations: %w", err)
@@ -248,7 +329,7 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
-		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+		if _, err := execer.Exec(ctx, string(sql)); err != nil {
 			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
 	}

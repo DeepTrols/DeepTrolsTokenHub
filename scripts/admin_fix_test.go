@@ -1,3 +1,9 @@
+//go:build ignore
+
+// One-off dev script: fixes the legacy admin row (email/password) in the local
+// deeptrols database. Build-ignored so `go test ./...` can never run the
+// hardcoded UPDATE against a live database; run manually when needed with
+// `go test ./scripts/ -run TestFixAdmin` after removing the build tag.
 package main
 
 import (

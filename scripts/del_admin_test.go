@@ -1,3 +1,9 @@
+//go:build ignore
+
+// One-off dev script: dry-runs admin-row cleanup inside a rolled-back
+// transaction. Build-ignored so it never participates in `go test ./...`;
+// run manually when needed with `go test ./scripts/ -run TestDelAdmin` after
+// removing the build tag.
 package main
 
 import (

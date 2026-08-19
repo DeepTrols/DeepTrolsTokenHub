@@ -5,6 +5,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/deeptrols/api/internal/pkg/db"
@@ -197,6 +198,13 @@ func TestSetupPool_SameSchemaAcrossCalls(t *testing.T) {
 	second := SetupPool(t)
 	ctx := context.Background()
 
+	// The package pool is created once per process and reused, so both calls
+	// must return the very same pool. A regression to per-call pools would
+	// break the schema-sharing invariant AND leak a connection per test.
+	if first != second {
+		t.Errorf("SetupPool returned different pools across calls: %p vs %p", first, second)
+	}
+
 	var a, b string
 	if err := first.QueryRow(ctx, "SELECT current_schema()").Scan(&a); err != nil {
 		t.Fatalf("current_schema (first): %v", err)
@@ -251,6 +259,49 @@ func TestProvisionSchema_FreshSchema(t *testing.T) {
 	}
 	if tableSchema != schema {
 		t.Errorf("usage_logs lives in schema %s, want %s", tableSchema, schema)
+	}
+}
+
+// TestProvisionSchema_ConcurrentDifferentSchemas provisions two schemas from
+// the same process at the same time. The extension lock must serialize the
+// database-global CREATE EXTENSION work while both schemas are migrated.
+func TestProvisionSchema_ConcurrentDifferentSchemas(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set; skipping integration test")
+	}
+	if err := validateTestDSN(dsn); err != nil {
+		t.Fatalf("TEST_DATABASE_URL invalid: %v", err)
+	}
+
+	var (
+		wg      sync.WaitGroup
+		errs    = make(chan error, 2)
+		schemas []string
+	)
+	for _, key := range []string{"testutil_conc_a", "testutil_conc_b"} {
+		var err error
+		schema, err := schemaNameForKey(key)
+		if err != nil {
+			t.Fatalf("schemaNameForKey(%q): %v", key, err)
+		}
+		schemas = append(schemas, schema)
+		provisioned := schema
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- provisionSchema(context.Background(), dsn, provisioned)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent provision: %v", err)
+		}
+	}
+	for _, s := range schemas {
+		t.Cleanup(func() { dropSchema(t, dsn, s) })
 	}
 }
 
