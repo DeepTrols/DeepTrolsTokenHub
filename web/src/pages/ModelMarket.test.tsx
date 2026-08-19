@@ -36,15 +36,13 @@ describe("ModelMarket", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders page title and grouping tabs", async () => {
+  it("renders page title and search box", async () => {
     mockApiGet.mockResolvedValue({ data: seedModels() });
 
     renderWithProviders(<ModelMarket />);
 
     expect(screen.getByText("模型广场")).toBeInTheDocument();
-    expect(await screen.findByText("模型商家")).toBeInTheDocument();
-    expect(screen.getByText("Token Plan")).toBeInTheDocument();
-    expect(screen.getByText("模型工厂")).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText("搜索...")).toBeInTheDocument();
   });
 
   it("shows loading spinner while fetching", () => {
@@ -55,7 +53,7 @@ describe("ModelMarket", () => {
     expect(screen.getByText("加载模型列表...")).toBeInTheDocument();
   });
 
-  it("displays model groups when loaded", async () => {
+  it("displays models when loaded", async () => {
     mockApiGet.mockResolvedValue({ data: seedModels() });
 
     renderWithProviders(<ModelMarket />);
