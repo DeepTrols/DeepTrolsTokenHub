@@ -769,3 +769,51 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 **验证**：临时探针直连本地真实 Redis 验证 acquire/load/ttl/heartbeat/release 全通过；API 重建重启后 `/health`、`/readyz` 均 ok。
 
 **教训**：本批审查子 agent 再次越权（被明确要求只读审查，却自行提交并推送）。内容经逐项审计无误后保留，但流程纪律问题持续存在，已记录在案。
+
+## 二十三、2026-08-20 文档同步：第三节遗留项状态校正 + 功能清单更新
+
+> 第三节（2026-08-04 写的"未完成功能"）多项已在后续批次完成但文档未同步。
+> 本轮对照代码逐项核实后，**只追加本校正记录，不删改上文旧记录**；活动文档
+> `docs/DEEPTROLS_完整功能清单.md` 已同步改为 ✅。
+
+### 23.1 已完成（第三节标记过时，实际已落地）
+
+| # | 功能 | 落地证据 |
+|---|------|---------|
+| 1 | 流式错误不伪装成功 | `internal/handler/gateway/chat.go`：流被截断/扫描错误时**故意省略 [DONE]**，客户端可识别未完成流；不变量 5 已闭环 |
+| 4 | Worker 分布式选主 | `internal/pkg/lease`（SET NX EX）+ `cmd/worker/main.go withLease`，见十五节 |
+| 5 | 健康检查渐进评分 | `internal/worker/health_checker/checker.go`：±30 渐进，≥70 healthy / 30-69 degraded / <30 unhealthy |
+| 6 | 路由负载计数 | `48c52f6` LoadTracker：Redis Lua INCR/DECR + 心跳 TTL，故障回退 DB + 限流告警，见二十二节 |
+| 7 | final_chunk 标记 | `chat.go` 流式 usage 提取写入 `UsageSourceFinalChunk`（`internal/pkg/usageparser`） |
+| 8 | 租户 DB 故障隔离 | 2026-08-05 修复：`FindByDomain` 无租户绑定返回 `(nil, nil)`，与真 DB 故障区分，fail-closed 保留 |
+| 9 | 无钱包用户拦截 | `chat.go` 非流式/流式入口均 fail-closed：无钱包返回 402 `wallet_missing`，不再跳过 reserve |
+| 10 | 价格快照 | `internal/service/billing/pricer.go`：写入 price_version / source / currency / captured_at / rows，有单测 `TestPricer_PriceSnapshot_Populated` |
+
+### 23.2 功能清单同步（docs/DEEPTROLS_完整功能清单.md）
+
+| 条目 | 原状态 | 新状态 |
+|------|--------|--------|
+| Redis 实时负载追踪（执行面） | ❌ 用 DB | ✅ LoadTracker |
+| 多实例并发跟踪 | ❌ | ✅ 显式 DECR + 心跳 TTL |
+| Price Snapshot（资金面） | 🟡 内容为空 map | ✅ 非空快照 |
+| 租户审核（pending_review → active/rejected） | ❌ | ✅（`Tenant.ValidTransitions` 状态机 + admin 更新端点） |
+| Redis 实时 current_load（第六篇） | ❌ 用 DB | ✅ LoadTracker |
+| 汇总·计费能力 | 13 ✅ / 1 🟡 / 2 ❌ | 14 ✅ / 0 🟡 / 2 ❌ |
+
+### 23.3 确认仍未完成（第三节其余项 + 后续发现）
+
+| 功能 | 现状 |
+|------|------|
+| HMAC 认证 | ❌ 未实现（已按十九节重新定位为"可选，仅 webhook 验签用"，不阻塞 OpenAI 兼容网关） |
+| 折扣引擎（用户等级/OEM/阶梯） | ❌ 未实现（字段存在，计算为空） |
+| OEM 体系（客户管理/租户定价/代充值/Owner 钱包/brand_config 初始化） | ❌ 未实现 |
+| 网关扩展端点（Responses/Messages/embeddings/images/audio/video/Gemini 等 14 个） | ❌ 未实现 |
+| 对账 L2/L3 + Diff 自动修复 | ❌ 未实现 |
+| 支付集成 / 月度账单 / 余额预警 | ❌ 未实现（支付为 mock） |
+| 平台层 A/B 跨 channel 重试 | ❌ `router.go` `FallbackNextPolicy` 注释 "next-policy recursion not yet implemented"，仅回退全部渠道 |
+| 生产就绪 blocker | 🟡 未动：B1 定价占位值、B2 账外注资、B3 无 usage 扣 0、B5 结算降级、B6 历史 wallet_charged=0（见二十二节 PRODUCTION_READINESS） |
+
+### 23.4 验证
+
+- 全部校正均以当前代码为准（grep + 单测存在性核对），未改任何业务代码；
+- 功能清单改动为纯文档同步，非核心变更，无需 TDD。

@@ -4,6 +4,7 @@
 > 审计日期: 2026-07-30
 > **更新日期: 2026-08-12**（本次：AI 配额池（三层账 + 幂等）✅ 已实现；配额管理（Admin）由只读升级为创建/分配）
 > 上次：2026-08-19（文档一致性修正：LiteLLM 移除同步 / HMAC 请求签名重新定位为可选 / Seedance 回调归类为 webhook / 健康阈值以代码为准 / Redis 自动释放语义澄清 / FX 标注按需；详见 docs/PROJECT_STATUS.md 十九节）
+> 本次：2026-08-20（状态同步：Redis 实时负载追踪 / 多实例并发跟踪 / Price Snapshot / 租户审核 由 ❌、🟡 转 ✅；详见 docs/PROJECT_STATUS.md 二十三节）
 
 ---
 
@@ -51,8 +52,8 @@
 | POST /v1/audio/transcriptions | 语音转文字 | ❌ 未实现 |
 | POST /v1/audio/speech | 文字转语音 | ❌ 未实现 |
 | POST /v1beta/models/{model}:generateContent | Gemini 原生图片 | ❌ 未实现 |
-| Redis 实时负载追踪 | ai:channel:load 键 + Lua | ❌ 未实现（用 DB current_load） |
-| 多实例并发跟踪 | INCR/DECR + 显式 DECR（defer 兜底）+ 心跳刷新 TTL（⚠️ 不能只靠 TTL 过期，否则活跃计数器会被清零、负载信号失真） | ❌ 未实现 |
+| Redis 实时负载追踪 | ai:channel:load 键 + Lua | ✅ 已实现（2026-08-19 LoadTracker：请求开始 INCR / 结束 DECR；Redis 故障回退 DB current_load + 每分钟限流告警，不静默降级） |
+| 多实例并发跟踪 | INCR/DECR + 显式 DECR（defer 兜底）+ 心跳刷新 TTL（⚠️ 不能只靠 TTL 过期，否则活跃计数器会被清零、负载信号失真） | ✅ 已实现（显式 DECR + defer 兜底，双释放不为负；心跳每 TTL/2 刷新，进程崩溃计数随 TTL 自动消失） |
 
 ### 资金面 (Money Plane)
 | 能力 | 架构要求 | 实现状态 |
@@ -64,7 +65,7 @@
 | 9 维计费 | input/output/cache/reasoning/image/audio/tts/video | ✅ 已实现 |
 | 流式计费 | SSE 最后 chunk 提取 usage | ✅ 已实现 |
 | usage_log + charge_line + evidence | 三表事务写库 | ✅ 已实现 |
-| Price Snapshot | 价格快照存入 usage_log | 🟡 字段落库但内容为空 map |
+| Price Snapshot | 价格快照存入 usage_log | ✅ 已实现（pricer 写入 price_version / source / currency / captured_at / rows，非空快照） |
 | Durable Outbox | 异步计费事件 + Committer 100% 测试覆盖 | ✅ 已实现 |
 | 多维定价 | model_pricing 表 + conditions JSONB | 🟡 表就绪，conditions 未评估 |
 | 配额消费 | 网关 Check→429 + Deduct→ledger + Restore（best-effort） | ✅ 已实现 |
@@ -157,7 +158,7 @@
 | 能力域 | 状态 |
 |--------|------|
 | 租户创建（编码唯一、Owner 绑定、默认配置） | ✅ |
-| 租户审核（pending_review → active/rejected） | ❌ |
+| 租户审核（pending_review → active/rejected） | ✅ |
 | 租户状态（active/suspended/terminated） | ✅ |
 | 租户入口（Host 优先） | ✅（fail-closed） |
 | 租户上下文（tenant_id 注入全链路） | ✅ |
@@ -186,7 +187,7 @@
 | Durable Outbox | ✅（Committer 100% 测试覆盖） |
 | Channel 健康监测 | ✅ |
 | 健康评分状态机（degraded） | ✅ ±30 渐进（≥70 healthy / 30-69 degraded / <30 unhealthy） |
-| Redis 实时 current_load | ❌ 用 DB |
+| Redis 实时 current_load | ✅ LoadTracker（Redis 优先，故障回退 DB + 限流告警） |
 | 共享池/独享池/混合池 | ❌ |
 | RouteContext + RoutePolicy | ✅ |
 | 平台层 A/B 跨 channel 重试 | ❌ |
@@ -272,7 +273,7 @@
 |------|------|--------|--------|----------|
 | Gateway 端点 | 16 | 2 | 0 | 14 |
 | 鉴权方式 | 4 | 2 | 0 | 2 |
-| 计费能力 | 16 | 13 | 1 | 2 |
+| 计费能力 | 16 | 14 | 0 | 2 |
 | 对账级别 | 4 | 2 | 0 | 2 |
 | OEM 能力 | 17 | 6 | 2 | 9 |
 | Console 页面 | 16 | 16 | 0 | 0 |
