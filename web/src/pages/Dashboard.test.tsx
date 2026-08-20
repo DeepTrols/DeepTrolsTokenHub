@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
-import Dashboard from "./Dashboard";
+import Dashboard, { buildDailySeries, toDayKey, weekdayLabel } from "./Dashboard";
 import { renderWithProviders } from "../test/test-utils";
 
 vi.mock("../lib/api", () => ({
@@ -86,5 +86,46 @@ describe("Dashboard", () => {
     renderWithProviders(<Dashboard />);
 
     expect(await screen.findByText("暂无调用记录")).toBeInTheDocument();
+  });
+});
+
+describe("Dashboard daily series weekday labels", () => {
+  it("labels the trailing day with its real weekday (Thursday, 2026-08-20)", () => {
+    // Local-time constructor so the assertion is timezone-agnostic.
+    const now = new Date(2026, 7, 20, 12);
+    const daily = buildDailySeries([], now);
+    expect(daily).toHaveLength(7);
+    expect(daily[6].label).toBe("周四"); // today
+    expect(daily[0].label).toBe("周五"); // 2026-08-14, six days earlier
+  });
+
+  it("labels a Sunday correctly", () => {
+    const now = new Date(2026, 7, 16, 12); // Sunday
+    const daily = buildDailySeries([], now);
+    expect(daily[6].label).toBe("周日");
+    expect(weekdayLabel(now)).toBe("周日");
+  });
+
+  it("buckets usage logs by local date, not UTC slice", () => {
+    const now = new Date(2026, 7, 20, 12);
+    const createdAt = new Date(2026, 7, 20, 0, 30).toISOString();
+    const daily = buildDailySeries(
+      [
+        {
+          id: "log-1",
+          model: "gpt-4o",
+          request_id: "req-1",
+          status: "completed",
+          input_tokens: 10,
+          output_tokens: 5,
+          cost: "0.15",
+          created_at: createdAt,
+        },
+      ],
+      now,
+    );
+    expect(daily[6].day).toBe(toDayKey(now));
+    expect(daily[6].tokens).toBe(15);
+    expect(daily[6].cost).toBe(0.15);
   });
 });

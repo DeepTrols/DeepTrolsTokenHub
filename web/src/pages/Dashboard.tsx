@@ -17,28 +17,63 @@ const MODEL_DOTS: Record<string, string> = {
   glm: "bg-[#C9A96A]",
 };
 
+const DAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+// Local-date key (YYYY-MM-DD in the browser's timezone). Slicing a UTC ISO
+// string (toISOString().slice(0,10)) shifts the date for timezones ahead of
+// UTC, and hardcoded weekday labels drift from the real calendar — both caused
+// the dashboard's date/weekday mismatch.
+export function toDayKey(dt: Date): string {
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${dt.getFullYear()}-${mm}-${dd}`;
+}
+
+export function dayKeyFromISO(iso: string): string {
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? iso.slice(0, 10) : toDayKey(dt);
+}
+
+// getDay(): 0=Sunday … 6=Saturday → Monday-first labels need (day + 6) % 7.
+export function weekdayLabel(dt: Date): string {
+  return DAY_LABELS[(dt.getDay() + 6) % 7];
+}
+
+export interface DailyPoint {
+  day: string;
+  label: string;
+  tokens: number;
+  cost: number;
+}
+
+export function buildDailySeries(logs: UsageLog[], now: Date): DailyPoint[] {
+  const byDay: Record<string, { tokens: number; cost: number }> = {};
+  for (const l of logs) {
+    const day = dayKeyFromISO(l.created_at);
+    if (!byDay[day]) byDay[day] = { tokens: 0, cost: 0 };
+    byDay[day].tokens += (l.input_tokens || 0) + (l.output_tokens || 0);
+    byDay[day].cost += parseFloat(l.cost || "0");
+  }
+  const daily: DailyPoint[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const dt = new Date(now);
+    dt.setDate(dt.getDate() - i);
+    const day = toDayKey(dt);
+    const v = byDay[day] || { tokens: 0, cost: 0 };
+    daily.push({ day, label: weekdayLabel(dt), tokens: v.tokens, cost: Number(v.cost.toFixed(2)) });
+  }
+  return daily;
+}
+
 export default function Dashboard() {
   const { data: wallet, isLoading: wl, isError: we, error: weMsg, refetch: wr } = useConsoleQuery<WalletData>("/wallet");
   const { data: usage, isLoading: ul, isError: ue, error: ueMsg, refetch: ur } = useConsoleQuery<{ data: UsageLog[] }>("/usage?limit=200");
   const logs = usage?.data ?? [];
   const isLoading = wl || ul;
   const stats = useMemo(() => {
-    const today = new Date().toISOString().slice(0,10);
-    const todayLogs = logs.filter(l=>l.created_at.startsWith(today));
-    const byDay: Record<string, { tokens: number; cost: number }> = {};
-    for (const l of logs) {
-      const day = l.created_at.slice(0, 10);
-      if (!byDay[day]) byDay[day] = { tokens: 0, cost: 0 };
-      byDay[day].tokens += (l.input_tokens || 0) + (l.output_tokens || 0);
-      byDay[day].cost += parseFloat(l.cost || "0");
-    }
-    const dayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-    const daily = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-      const v = byDay[d] || { tokens: 0, cost: 0 };
-      daily.push({ day: d, label: dayLabels[6 - i], tokens: v.tokens, cost: Number(v.cost.toFixed(2)) });
-    }
+    const today = toDayKey(new Date());
+    const todayLogs = logs.filter((l) => dayKeyFromISO(l.created_at) === today);
+    const daily = buildDailySeries(logs, new Date());
     const todayTokens = todayLogs.reduce((s, l) => s + (l.input_tokens || 0) + (l.output_tokens || 0), 0);
     return { todayRequests: todayLogs.length, todayCost: todayLogs.reduce((s,l)=>s+parseFloat(l.cost||"0"),0), errors: todayLogs.filter(l=>l.status==="failed").length, todayTokens, daily };
   },[logs]);
