@@ -5,6 +5,7 @@
 > **更新日期: 2026-08-12**（本次：AI 配额池（三层账 + 幂等）✅ 已实现；配额管理（Admin）由只读升级为创建/分配）
 > 上次：2026-08-19（文档一致性修正：LiteLLM 移除同步 / HMAC 请求签名重新定位为可选 / Seedance 回调归类为 webhook / 健康阈值以代码为准 / Redis 自动释放语义澄清 / FX 标注按需；详见 docs/PROJECT_STATUS.md 十九节）
 > 本次：2026-08-20（状态同步：Redis 实时负载追踪 / 多实例并发跟踪 / Price Snapshot / 租户审核 由 ❌、🟡 转 ✅；详见 docs/PROJECT_STATUS.md 二十三节）
+> 上次：2026-08-21（OEM 体系状态修正：代充值/子账号客户管理/租户配置/租户级定价数据层已实现，10 ✅ / 3 🟡 / 4 ❌；产品定位确认：OEM 与扩展端点按需、不阻塞主平台；详见 PROJECT_STATUS.md 二十四节）
 
 ---
 
@@ -26,7 +27,7 @@
 | 租户生命周期 | 状态机（5 状态） | ✅ 已实现 |
 | 配额管理 | pool / allocation / ledger 三层 + 网关 Check→429 拦截 | ✅ 已实现 |
 | 用户等级折扣 | 基于 user_level 的阶梯折扣 | ❌ 未实现 |
-| OEM 模型定价 | 租户级独立定价 | ❌ 未实现 |
+| OEM 模型定价 | 租户级独立定价 | 🟡 数据层已支持（model_pricing.tenant_id 覆盖 + 平台回退），OEM 自助管理端点/前端未提供 |
 | MFA/TOTP | 注册 + 验证 | ✅ 完整实现（login 强制 + setup + verify） |
 | 登录历史 | 记录 + 查询 | ✅ 已实现 |
 
@@ -69,7 +70,7 @@
 | Durable Outbox | 异步计费事件 + Committer 100% 测试覆盖 | ✅ 已实现 |
 | 多维定价 | model_pricing 表 + conditions JSONB | 🟡 表就绪，conditions 未评估 |
 | 配额消费 | 网关 Check→429 + Deduct→ledger + Restore（best-effort） | ✅ 已实现 |
-| 租户级定价 | tenant_id 覆盖平台价格 | ❌ 未实现 |
+| 租户级定价 | tenant_id 覆盖平台价格 | 🟡 数据层已支持（tenant_id 优先、NULL 回退平台价），管理入口未提供 |
 | 阶梯折扣 | volume-based discount + 月度计数器 | ❌ 未实现 |
 | 支付/充值 | 真实支付集成 | ❌ mock 数据 |
 | 月度账单 | 汇总账单 | ❌ 未实现 |
@@ -137,7 +138,7 @@
 | 定价 | 模型基础定价（9 维） | ✅ |
 | 定价 | 多维定价表（model_pricing） | ✅ |
 | 定价 | 条件定价（conditions JSONB） | ❌ |
-| 定价 | 租户级覆盖定价 | ❌ |
+| 定价 | 租户级覆盖定价 | 🟡 数据层已支持（model_pricing.tenant_id），管理入口未提供 |
 | 定价 | 上游成本独立记录 | ✅ |
 | 折扣 | 用户等级折扣 | ❌ |
 | 折扣 | OEM 独立折扣 | ❌ |
@@ -165,11 +166,11 @@
 | 数据隔离（显式 tenant scope） | ✅ |
 | Admin RBAC | ✅ |
 | 模型选品（平台目录 × 租户配置） | ✅ tenant_models |
-| 模型定价（租户级独立价格） | ❌ |
-| PAYG 门禁（价格不完整拒绝） | ❌ |
-| 客户管理（CRUD + 封禁 + 等级） | ❌ |
+| 模型定价（租户级独立价格） | 🟡 数据层已支持（tenant_id 覆盖 + 平台回退），OEM 自助管理端点/前端未提供 |
+| PAYG 门禁（价格不完整拒绝） | 🟡 tenant_models.allow_payg 字段已建，网关未强制 |
+| 客户管理（CRUD + 封禁 + 等级） | 🟡 子账号 CRUD / 封禁 / 角色已实现（/team/*）；等级未实现 |
 | AI 折扣（独立于商品折扣） | ❌ |
-| 代充值（同租户钱包转账） | ❌ |
+| 代充值（同租户钱包转账） | ✅ 已实现（team_balance.go：企业主/管理员同租户转账，幂等） |
 | Owner 钱包（Admin 发放额度） | ❌ |
 | AI 配额池（三层账 + 幂等） | ✅ |
 | API Key 代管 | ❌ 故意隐藏 |
@@ -275,7 +276,7 @@
 | 鉴权方式 | 4 | 2 | 0 | 2 |
 | 计费能力 | 16 | 14 | 0 | 2 |
 | 对账级别 | 4 | 2 | 0 | 2 |
-| OEM 能力 | 17 | 6 | 2 | 9 |
+| OEM 能力 | 17 | 10 | 3 | 4 |
 | Console 页面 | 16 | 16 | 0 | 0 |
 | Worker 能力 | 5 | 4 | 1 | 0 |
 | Adapter 类型 | 4 | 1 | 0 | 3 |
@@ -290,4 +291,5 @@
 - Embeddings + Images 端点、TOTP 登录流程、前端测试补完
 
 **长期**:
-- Messages/Audio/Video 端点、Gemini Adapter、OEM 业务逻辑、BYOK、HA、支付充值
+- Messages/Audio/Video 端点、Gemini Adapter、BYOK、HA、支付充值
+- OEM 体系（租户级定价管理入口、PAYG 强制、客户等级/AI 折扣、Owner 发额度、可见性裁剪）：产品决定按需启用，非主平台必需

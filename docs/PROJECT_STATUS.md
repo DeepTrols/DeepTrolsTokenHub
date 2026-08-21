@@ -817,3 +817,47 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - 全部校正均以当前代码为准（grep + 单测存在性核对），未改任何业务代码；
 - 功能清单改动为纯文档同步，非核心变更，无需 TDD。
+
+## 二十四、2026-08-20/21 前端看板修复 + OEM 体系状态修正 + 产品定位
+
+### 24.1 前端看板星期标签修复（2026-08-20，`a64aaf7`）
+
+- 数据看板 7 日趋势图 X 轴星期标签写死为「6 天前=周一 … 今天=周日」，只有今天真是周日才正确；
+  2026-08-20（周四）图上把今天标成周日，与真实日期不符。
+- 修复：标签改为按真实日期计算（`getDay()` 映射，周一开头数组做 `(day+6)%7` 偏移）；
+  同时把「今日」与 7 天分桶从 UTC 截取改为浏览器本地日期（东八区凌晨不再把今天算成昨天）。
+- 逻辑抽为纯函数 `buildDailySeries` / `toDayKey` / `dayKeyFromISO` / `weekdayLabel`，
+  新增 3 条回归测试（周四 / 周日 / 本地日期分桶），Dashboard 测试 8/8 通过，tsc 干净。
+
+### 24.2 OEM 体系状态修正（2026-08-21，对照代码核实）
+
+> 此前功能清单第五篇与二十三节把 OEM 体系整体列为「未开始/❌」，经代码核实**大部分已实现**，
+> 文档滞后。本次修正以代码为准：
+
+| 能力 | 状态 | 证据 |
+|------|------|------|
+| 租户生命周期（创建+审核+状态机+硬删除） | ✅ | `tenants.go` + `Tenant.ValidTransitions` |
+| brand_config / runtime_config / settlement_config 初始化与更新 | ✅ | `tenants.go` 创建/更新写入 |
+| 子账号客户管理（CRUD / 角色 / 停用封禁） | ✅ | `/team/*` 端点组（`cmd/api/main.go`） |
+| 代充值（同租户钱包转账，幂等） | ✅ | `internal/handler/console/team_balance.go` |
+| 模型选品 tenant_models（is_listed / allow_payg / quota_enabled） | ✅ | `internal/domain/model.go` |
+| 租户级定价数据层（tenant_id 覆盖 + 平台回退） | 🟡 | `repository/model/postgres.go` 查询已支持；OEM 自助管理端点/前端未提供 |
+| PAYG 门禁 | 🟡 | `tenant_models.allow_payg` 字段已建，网关未强制 |
+| 客户管理中的等级 | 🟡 | `user_level` 存在于路由策略；无等级管理端点与折扣计算 |
+| AI 折扣 / Owner 直接发额度 / 可见性裁剪 | ❌ | 未实现 |
+| API Key 代管 | ❌ 故意隐藏 | 不作为缺口 |
+
+### 24.3 产品定位确认
+
+- **核心平台功能已完善**（计费 / 鉴权 / 网关 / 证据链 / 控制台 / worker / 可观测性），
+  演示与内部使用无需再补功能。
+- **OEM / 扩展端点 / 折扣 / 多币种按产品需要启用**，不阻塞主平台；功能清单已同步标注。
+- 若真实收费上线，需要处理的仅为账务真实性 blocker（B1 定价 / B2 账外注资 / B3 无 usage 扣 0 /
+  B5 结算降级 / B6 历史账目），见 `docs/PRODUCTION_READINESS.md`，与 OEM 无关。
+
+### 24.4 本次文档同步范围
+
+- `docs/DEEPTROLS_完整功能清单.md`：第五篇 OEM 行修正（10 ✅ / 3 🟡 / 4 ❌）、
+  第一篇/资金面/第四篇「租户级定价」统一标 🟡、汇总计数更新、建议实施顺序标注 OEM 按需。
+- `docs/PRODUCTION_READINESS.md`：F3（OEM/白标）由 ⬜ 修正为 🟡 并列出已实现与剩余项。
+- 纯文档变更，非核心代码路径，无需 TDD；不删改上文旧记录。
