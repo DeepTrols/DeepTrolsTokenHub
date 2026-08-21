@@ -698,6 +698,49 @@ func TestHandleCreateChannel_ModelNotFound(t *testing.T) {
 	}
 }
 
+func TestHandleCreateChannel_ReactivatesInactiveModel(t *testing.T) {
+	a := appForChannelsTest(t)
+	user := seedUserForChannelsTest(t, a, "ch-create-react@example.com", "pass", "Admin Create Reactivate")
+
+	// Seed the model as inactive (e.g. its previous channels were all deleted).
+	modelID := uuid.New()
+	now := time.Now().UTC()
+	_, err := a.Pool.Exec(context.Background(),
+		`INSERT INTO models (id, code, provider, category, display_name, status, release_stage, created_at, updated_at)
+		 VALUES ($1, 'deepseek-v4-flash', 'deepseek', 'chat', 'DeepSeek V4 Flash', 'inactive', 'GA', $2, $2)`,
+		modelID, now,
+	)
+	if err != nil {
+		t.Fatalf("seed inactive model: %v", err)
+	}
+
+	body := map[string]interface{}{
+		"name":     "DeepSeek Shared Channel",
+		"model_id": modelID.String(),
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/channels", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = setAdminCtx(req, user.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleCreateChannel(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var status string
+	err = a.Pool.QueryRow(context.Background(),
+		`SELECT status FROM models WHERE id = $1`, modelID,
+	).Scan(&status)
+	if err != nil || status != "active" {
+		t.Errorf("model status = %q (err: %v), want 'active'", status, err)
+	}
+}
+
 // =============================================================================
 // HandleUpdateChannel Tests
 // =============================================================================
@@ -947,6 +990,58 @@ func TestHandleDeleteChannel_Success(t *testing.T) {
 	}
 	if status != "inactive" {
 		t.Errorf("channel status = %s, want 'inactive'", status)
+	}
+
+	// The model had no other active channel, so it must be deactivated too.
+	err = a.Pool.QueryRow(context.Background(),
+		`SELECT status FROM models WHERE id = $1`, modelID,
+	).Scan(&status)
+	if err != nil {
+		t.Fatalf("query model: %v", err)
+	}
+	if status != "inactive" {
+		t.Errorf("model status = %s, want 'inactive'", status)
+	}
+}
+
+func TestHandleDeleteChannel_KeepsModelActiveWithOtherChannel(t *testing.T) {
+	a := appForChannelsTest(t)
+	user := seedUserForChannelsTest(t, a, "ch-del-keep@example.com", "pass", "Admin Delete Keep")
+	modelID := seedModelForChannelsTest(t, a, "gpt-4o", "openai")
+
+	chA := seedChannelForTest(t, a, "Channel A", modelID)
+	chB := seedChannelForTest(t, a, "Channel B", modelID)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/channels/"+chA.String(), nil)
+	req = chiRouteCtx(req, "id", chA.String())
+	req = setAdminCtx(req, user.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleDeleteChannel(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var status string
+	err := a.Pool.QueryRow(context.Background(),
+		`SELECT status FROM channels WHERE id = $1`, chA,
+	).Scan(&status)
+	if err != nil || status != "inactive" {
+		t.Errorf("channel A status = %q (err: %v), want 'inactive'", status, err)
+	}
+	err = a.Pool.QueryRow(context.Background(),
+		`SELECT status FROM channels WHERE id = $1`, chB,
+	).Scan(&status)
+	if err != nil || status != "active" {
+		t.Errorf("channel B status = %q (err: %v), want 'active'", status, err)
+	}
+	err = a.Pool.QueryRow(context.Background(),
+		`SELECT status FROM models WHERE id = $1`, modelID,
+	).Scan(&status)
+	if err != nil || status != "active" {
+		t.Errorf("model status = %q (err: %v), want 'active'", status, err)
 	}
 }
 

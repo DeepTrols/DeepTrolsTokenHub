@@ -306,6 +306,13 @@ func HandleCreateChannel(a *app.App) http.HandlerFunc {
 			return
 		}
 
+		// A newly added channel makes the model routable again, so reactivate
+		// it if it was previously deactivated for lacking active channels.
+		_, _ = a.Pool.Exec(dbCtx,
+			`UPDATE models SET status = 'active', updated_at = $1 WHERE id = $2 AND status = 'inactive'`,
+			now, modelID,
+		)
+
 		writeJSON(w, http.StatusCreated, map[string]interface{}{
 			"data": channelResponse{
 				ID:             channelID.String(),
@@ -433,6 +440,24 @@ func HandleDeleteChannel(a *app.App) http.HandlerFunc {
 		)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to deactivate channel"})
+			return
+		}
+
+		// If this was the model's last active channel, deactivate the model so
+		// it no longer shows up as an available catalog entry.
+		_, err = a.Pool.Exec(dbCtx,
+			`UPDATE models m
+			 SET status = 'inactive', updated_at = $1
+			 WHERE m.id = (SELECT model_id FROM channels WHERE id = $2)
+			   AND m.status IN ('active','beta')
+			   AND NOT EXISTS (
+			     SELECT 1 FROM channels c
+			     WHERE c.model_id = m.id AND c.status = 'active'
+			   )`,
+			now, channelID,
+		)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to deactivate orphaned model"})
 			return
 		}
 

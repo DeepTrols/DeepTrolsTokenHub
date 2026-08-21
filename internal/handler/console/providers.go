@@ -251,13 +251,17 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 					}
 				}
 
-				// Upsert model
-				_, err := a.Pool.Exec(dbCtx,
+				// Upsert model. On conflict (existing code) resolve the real
+				// model ID and reactivate it, so a previously deactivated model
+				// becomes available again once a provider serves it.
+				var resolvedModelID uuid.UUID
+				err := a.Pool.QueryRow(dbCtx,
 					`INSERT INTO models (id, code, provider, category, display_name, status, release_stage, created_at, updated_at)
 				 VALUES ($1,$2,$3,'chat',$4,'active','GA',$5,$5)
-				 ON CONFLICT (code) DO UPDATE SET display_name=EXCLUDED.display_name, provider=EXCLUDED.provider, updated_at=$5`,
+				 ON CONFLICT (code) DO UPDATE SET display_name=EXCLUDED.display_name, provider=EXCLUDED.provider, status='active', updated_at=$5
+				 RETURNING id`,
 					modelID, code, req.Provider, displayName, now,
-				)
+				).Scan(&resolvedModelID)
 				if err != nil {
 					log.Printf("provider: upsert model %s: %v", code, err)
 					continue
@@ -268,7 +272,7 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 					`INSERT INTO channels (id, name, model_id, pool_type, health_score, health_status, status, weight, max_concurrency, created_at, updated_at)
 				 VALUES ($1,$2,$3,'shared',100,'healthy','active',100,10,$4,$4)
 				 ON CONFLICT DO NOTHING`,
-					channelID, req.Name+"-"+code, modelID, now,
+					channelID, req.Name+"-"+code, resolvedModelID, now,
 				)
 				if err != nil {
 					log.Printf("provider: create channel for %s: %v", code, err)
@@ -293,13 +297,13 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 					`INSERT INTO model_pricing (id, model_id, tenant_id, request_type, pricing_dimension, unit_name, unit_price, upstream_cost, currency, created_at, updated_at)
 				 VALUES (uuid_generate_v4(),$1,NULL,'chat','input','1K tokens','0.001','0.001','CNY',$2,$2)
 				 ON CONFLICT DO NOTHING`,
-					modelID, now,
+					resolvedModelID, now,
 				)
 				_, _ = a.Pool.Exec(dbCtx,
 					`INSERT INTO model_pricing (id, model_id, tenant_id, request_type, pricing_dimension, unit_name, unit_price, upstream_cost, currency, created_at, updated_at)
 				 VALUES (uuid_generate_v4(),$1,NULL,'chat','output','1K tokens','0.001','0.001','CNY',$2,$2)
 				 ON CONFLICT DO NOTHING`,
-					modelID, now,
+					resolvedModelID, now,
 				)
 
 				created++
@@ -763,16 +767,44 @@ func HandleDeleteProvider(a *app.App) http.HandlerFunc {
 			return
 		}
 
+		// Deactivate models that lost their last active channel as a result of
+		// this deletion, so the catalog no longer advertises unroutable models.
+		modelRes, err := tx.Exec(dbCtx,
+			`UPDATE models m
+			 SET status = 'inactive', updated_at = $1
+			 WHERE m.id IN (
+			   SELECT DISTINCT c2.model_id
+			   FROM channels c2
+			   WHERE c2.id IN (
+			     SELECT ci2.channel_id
+			     FROM channel_instances ci2
+			     WHERE ci2.base_url = $2 AND ci2.config->>'api_key' = $3
+			   )
+			 )
+			 AND m.status IN ('active','beta')
+			 AND NOT EXISTS (
+			   SELECT 1 FROM channels c3
+			   WHERE c3.model_id = m.id AND c3.status = 'active'
+			 )`,
+			now, baseURL, apiKey,
+		)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to deactivate orphaned models"})
+			return
+		}
+
 		if err := tx.Commit(dbCtx); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to commit transaction"})
 			return
 		}
 
 		deleted := result.RowsAffected()
+		deactivated := modelRes.RowsAffected()
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"status":         "deleted",
-			"credential_id":  representativeID.String(),
-			"deleted_models": deleted,
+			"status":             "deleted",
+			"credential_id":      representativeID.String(),
+			"deleted_models":     deleted,
+			"deactivated_models": deactivated,
 		})
 	}
 }

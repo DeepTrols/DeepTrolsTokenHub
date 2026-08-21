@@ -861,3 +861,35 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
   第一篇/资金面/第四篇「租户级定价」统一标 🟡、汇总计数更新、建议实施顺序标注 OEM 按需。
 - `docs/PRODUCTION_READINESS.md`：F3（OEM/白标）由 ⬜ 修正为 🟡 并列出已实现与剩余项。
 - 纯文档变更，非核心代码路径，无需 TDD；不删改上文旧记录。
+
+## 二十五、2026-08-21 渠道删除后模型仍展示修复（渠道/模型生命周期级联）
+
+### 25.1 问题
+
+- 用户在前端「渠道管理」页删除字节豆包服务商后，模型管理页仍展示 130 个字节豆包模型。
+- 根因：`models` 目录与 `channels` 是两张表，删除渠道只把 `channels`/`channel_instances`
+  置为 `inactive`，`models.status` 仍为 `active`；`GET /api/console/models`（`ListActive`）
+  只看模型状态不看渠道，导致无活跃渠道的模型继续出现在模型管理、模型广场、`/v1/models`、
+  配额管理下拉等所有"可用模型"入口。
+- 开发库核对：删除后为 130 个 bytedance 模型（active）+ 130 个渠道（inactive）+ 2 个 deepseek 模型（active）。
+
+### 25.2 修复（生命周期级联规则）
+
+> 规则：**最后一个活跃渠道被删除 → 模型自动下架；重新添加渠道/服务商 → 模型自动上架。**
+
+| 文件 | 改动 |
+|------|------|
+| `internal/handler/console/providers.go` | `HandleDeleteProvider` 事务内追加：被删凭证关联的模型若已无任何 active 渠道，置 `inactive`，响应新增 `deactivated_models`；`HandleCreateProvider` 模型 upsert 改 `RETURNING id`（修复冲突时渠道指向不存在的 model id 的 FK 问题）并在冲突时重置 `status='active'`，渠道/实例/定价统一用真实模型 id |
+| `internal/handler/console/channels.go` | `HandleDeleteChannel` 追加同规则级联；`HandleCreateChannel` 对 `inactive` 模型自动恢复 `active` |
+
+### 25.3 测试与验证
+
+- 新增/更新回归测试：provider 删除级联下架（`TestHandleDeleteProvider_Success` 断言模型 inactive +
+  `deactivated_models=1`）、多渠道保留（`TestHandleDeleteProvider_KeepsModelActiveWithOtherChannel`）、
+  渠道删除级联（`TestHandleDeleteChannel_Success` + `_KeepsModelActiveWithOtherChannel`）、
+  重新创建渠道/服务商自动上架（`TestHandleCreateChannel_ReactivatesInactiveModel`、
+  `TestHandleCreateProvider_ReactivatesExistingInactiveModel`）。
+- 全量验证：`go test ./... -count=1`、`go vet ./...`、`go build ./...` 全绿。
+- 开发库修复：将已无活跃渠道的 130 个 bytedance 模型补标 `inactive`（`UPDATE 130`），
+  现为 bytedance inactive × 130 / deepseek active × 2。
+- API 已重建重启（PID 16696），`/api/public/stats` 返回 `{"models":2}`。
