@@ -169,6 +169,9 @@ func handleForwardedRawExecution(
 		holdAmount, _ = decimal.NewFromString(minHoldAmount)
 	} else {
 		holdAmount = priceResult.ListCost
+		if rejectIncompletePricing(w, priceResult) {
+			return
+		}
 	}
 	if holdAmount.LessThanOrEqual(decimal.Zero) {
 		holdAmount, _ = decimal.NewFromString(minHoldAmount)
@@ -326,6 +329,14 @@ func handleForwardedRawExecution(
 	}
 	walletCharged := finalCost
 	underfunded := false
+	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
+	if pricingIncomplete {
+		// Never let a misconfigured price produce a free call: charge the
+		// reserved hold and record the evidence for reconciliation.
+		log.Printf("gateway: %s pricing incomplete for dims %v; charging reserved hold %s", endpoint, actualCosts.MissingPricing, holdAmount)
+		finalCost = holdAmount
+		walletCharged = holdAmount
+	}
 	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
 		// Commit the reserved amount and RECORD the shortfall in the
 		// evidence chain; never disguise an undercharge as full settlement.
@@ -344,7 +355,7 @@ func handleForwardedRawExecution(
 	}
 
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, synthetic, routeResult, actualCosts, actualUsage.TotalTokens, walletCharged, underfunded)
+	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, synthetic, routeResult, actualCosts, actualUsage.TotalTokens, walletCharged, underfunded, pricingIncomplete)
 
 	if raw.ContentType != "" {
 		w.Header().Set("Content-Type", raw.ContentType)
@@ -398,6 +409,9 @@ func handleForwardedEndpointExecution(
 		holdAmount, _ = decimal.NewFromString(minHoldAmount)
 	} else {
 		holdAmount = priceResult.ListCost
+		if rejectIncompletePricing(w, priceResult) {
+			return
+		}
 	}
 	if holdAmount.LessThanOrEqual(decimal.Zero) {
 		holdAmount, _ = decimal.NewFromString(minHoldAmount)
@@ -543,6 +557,14 @@ func handleForwardedEndpointExecution(
 	}
 	walletCharged := finalCost
 	underfunded := false
+	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
+	if pricingIncomplete {
+		// Never let a misconfigured price produce a free call: charge the
+		// reserved hold and record the evidence for reconciliation.
+		log.Printf("gateway: %s pricing incomplete for dims %v; charging reserved hold %s", endpoint, actualCosts.MissingPricing, holdAmount)
+		finalCost = holdAmount
+		walletCharged = holdAmount
+	}
 	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
 		// Commit the reserved amount and RECORD the shortfall in the
 		// evidence chain; never disguise an undercharge as full settlement.
@@ -565,7 +587,7 @@ func handleForwardedEndpointExecution(
 	// Log usage in background with a detached context so it survives the HTTP
 	// request lifecycle.
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, actualUsage.TotalTokens, walletCharged, underfunded)
+	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, actualUsage.TotalTokens, walletCharged, underfunded, pricingIncomplete)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)

@@ -27,7 +27,7 @@
 
 | # | 项 | 现状 | 风险 | 建议 | 状态 |
 |---|---|---|---|---|---|
-| B1 | 定价不是真实价格 | deepseek-v4-flash/pro 定价为占位值（输入/输出同价 0.001 元/1K，低于官方价 3~27 倍），无缓存命中维度 | 上线即系统性少收；毛利错乱 | 售价与成本分离：成本侧记真实上游价（含峰谷/缓存），售价侧走"价格模板 + 加价率/固定价"，模型多了靠模板与租户分层 | 🟡 方案已定，未实现 |
+| B1 | 定价不是真实价格 | 已实现成本/售价分离：`model_pricing` 增加 `price_type`（cost/sell）与 `period`（peak/off_peak）；DeepSeek 官方价（2026-08-17 生效，含峰谷 + 缓存命中维度）已作为成本侧种子数据；售价 = 显式售价行 或 成本原价（无加价）；`PriceSnapshot` 记录 cost/sell/version/period；token 计费按 1K 换算；价格不完整 → 网关 422 `pricing_incomplete`（结算兜底按预留额计费并留证据） | 已消除 | 见 PROJECT_STATUS.md 二十六节 | ✅ 已实现（migration 000011 + pricer 双通道 + PAYG 门禁） |
 | B2 | 账外注资 | 注册赠送余额直接 `INSERT wallets`，不写 `wallet_transactions`（`handler/console/auth.go:262`）；审计发现 4 个钱包余额与流水对不上 | 余额不可信，对账失去根基 | 所有余额变更必须走 wallet repo 统一收口（TopUp/Transfer/专用 ledger 写入），禁止 handler 直改表 | 🟡 已定位，未修复 |
 | B3 | 无 usage 的请求扣 0 | 非流式 chat 上游不返回 usage 时 `calculateActualCosts` 返回 0 成本（免费） | 收入漏洞：无 usage 厂商的调用全部免费 | 改为"明确估算并标记（source=estimated）"或按配置拒绝；不能静默免费 | 🟡 已定位，未修复 |
 | B4 | 真实支付 | `ENABLE_FAKE_PAYMENT=true`，充值/兑换码全 mock | 没有支付渠道 = 没有收入 | 接入至少一个支付渠道（支付宝/微信/Stripe）；支付回调验签 + 幂等 | ⬜ |
@@ -66,7 +66,7 @@
 
 ## 四、建议路线图（Blocker 顺序）
 
-1. **定价引擎**（B1）：售价/成本分离 + 价格模板 + 加价率/固定价 + 缓存维度；deepseek 官方价作为第一个数据源（成本侧）
+1. **定价引擎**（B1）：售价/成本分离 + 固定价 + 缓存维度；deepseek 官方价作为第一个数据源（成本侧）——已实现且无加价（售价 = 成本）
 2. **钱包账本收口**（B2）：余额变更全走流水；补余额预警（P1 前半）
 3. **无 usage 计费策略**（B3）：估算并标记，禁止免费
 4. **真实支付**（B4）+ 月度账单（P1 后半）

@@ -893,3 +893,68 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 开发库修复：将已无活跃渠道的 130 个 bytedance 模型补标 `inactive`（`UPDATE 130`），
   现为 bytedance inactive × 130 / deepseek active × 2。
 - API 已重建重启（PID 16696），`/api/public/stats` 返回 `{"models":2}`。
+
+## 二十六、2026-08-21 B1 定价引擎落地（成本/售价分离 + 峰谷/缓存维度 + PAYG 门禁）
+
+### 26.1 背景与目标
+
+- B1 原状：deepseek-v4-flash/pro 定价为占位值（输入/输出同价 0.001 元/1K），
+  无缓存命中维度、无峰谷时段，且 pricer 按原始 token 数 × unit_price 计算（未按 1K 换算），
+  定价与毛利完全失真。
+- 本次按既定方案落地最小闭环：成本/售价分离 + 时段定价 + 无加价（售价 = 成本）+ 价格不完整拒绝调用。
+
+### 26.2 数据层（migration 000011）
+
+| 改动 | 说明 |
+|------|------|
+| `model_pricing.price_type` | `cost`（成本）/ `sell`（售价），默认 `sell`，带 CHECK |
+| `model_pricing.period` | `peak`（高峰）/ `off_peak`（非高峰），默认 `off_peak`，带 CHECK |
+| 平台级唯一索引 | `(model_id, request_type, pricing_dimension, price_type, period) WHERE tenant_id IS NULL`，种子幂等 |
+| DeepSeek 成本种子 | V4-Flash / V4-Pro ×（cache_read/input/output）×（peak/off_peak）共 12 行，
+  按 2026-08-17 官方价（元/百万 tokens）换算为 元/1K tokens；旧占位售价行停用 |
+
+### 26.3 计费引擎（pricer 双通道）
+
+- 售价解析顺序：显式售价行（优先当前时段、优先租户行）→ 成本行原价（无加价）→ 缺失。
+- 成本解析：成本行优先，无成本行时回退售价行 `upstream_cost`。
+- 时段：Asia/Shanghai 本地时间，高峰 09:00–12:00、14:00–18:00，其余非高峰（含午休）。
+- 单位换算：token 维度（input/output/cache_read/cache_write/reasoning）按 元/1K tokens 计费，
+  image/audio/tts/video 按单价 × 数量。
+- `PriceSnapshot` 每行记录 `unit_price`（售价）/ `upstream_cost`（成本）/ `price_version` /
+  `price_type` / `period` / `source`（explicit_sell | cost_derived）/ `tenant_id`；
+  顶层记录 `period`。
+- 有用量但无法解析售价的维度进入 `MissingPricing`（绝不静默按 0 计费）。
+- `CalculateAt(..., now)` 支持注入时间，测试确定性强。
+
+### 26.4 PAYG 门禁（网关）
+
+- 估算阶段（chat 非流式/流式 + endpoints 转发）：`MissingPricing` 非空 → 422
+  `pricing_incomplete`，上游不调用、不预留。
+- 结算阶段兜底：实际 usage 出现缺失维度时按预留额计费，usage_log 记录
+  `error_code=pricing_incomplete`，杜绝"价格缺失 = 免费调用"。
+
+### 26.5 管理端
+
+- `GET /api/console/models` / `{id}`：定价行返回 `price_type` / `period`；模型广场按售价（非高峰优先）展示。
+- 模型编辑：只替换 `sell` 行、保留 `cost` 行（防止编辑模型误删成本种子），新增 `period` 支持。
+- 加价功能已移除：售价 = 成本原价；`POST /pricing/markup` / `GET /pricing` 端点删除。
+- 前端模型管理：列表展示 成本/售价 与 高峰/非高峰 标签；编辑表单新增时段选择；
+  仅有成本价时提示"售价按真实成本实时计算"；成本核算页移除加价率输入。
+
+### 26.6 验证
+
+- 单测：pricer 重写（售价/成本解析、时段选择、1K 换算、缓存命中、缺失定价、租户行优先、
+  快照字段、成本原价回退、时段边界）；仓储层（price_type/period 扫描）；
+  网关（估算阶段 422 回归 + 结算 undercharged 路径保留）。
+- 全量：`go test ./... -count=1`、`go vet ./...`、`go build ./...` 全绿；
+  前端 `tsc -b && vite build` + ModelManagement vitest 通过。
+- 真实库探针 `scripts/probe_pricing.go`：
+  `deepseek-v4-flash 10:00 peak sell=0.0077 cost=0.0077`、
+  `20:00 off_peak sell=0.00385 cost=0.00385`，V4-Pro 同理，`missing=[]`；
+  售价 = 成本原价（无加价），与官方价逐项吻合。
+- 开发库已应用迁移（schema_migrations=11），API 重建重启，`/api/public/stats` = 2。
+
+### 26.7 后续（不在本次范围）
+
+- 租户/user_level 倍率、模型级售价倍率列、OEM 自助定价管理端点。
+- 其他厂商成本行（当前只有 DeepSeek 官方价；其余模型沿用既有售价行 + upstream_cost）。

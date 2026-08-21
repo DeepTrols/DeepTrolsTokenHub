@@ -615,7 +615,14 @@ func TestHandleNonStreamingChat_SettleUnderfunded_MarksEvidence(t *testing.T) {
 	}
 	pricingRepo := &mockPricingRepo{
 		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
-			return makePricingEntries(), nil
+			// Output price is high enough that the 100k-token final cost
+			// exceeds the minimum hold, exercising the underfunded path.
+			return []domain.ModelPricing{
+				{ID: uuid.New(), ModelID: mid, PricingDimension: "input", UnitName: "token",
+					UnitPrice: "0.000015", UpstreamCost: "0.000010", Currency: "CNY", IsActive: true},
+				{ID: uuid.New(), ModelID: mid, PricingDimension: "output", UnitName: "token",
+					UnitPrice: "0.0002", UpstreamCost: "0.0001", Currency: "CNY", IsActive: true},
+			}, nil
 		},
 	}
 
@@ -1869,10 +1876,73 @@ func TestHandleNonStreamingChat_HoldAmount_UsesPricer(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	// Verify the hold amount is not zero
-	expectedMin, _ := decimal.NewFromString("0.0001")
+	// Verify the hold amount is derived from pricing (prices are per 1K tokens,
+	// so a small prompt yields a small but positive hold).
+	expectedMin, _ := decimal.NewFromString("0.0000001")
 	if walletRepo.lastReserveAmt.LessThan(expectedMin) {
 		t.Errorf("reserve amount %s should be >= minimum %s", walletRepo.lastReserveAmt, expectedMin)
+	}
+}
+
+func TestHandleNonStreamingChat_PricingIncomplete_RejectsBeforeUpstream(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	modelID := uuid.New()
+
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			t.Error("executor should not be called when pricing is incomplete")
+			return nil, nil
+		},
+	}
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{{ID: channelID, ModelID: modelID, Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 1, MaxConcurrency: 10}}, nil
+		},
+		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{{ID: instanceID, ChannelID: channelID, BaseURL: "http://localhost:9999/v1", ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+		},
+	}
+	// Only output pricing exists: the estimate also needs input -> 422.
+	pricingRepo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return []domain.ModelPricing{{
+				ID: uuid.New(), ModelID: mid, PricingDimension: "output", UnitName: "token",
+				UnitPrice: "0.03", UpstreamCost: "0.015", Currency: "CNY", IsActive: true,
+			}}, nil
+		},
+	}
+	walletRepo := &mockWalletRepo{
+		findByUserFn: func(ctx context.Context, uid uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error) {
+			return &domain.Wallet{ID: uuid.New(), UserID: uid, Balance: decimal.NewFromFloat(100.0), Frozen: decimal.Zero}, nil
+		},
+	}
+	usageRepo := &mockUsageRepo{}
+
+	application := newTestApp(executor, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+	req := newNonStreamChatRequest(userID, apiKeyID, validRequestBody())
+	w := httptest.NewRecorder()
+
+	HandleNonStreamingChat(w, req, application, "gpt-4o", validRequestBody())
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "pricing_incomplete") {
+		t.Errorf("body = %s, want pricing_incomplete error", w.Body.String())
+	}
+	if executor.executeCalled != 0 {
+		t.Error("executor should not be called")
+	}
+	if walletRepo.reserveCalled != 0 {
+		t.Error("reserve should not be called")
 	}
 }
 

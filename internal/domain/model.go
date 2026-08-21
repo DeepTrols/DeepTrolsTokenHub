@@ -53,6 +53,15 @@ func (m Model) IsCallable() bool {
 	return m.Status == ModelStatusActive || m.Status == ModelStatusBeta
 }
 
+// Price type / period dimensions for pricing rows.
+const (
+	PriceTypeCost = "cost"
+	PriceTypeSell = "sell"
+
+	PricingPeriodPeak    = "peak"
+	PricingPeriodOffPeak = "off_peak"
+)
+
 // ModelPricing defines a price for a specific dimension.
 type ModelPricing struct {
 	ID               uuid.UUID
@@ -65,6 +74,8 @@ type ModelPricing struct {
 	Currency         string
 	UpstreamCost     string
 	PriceVersion     int64
+	PriceType        string
+	Period           string
 	Conditions       map[string]any
 	IsActive         bool
 	CreatedAt        time.Time

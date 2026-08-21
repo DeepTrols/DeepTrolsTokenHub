@@ -313,3 +313,46 @@ func TestFindByModel_ScansPriceVersion(t *testing.T) {
 		t.Errorf("PriceVersion = %d, want 7", pricing[0].PriceVersion)
 	}
 }
+
+func TestFindByModel_ScansPriceTypeAndPeriod(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, "model_pricing", "tenant_models", "models")
+
+	m := seedModel(t, ctx, repo, "pt-"+uuid.New().String()[:8])
+
+	// Explicit cost/peak row.
+	costID := uuid.New()
+	if _, err := repo.pool.Exec(ctx, `
+		INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, price_type, period)
+		VALUES ($1, $2, 'chat', 'input', '1K tokens', '0.003', 'CNY', true, 'cost', 'peak')
+	`, costID, m.ID); err != nil {
+		t.Fatalf("seed cost pricing: %v", err)
+	}
+	// Defaults for legacy rows: sell / off_peak.
+	sellID := uuid.New()
+	if _, err := repo.pool.Exec(ctx, `
+		INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active)
+		VALUES ($1, $2, 'chat', 'output', '1K tokens', '0.009', 'CNY', true)
+	`, sellID, m.ID); err != nil {
+		t.Fatalf("seed sell pricing: %v", err)
+	}
+
+	pricing, err := repo.FindByModel(ctx, m.ID, nil)
+	if err != nil {
+		t.Fatalf("FindByModel: %v", err)
+	}
+	if len(pricing) != 2 {
+		t.Fatalf("pricing rows = %d, want 2", len(pricing))
+	}
+	byID := map[uuid.UUID]domain.ModelPricing{}
+	for _, p := range pricing {
+		byID[p.ID] = p
+	}
+	if p := byID[costID]; p.PriceType != "cost" || p.Period != "peak" {
+		t.Errorf("cost row type/period = %q/%q, want cost/peak", p.PriceType, p.Period)
+	}
+	if p := byID[sellID]; p.PriceType != "sell" || p.Period != "off_peak" {
+		t.Errorf("legacy row type/period = %q/%q, want sell/off_peak", p.PriceType, p.Period)
+	}
+}

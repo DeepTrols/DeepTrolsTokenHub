@@ -180,8 +180,6 @@ func main() {
 		r.Get("/users", console.HandleListUsers(application))
 		r.Get("/costs", console.HandleCostSummary(application))
 		r.Get("/ledger", console.HandleUserLedger(application))
-		r.Post("/pricing/markup", console.HandleSetMarkup(application))
-		r.Get("/pricing", console.HandleGetMarkup(application))
 		r.Put("/users/{id}/status", console.HandleUpdateUserStatus(application))
 		r.Put("/users/{id}/role", console.HandleUpdateUserRole(application))
 		r.Post("/users", console.HandleCreateUser(application))

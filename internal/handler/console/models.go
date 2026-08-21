@@ -73,14 +73,16 @@ type pricingRow struct {
 	Dimension string `json:"dimension"`
 	UnitName  string `json:"unit_name"`
 	UnitPrice string `json:"unit_price"`
+	PriceType string `json:"price_type"`
+	Period    string `json:"period"`
 }
 
 // fetchModelPricing queries model_pricing for a given model and returns pricing rows.
 func fetchModelPricing(ctx context.Context, a *app.App, modelID interface{}) ([]pricingRow, error) {
 	rows, err := a.Pool.Query(ctx,
-		`SELECT pricing_dimension, unit_name, unit_price FROM model_pricing
+		`SELECT pricing_dimension, unit_name, unit_price, price_type, period FROM model_pricing
 		 WHERE model_id = $1 AND is_active = TRUE
-		 ORDER BY pricing_dimension`, modelID,
+		 ORDER BY CASE WHEN price_type = 'sell' THEN 0 ELSE 1 END, pricing_dimension, period`, modelID,
 	)
 	if err != nil {
 		return nil, err
@@ -89,15 +91,12 @@ func fetchModelPricing(ctx context.Context, a *app.App, modelID interface{}) ([]
 
 	var pricing []pricingRow
 	for rows.Next() {
-		var dimension, unitName, unitPrice string
-		if err := rows.Scan(&dimension, &unitName, &unitPrice); err != nil {
+		var p pricingRow
+		if err := rows.Scan(&p.Dimension, &p.UnitName, &p.UnitPrice, &p.PriceType, &p.Period); err != nil {
 			return nil, err
 		}
-		pricing = append(pricing, pricingRow{
-			Dimension: dimension,
-			UnitName:  unitName,
-			UnitPrice: trimDecimalPrice(unitPrice),
-		})
+		p.UnitPrice = trimDecimalPrice(p.UnitPrice)
+		pricing = append(pricing, p)
 	}
 	return pricing, rows.Err()
 }
@@ -128,13 +127,17 @@ func trimDecimalPrice(s string) string {
 }
 
 // pricingToMap converts pricing rows into a dimension -> price map for
-// display-oriented consumers (e.g. the model marketplace page).
+// display-oriented consumers (e.g. the model marketplace page). Sell rows are
+// preferred; among them, off_peak is shown first for stable display.
 func pricingToMap(rows []pricingRow) map[string]string {
 	if len(rows) == 0 {
 		return nil
 	}
 	m := make(map[string]string, len(rows))
 	for _, p := range rows {
+		if _, ok := m[p.Dimension]; ok {
+			continue // first row wins (sell before cost, off_peak before peak)
+		}
 		m[p.Dimension] = p.UnitPrice
 	}
 	return m
@@ -199,6 +202,7 @@ type createModelPricingReq struct {
 	Dimension string `json:"dimension"`
 	UnitName  string `json:"unit_name"`
 	UnitPrice string `json:"unit_price"`
+	Period    string `json:"period,omitempty"`
 }
 
 // HandleCreateModel handles POST /api/console/models.
@@ -262,9 +266,9 @@ func HandleCreateModel(a *app.App) http.HandlerFunc {
 
 		for _, p := range req.Pricings {
 			_, err = tx.Exec(dbCtx,
-				`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, created_at, updated_at)
-				 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, $7, $7)`,
-				uuid.New(), modelID, req.Category, p.Dimension, p.UnitName, p.UnitPrice, now,
+				`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, created_at, updated_at)
+				 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'), $8, $8)`,
+				uuid.New(), modelID, req.Category, p.Dimension, p.UnitName, p.UnitPrice, p.Period, now,
 			)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to insert model pricing"})
@@ -362,9 +366,10 @@ func HandleUpdateModel(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// Replace pricing rows
+		// Replace sell pricing rows. Cost rows (price_type='cost') are managed
+		// by provider cost sync and must survive model edits.
 		if req.Pricings != nil {
-			_, err = tx.Exec(dbCtx, `DELETE FROM model_pricing WHERE model_id = $1`, modelID)
+			_, err = tx.Exec(dbCtx, `DELETE FROM model_pricing WHERE model_id = $1 AND price_type = 'sell'`, modelID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete old pricing"})
 				return
@@ -372,9 +377,10 @@ func HandleUpdateModel(a *app.App) http.HandlerFunc {
 
 			for _, p := range req.Pricings {
 				_, err = tx.Exec(dbCtx,
-					`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, created_at, updated_at)
-					 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, $7, $7)`,
-					uuid.New(), modelID, string(model.Category), p.Dimension, p.UnitName, p.UnitPrice, now,
+					`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, price_version, created_at, updated_at)
+					 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'),
+					         (SELECT COALESCE(MAX(price_version), 0) + 1 FROM model_pricing WHERE model_id = $2), $8, $8)`,
+					uuid.New(), modelID, string(model.Category), p.Dimension, p.UnitName, p.UnitPrice, p.Period, now,
 				)
 				if err != nil {
 					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to insert new pricing"})

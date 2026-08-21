@@ -5,7 +5,7 @@
 > **更新日期: 2026-08-12**（本次：AI 配额池（三层账 + 幂等）✅ 已实现；配额管理（Admin）由只读升级为创建/分配）
 > 上次：2026-08-19（文档一致性修正：LiteLLM 移除同步 / HMAC 请求签名重新定位为可选 / Seedance 回调归类为 webhook / 健康阈值以代码为准 / Redis 自动释放语义澄清 / FX 标注按需；详见 docs/PROJECT_STATUS.md 十九节）
 > 本次：2026-08-20（状态同步：Redis 实时负载追踪 / 多实例并发跟踪 / Price Snapshot / 租户审核 由 ❌、🟡 转 ✅；详见 docs/PROJECT_STATUS.md 二十三节）
-> 上次：2026-08-21（OEM 体系状态修正：代充值/子账号客户管理/租户配置/租户级定价数据层已实现，10 ✅ / 3 🟡 / 4 ❌；产品定位确认：OEM 与扩展端点按需、不阻塞主平台；详见 PROJECT_STATUS.md 二十四节）
+> 上次：2026-08-21（B1 定价引擎落地：成本/售价分离 + 峰谷/缓存维度 + 无加价（售价=成本）+ PAYG 门禁，详见 PROJECT_STATUS.md 二十六节）
 
 ---
 
@@ -67,6 +67,7 @@
 | 流式计费 | SSE 最后 chunk 提取 usage | ✅ 已实现 |
 | usage_log + charge_line + evidence | 三表事务写库 | ✅ 已实现 |
 | Price Snapshot | 价格快照存入 usage_log | ✅ 已实现（pricer 写入 price_version / source / currency / captured_at / rows，非空快照） |
+| 成本/售价分离 + 峰谷定价 | cost/sell × peak/off_peak 定价行；售价 = 显式售价行 或 成本原价（无加价）；缓存命中按 cache_read 维度计费 | ✅ 已实现（migration 000011 + pricer 双通道） |
 | Durable Outbox | 异步计费事件 + Committer 100% 测试覆盖 | ✅ 已实现 |
 | 多维定价 | model_pricing 表 + conditions JSONB | 🟡 表就绪，conditions 未评估 |
 | 配额消费 | 网关 Check→429 + Deduct→ledger + Restore（best-effort） | ✅ 已实现 |
@@ -167,7 +168,7 @@
 | Admin RBAC | ✅ |
 | 模型选品（平台目录 × 租户配置） | ✅ tenant_models |
 | 模型定价（租户级独立价格） | 🟡 数据层已支持（tenant_id 覆盖 + 平台回退），OEM 自助管理端点/前端未提供 |
-| PAYG 门禁（价格不完整拒绝） | 🟡 tenant_models.allow_payg 字段已建，网关未强制 |
+| PAYG 门禁（价格不完整拒绝） | ✅ 网关估算阶段 422 pricing_incomplete；结算阶段按预留额计费并留 evidence（pricing_incomplete） |
 | 客户管理（CRUD + 封禁 + 等级） | 🟡 子账号 CRUD / 封禁 / 角色已实现（/team/*）；等级未实现 |
 | AI 折扣（独立于商品折扣） | ❌ |
 | 代充值（同租户钱包转账） | ✅ 已实现（team_balance.go：企业主/管理员同租户转账，幂等） |
@@ -276,7 +277,7 @@
 | 鉴权方式 | 4 | 2 | 0 | 2 |
 | 计费能力 | 16 | 14 | 0 | 2 |
 | 对账级别 | 4 | 2 | 0 | 2 |
-| OEM 能力 | 17 | 10 | 3 | 4 |
+| OEM 能力 | 17 | 11 | 2 | 4 |
 | Console 页面 | 16 | 16 | 0 | 0 |
 | Worker 能力 | 5 | 4 | 1 | 0 |
 | Adapter 类型 | 4 | 1 | 0 | 3 |

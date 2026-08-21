@@ -16,6 +16,8 @@ interface PricingRow {
   dimension: string;
   unit_name: string;
   unit_price: string;
+  price_type?: string;
+  period?: string;
 }
 
 interface ModelDetail {
@@ -30,7 +32,10 @@ interface ModelDetail {
 }
 
 const DIMENSIONS = ["input", "output", "cache_read", "cache_write", "reasoning", "image", "audio", "tts", "video"];
-const emptyPricing = (): PricingRow => ({ dimension: "", unit_name: "token", unit_price: "" });
+const emptyPricing = (): PricingRow => ({ dimension: "", unit_name: "token", unit_price: "", price_type: "sell", period: "off_peak" });
+
+const priceTypeLabel = (t?: string) => (t === "cost" ? "成本" : "售价");
+const periodLabel = (p?: string) => (p === "peak" ? "高峰" : "非高峰");
 
 const PROVIDER_OPTIONS = [
   { v: "deepseek", l: "DeepSeek 深度求索" },
@@ -95,7 +100,11 @@ export default function ModelManagement() {
   const openEdit = (m: ModelDetail) => {
     setCode(m.code); setProvider(m.provider); setCategory(m.category);
     setDisplayName(m.display_name); setContextWindow(m.context_window);
-    setPricings(m.pricings && m.pricings.length > 0 ? m.pricings : [emptyPricing()]);
+    setPricings(
+      m.pricings && m.pricings.length > 0
+        ? m.pricings.map((p) => ({ ...p, price_type: p.price_type || "sell", period: p.period || "off_peak" }))
+        : [emptyPricing()],
+    );
     setEditing(m); setShowForm(true);
   };
 
@@ -104,7 +113,9 @@ export default function ModelManagement() {
     const body = {
       code: code.trim(), provider: provider.trim(), category,
       display_name: displayName, context_window: contextWindow,
-      pricings: pricings.filter((p) => p.dimension && p.unit_price),
+      pricings: pricings.filter((p) => p.dimension && p.unit_price).map((p) => ({
+        dimension: p.dimension, unit_name: p.unit_name, unit_price: p.unit_price, period: p.period,
+      })),
     };
     try {
       if (editing) {
@@ -255,6 +266,11 @@ export default function ModelManagement() {
                   placeholder="单位" className="glass-soft rounded-xl px-3 py-2 text-sm w-20 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
                 <input type="text" value={p.unit_price} onChange={(e) => updatePricing(idx, "unit_price", e.target.value)}
                   placeholder="单价" className="glass-soft rounded-xl px-3 py-2 text-sm w-32 font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                <select value={p.period || "off_peak"} onChange={(e) => updatePricing(idx, "period", e.target.value)}
+                  className="glass-soft rounded-xl px-3 py-2 text-sm w-24 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+                  <option value="off_peak">非高峰</option>
+                  <option value="peak">高峰</option>
+                </select>
                 <button onClick={() => removePricing(idx)} className="p-2 text-[#5C6472]/70 hover:text-[#C4372C]" title="移除">
                   <Trash2 size={16} />
                 </button>
@@ -310,9 +326,18 @@ export default function ModelManagement() {
                     {m.context_window > 0 ? ` · ${Math.round(m.context_window / 1000)}k context` : ""}
                   </p>
                   {m.pricings && m.pricings.length > 0 && (
-                    <p className="text-xs text-[#5C6472]/70 mt-0.5">
-                      {m.pricings.map((p) => `${p.dimension}: ${p.unit_price}`).join(" / ")}
-                    </p>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {m.pricings.map((p, i) => (
+                        <span key={i} className="text-[11px] px-1.5 py-0.5 rounded-md bg-black/[0.04] text-[#5C6472]">
+                          {p.dimension}: {p.unit_price}
+                          <span className="ml-1 text-[#4F6BED]">{priceTypeLabel(p.price_type)}</span>
+                          <span className="ml-1 text-[#A06B12]">{periodLabel(p.period)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {m.pricings && m.pricings.length > 0 && !m.pricings.some((p) => p.price_type !== "cost") && (
+                    <p className="text-xs text-[#A06B12]/80 mt-0.5">仅有成本价，售价按真实成本实时计算</p>
                   )}
                 </div>
                 <div className="flex items-center gap-2">

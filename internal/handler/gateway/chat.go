@@ -138,6 +138,9 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		holdAmount, _ = decimal.NewFromString(minHoldAmount)
 	} else {
 		holdAmount = priceResult.ListCost
+		if rejectIncompletePricing(w, priceResult) {
+			return
+		}
 	}
 	if holdAmount.LessThanOrEqual(decimal.Zero) {
 		holdAmount, _ = decimal.NewFromString(minHoldAmount)
@@ -291,6 +294,14 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	}
 	walletCharged := finalCost
 	underfunded := false
+	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
+	if pricingIncomplete {
+		// Never let a misconfigured price produce a free call: charge the
+		// reserved hold and record the evidence for reconciliation.
+		log.Printf("gateway: pricing incomplete for dims %v; charging reserved hold %s", actualCosts.MissingPricing, holdAmount)
+		finalCost = holdAmount
+		walletCharged = holdAmount
+	}
 	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
 		// Wallet cannot cover a final cost larger than the reserve —
 		// commit the reserved amount and RECORD the shortfall in the
@@ -343,7 +354,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	// Log usage in background with a detached context so it survives
 	// the HTTP request lifecycle.
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, quotaDeducted, walletCharged, underfunded)
+	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, quotaDeducted, walletCharged, underfunded, pricingIncomplete)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
@@ -394,6 +405,9 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		holdAmount, _ = decimal.NewFromString(minHoldAmount)
 	} else {
 		holdAmount = priceResult.ListCost
+		if rejectIncompletePricing(w, priceResult) {
+			return
+		}
 	}
 	if holdAmount.LessThanOrEqual(decimal.Zero) {
 		holdAmount, _ = decimal.NewFromString(minHoldAmount)
@@ -614,12 +628,19 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	// mid-stream (r.Context() would be cancelled).
 	walletCharged := decimal.Zero
 	underfunded := false
+	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
 	if reserveResult != nil {
 		commitCtx, commitCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer commitCancel()
 		finalCost := decimal.Zero
 		if actualCosts != nil {
 			finalCost = actualCosts.ListCost
+		}
+		if pricingIncomplete {
+			// Never let a misconfigured price produce a free call: charge the
+			// reserved hold and record the evidence for reconciliation.
+			log.Printf("gateway: stream pricing incomplete for dims %v; charging reserved hold %s", actualCosts.MissingPricing, holdAmount)
+			finalCost = holdAmount
 		}
 		walletCharged = finalCost
 		if settleErr := application.Charger.Settle(commitCtx, reserveResult.TransactionID, finalCost); settleErr != nil {
@@ -675,7 +696,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	}
 
 	// Log usage in background with detached context.
-	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, quotaDeducted, domain.UsageLogStatusCompleted, walletCharged, underfunded)
+	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, quotaDeducted, domain.UsageLogStatusCompleted, walletCharged, underfunded, pricingIncomplete)
 }
 
 // resolveStreamAPIKeyID extracts the API key ID for streaming logging.
@@ -910,9 +931,20 @@ func tenantIDOrDefaultPtr(tenantID *uuid.UUID) *uuid.UUID {
 	return tenantID
 }
 
+// rejectIncompletePricing fails a request when the pricer could not resolve a
+// sell price for a used dimension (invariant: never charge zero silently).
+func rejectIncompletePricing(w http.ResponseWriter, priceResult *billing.PriceResult) bool {
+	if priceResult == nil || len(priceResult.MissingPricing) == 0 {
+		return false
+	}
+	writeError(w, http.StatusUnprocessableEntity, "pricing_incomplete",
+		fmt.Sprintf("No sell price configured for model dimensions: %s", strings.Join(priceResult.MissingPricing, ", ")))
+	return true
+}
+
 // logUsageWithCosts records the usage log with real costs from the pricer.
 // Uses a detached context (30s timeout) independent of the HTTP request lifecycle.
-func logUsageWithCosts(r *http.Request, application *app.App, requestType string, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, quotaDeducted int64, walletCharged decimal.Decimal, underfunded bool) {
+func logUsageWithCosts(r *http.Request, application *app.App, requestType string, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, quotaDeducted int64, walletCharged decimal.Decimal, underfunded bool, pricingIncomplete bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1008,6 +1040,12 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 			"wallet underfunded: actual=%s charged=%s shortfall=%s",
 			finalCost, walletCharged, finalCost.Sub(walletCharged))
 	}
+	if pricingIncomplete {
+		params.ErrorCode = "pricing_incomplete"
+		params.ErrorMessage = fmt.Sprintf(
+			"pricing incomplete for dimensions: %s; charged reserved hold %s",
+			strings.Join(costs.MissingPricing, ","), walletCharged)
+	}
 
 	if _, err := application.Logger.Record(ctx, params); err != nil {
 		log.Printf("logger record failed: %v", err)
@@ -1015,7 +1053,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 }
 
 // logStreamUsage records usage for streaming requests.
-func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, quotaDeducted int64, status domain.UsageLogStatus, walletCharged decimal.Decimal, underfunded bool) {
+func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, quotaDeducted int64, status domain.UsageLogStatus, walletCharged decimal.Decimal, underfunded bool, pricingIncomplete bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1086,6 +1124,12 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *
 		params.ErrorMessage = fmt.Sprintf(
 			"wallet underfunded: actual=%s charged=%s shortfall=%s",
 			finalCost, walletCharged, finalCost.Sub(walletCharged))
+	}
+	if pricingIncomplete {
+		params.ErrorCode = "pricing_incomplete"
+		params.ErrorMessage = fmt.Sprintf(
+			"pricing incomplete for dimensions: %s; charged reserved hold %s",
+			strings.Join(costs.MissingPricing, ","), walletCharged)
 	}
 
 	if _, err := application.Logger.Record(ctx, params); err != nil {
