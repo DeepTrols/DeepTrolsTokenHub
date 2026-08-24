@@ -273,6 +273,39 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 			msg = lastErr.Error()
 		}
 		log.Printf("gateway: all upstream attempts failed: %v", lastErr)
+		// An upstream failure that already consumed tokens (the response
+		// carries a usage object, e.g. context_length_exceeded) is real spend
+		// and must be billed even though the request failed for the client.
+		if lastResp != nil && lastResp.Usage != nil && lastResp.Usage.HasUsage() {
+			actualCosts := calculateActualCosts(r.Context(), application, lastRouteResult, lastResp, tenantID)
+			finalCost := decimal.Zero
+			if actualCosts != nil {
+				finalCost = actualCosts.ListCost
+			}
+			walletCharged := decimal.Zero
+			underfunded := false
+			if finalCost.GreaterThan(decimal.Zero) {
+				// The per-attempt hold was already released; re-reserve the
+				// actual cost before settling so the wallet check still runs.
+				rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, finalCost, requestID+"-usage")
+				if rerr == nil {
+					if sErr := application.Charger.Settle(r.Context(), rr.TransactionID, finalCost); sErr != nil {
+						// Commit the reserved amount and record the shortfall
+						// in the evidence chain for reconciliation.
+						_ = application.Charger.Commit(r.Context(), rr.TransactionID)
+						walletCharged = finalCost
+						underfunded = true
+					} else {
+						walletCharged = finalCost
+					}
+				}
+			}
+			pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
+			go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModelName,
+				lastResp, lastRouteResult, actualCosts, lastResp.Usage.TotalTokens, walletCharged, underfunded, pricingIncomplete)
+			writeError(w, http.StatusBadGateway, "upstream_error", msg)
+			return
+		}
 		// Record the failed call in the evidence chain (invariant #4): every
 		// upstream failure leaves a zero-cost failed usage_log so billing
 		// reconciliation never sees "missing" requests.
@@ -791,7 +824,7 @@ func estimateUsageFromBody(body map[string]any) *usageparser.NormalizedUsage {
 		return nu
 	}
 
-	totalChars := 0
+	var totalTokens int64
 	for _, msg := range messages {
 		m, ok := msg.(map[string]any)
 		if !ok {
@@ -801,10 +834,10 @@ func estimateUsageFromBody(body map[string]any) *usageparser.NormalizedUsage {
 		if !ok {
 			continue
 		}
-		totalChars += len(content)
+		totalTokens += usageparser.EstimateTextTokens(content)
 	}
 
-	nu.InputTokens = int64(totalChars / charsPerToken)
+	nu.InputTokens = totalTokens
 	if nu.InputTokens <= 0 {
 		nu.InputTokens = 1
 	}

@@ -615,18 +615,17 @@ func validateEmbeddingsRequest(body map[string]any) error {
 
 // estimateEmbeddingsUsage estimates prompt tokens from the input length.
 func estimateEmbeddingsUsage(body map[string]any) *usageparser.NormalizedUsage {
-	chars := 0
+	var tokens int64
 	switch v := body["input"].(type) {
 	case string:
-		chars = len(v)
+		tokens = usageparser.EstimateTextTokens(v)
 	case []any:
 		for _, item := range v {
 			if s, ok := item.(string); ok {
-				chars += len(s)
+				tokens += usageparser.EstimateTextTokens(s)
 			}
 		}
 	}
-	tokens := int64(chars / charsPerToken)
 	if tokens <= 0 {
 		tokens = 1
 	}

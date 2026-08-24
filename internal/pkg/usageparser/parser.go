@@ -135,6 +135,35 @@ func clamp64(v, lo, hi int64) int64 {
 	return v
 }
 
+// EstimateTextTokens estimates the token count of text for pre-call budget
+// holds and fallback billing when upstream usage is unavailable. CJK
+// characters are close to one token each; non-CJK text is approximated at
+// four characters per token (matching the legacy charsPerToken heuristic).
+func EstimateTextTokens(text string) int64 {
+	var tokens int64
+	var nonCJK int64
+	for _, r := range text {
+		if isCJK(r) {
+			tokens++
+			continue
+		}
+		nonCJK++
+		if nonCJK >= 4 {
+			tokens++
+			nonCJK = 0
+		}
+	}
+	return tokens
+}
+
+func isCJK(r rune) bool {
+	return (r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified Ideographs
+		(r >= 0x3400 && r <= 0x4DBF) || // CJK Extension A
+		(r >= 0xF900 && r <= 0xFAFF) || // Compatibility Ideographs
+		(r >= 0x3040 && r <= 0x30FF) || // Hiragana + Katakana
+		(r >= 0xAC00 && r <= 0xD7AF) // Hangul
+}
+
 // ParseAnthropicUsage extracts normalized usage from an Anthropic response body.
 func ParseAnthropicUsage(raw map[string]any) (*NormalizedUsage, error) {
 	nu := &NormalizedUsage{}

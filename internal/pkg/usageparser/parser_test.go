@@ -243,3 +243,30 @@ func TestParseOpenAIUsage_TotalTokensFallback(t *testing.T) {
 		t.Errorf("TotalTokens = %d, want 150 (derived from input+output)", nu.TotalTokens)
 	}
 }
+
+// ============================================================================
+// RED: token estimation must not grossly under-count Chinese text
+// (1 CJK character ~= 1 token, not 1/4 token).
+// ============================================================================
+
+func TestEstimateTextTokens_ChineseAndMixed(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want int64
+	}{
+		{"empty", "", 0},
+		{"pure chinese 4 chars", "你好世界", 4},
+		{"pure chinese 13 chars", "今天天气非常好我们出去玩吧", 13},
+		{"ascii 4 chars", "hell", 1},
+		{"ascii 8 chars", "hello wo", 2},
+		{"mixed", "你好hello", 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := EstimateTextTokens(tt.text); got != tt.want {
+				t.Errorf("EstimateTextTokens(%q) = %d, want %d", tt.text, got, tt.want)
+			}
+		})
+	}
+}

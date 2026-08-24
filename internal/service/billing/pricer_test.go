@@ -396,3 +396,56 @@ func TestPricer_PricingPeriodBoundaries(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================================
+// RED: reasoning tokens are already included in completion_tokens for the
+// domestic providers (DeepSeek etc.). Without an explicit reasoning price row
+// the dimension must NOT be reported as missing pricing (which would fail the
+// whole call closed) and must NOT be billed a second time.
+// ============================================================================
+
+func TestPricer_ReasoningWithoutPrice_NotMissing(t *testing.T) {
+	p := newTestPricer([]domain.ModelPricing{
+		makePricingEntry("input", "0.01", "0.005"),
+		makePricingEntry("output", "0.03", "0.015"),
+	})
+
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{
+		InputTokens:     1000,
+		OutputTokens:    500,
+		ReasoningTokens: 200, // already included in OutputTokens
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("Calculate unexpected error: %v", err)
+	}
+	for _, missing := range result.MissingPricing {
+		if missing == "reasoning" {
+			t.Fatal("reasoning must not be missing pricing when no reasoning row exists (it is included in output)")
+		}
+	}
+	// Cost = input 0.01 + output 0.015, NOT an extra reasoning line.
+	if !result.ListCost.Equal(decimal.NewFromFloat(0.025)) {
+		t.Errorf("ListCost = %s, want 0.025 (no separate reasoning charge)", result.ListCost)
+	}
+}
+
+func TestPricer_ReasoningWithExplicitPrice_Charged(t *testing.T) {
+	p := newTestPricer([]domain.ModelPricing{
+		makePricingEntry("input", "0.01", "0.005"),
+		makePricingEntry("output", "0.03", "0.015"),
+		makePricingEntry("reasoning", "0.02", "0.01"),
+	})
+
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{
+		InputTokens:     1000,
+		OutputTokens:    500,
+		ReasoningTokens: 200,
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("Calculate unexpected error: %v", err)
+	}
+	// 0.01 + 0.015 + 200*0.02/1000 = 0.025 + 0.004 = 0.029
+	if !result.ListCost.Equal(decimal.NewFromFloat(0.029)) {
+		t.Errorf("ListCost = %s, want 0.029", result.ListCost)
+	}
+}

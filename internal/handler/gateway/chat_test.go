@@ -3166,3 +3166,61 @@ func TestHandleStreamingChat_InjectsIncludeUsage(t *testing.T) {
 		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceFinalChunk)
 	}
 }
+
+// ============================================================================
+// RED: an upstream failure that already consumed tokens (response carries a
+// usage object, e.g. context-length exceeded) must still be billed for the
+// consumption instead of vanishing as a zero-cost failure.
+// ============================================================================
+
+func TestHandleNonStreamingChat_UpstreamErrorWithUsage_ChargesUsage(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			// 400 with usage: upstream consumed input tokens before rejecting.
+			respBody := map[string]any{
+				"error": map[string]any{"message": "context_length_exceeded"},
+				"usage": map[string]any{
+					"prompt_tokens":     float64(100),
+					"completion_tokens": float64(0),
+					"total_tokens":      float64(100),
+				},
+			}
+			usage, _ := usageparser.ParseOpenAIUsage(respBody)
+			return &gw.ExecuteResponse{
+				StatusCode:    http.StatusBadRequest,
+				Body:          respBody,
+				Usage:         usage,
+				UsageSource:   usageparser.SourceUpstream,
+				ProviderReqID: "chatcmpl-fail-usage",
+				DurationMs:    42,
+			}, nil
+		},
+	}
+	application, walletRepo, usageRepo := newNonStreamEnv(executor, false, "")
+
+	body := validRequestBody()
+	req := newNonStreamChatRequest(userID, apiKeyID, body)
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", body)
+
+	// The request itself still fails for the client (upstream error).
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusBadGateway, w.Body.String())
+	}
+	// But the consumed tokens must be settled, not released for free.
+	if walletRepo.settleCalled == 0 {
+		t.Fatal("settle was not called for a failure that consumed tokens")
+	}
+	if walletRepo.lastSettleAmt.LessThanOrEqual(decimal.Zero) {
+		t.Errorf("settle amount = %s, want > 0 (upstream consumed tokens)", walletRepo.lastSettleAmt)
+	}
+	log := waitForUsageLog(t, usageRepo)
+	if log.FinalCost.LessThanOrEqual(decimal.Zero) {
+		t.Errorf("usage log FinalCost = %s, want > 0", log.FinalCost)
+	}
+	if log.UsageSource != domain.UsageSourceUpstream {
+		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceUpstream)
+	}
+}

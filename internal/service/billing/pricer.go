@@ -114,6 +114,13 @@ func (p *Pricer) CalculateAt(ctx context.Context, modelID uuid.UUID, tenantID *u
 		}
 
 		sellRow, costRow := selectPricingRows(pricings, dim.name, period)
+		// Reasoning tokens are already included in completion_tokens for the
+		// providers that report them (DeepSeek etc.). Without an explicit
+		// reasoning price row the dimension is not billable on its own and
+		// must neither fail the call closed nor be charged a second time.
+		if dim.name == "reasoning" && sellRow == nil && costRow == nil {
+			continue
+		}
 
 		sellPrice := decimal.Zero
 		unitName := ""
