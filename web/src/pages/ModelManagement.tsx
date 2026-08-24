@@ -100,9 +100,12 @@ export default function ModelManagement() {
   const openEdit = (m: ModelDetail) => {
     setCode(m.code); setProvider(m.provider); setCategory(m.category);
     setDisplayName(m.display_name); setContextWindow(m.context_window);
+    // Only sell rows are editable in the UI; cost rows are owned by provider
+    // cost sync and must never be sent back (the backend ignores them anyway).
+    const sellPricings = (m.pricings || []).filter((p) => p.price_type !== "cost");
     setPricings(
-      m.pricings && m.pricings.length > 0
-        ? m.pricings.map((p) => ({ ...p, price_type: p.price_type || "sell", period: p.period || "off_peak" }))
+      sellPricings.length > 0
+        ? sellPricings.map((p) => ({ ...p, price_type: p.price_type || "sell", period: p.period || "off_peak" }))
         : [emptyPricing()],
     );
     setEditing(m); setShowForm(true);
@@ -113,8 +116,9 @@ export default function ModelManagement() {
     const body = {
       code: code.trim(), provider: provider.trim(), category,
       display_name: displayName, context_window: contextWindow,
-      pricings: pricings.filter((p) => p.dimension && p.unit_price).map((p) => ({
+      pricings: pricings.filter((p) => p.dimension && p.unit_price && p.price_type !== "cost").map((p) => ({
         dimension: p.dimension, unit_name: p.unit_name, unit_price: p.unit_price, period: p.period,
+        price_type: p.price_type || "sell",
       })),
     };
     try {

@@ -13,6 +13,7 @@ import (
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/config"
 	"github.com/deeptrols/api/internal/domain"
+	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	"github.com/deeptrols/api/internal/repository/model"
 	"github.com/deeptrols/api/internal/repository/testutil"
@@ -1066,5 +1067,149 @@ func TestHandleGetModel_InvalidID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+// ============================================================================
+// RED: a cost row smuggled into a model edit must never be re-inserted as a
+// sell row. Cost rows are owned by provider cost sync; editing a model's sell
+// prices must leave every cost row untouched.
+// ============================================================================
+
+func TestHandleUpdateModel_CostRowInRequest_Ignored(t *testing.T) {
+	a := appForModelsTest(t)
+	seedModelsForTest(t, a)
+
+	found, err := a.Models.FindByCode(context.Background(), "gpt-4o")
+	if err != nil || found == nil {
+		t.Fatalf("FindByCode gpt-4o: %v", err)
+	}
+	modelID := found.ID
+
+	// Insert an explicit cost row for input (price_type='cost').
+	_, err = a.Pool.Exec(context.Background(),
+		`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, price_type, created_at, updated_at)
+		 VALUES ($1, $2, 'chat', 'input', '1K tokens', '0.0010', 'CNY', TRUE, 'off_peak', 'cost', NOW(), NOW())`,
+		uuid.New(), modelID)
+	if err != nil {
+		t.Fatalf("insert cost row: %v", err)
+	}
+
+	// The admin UI only edits sell rows, but a stale/buggy client could send
+	// the read-only cost row back. The update must ignore it.
+	body := map[string]interface{}{
+		"pricings": []map[string]string{
+			{"dimension": "input", "unit_name": "1K tokens", "unit_price": "0.0020", "price_type": "cost"},
+			{"dimension": "output", "unit_name": "1K tokens", "unit_price": "1.00", "price_type": "sell"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/models/"+modelID.String(), bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = setUserInModelsContext(req, uuid.New().String())
+	req = chiRouteCtx(req, "id", modelID.String())
+	w := httptest.NewRecorder()
+	HandleUpdateModel(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	rows, err := a.Pool.Query(context.Background(),
+		`SELECT pricing_dimension, price_type, unit_price FROM model_pricing WHERE model_id = $1 AND is_active = TRUE ORDER BY pricing_dimension, price_type`,
+		modelID)
+	if err != nil {
+		t.Fatalf("query pricing: %v", err)
+	}
+	defer rows.Close()
+
+	type row struct {
+		dim, priceType, price string
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.dim, &r.priceType, &r.price); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, r)
+	}
+	for _, r := range got {
+		if r.dim == "input" && r.priceType == "sell" {
+			t.Fatalf("input sell row appeared after edit: %+v — cost rows must not be re-inserted as sell", r)
+		}
+		if r.dim == "input" && r.priceType == "cost" && trimDecimalPrice(r.price) != "0.001" {
+			t.Errorf("input cost price = %s, want 0.001 (cost row must survive untouched)", trimDecimalPrice(r.price))
+		}
+	}
+	foundSellOutput := false
+	for _, r := range got {
+		if r.dim == "output" && r.priceType == "sell" && trimDecimalPrice(r.price) == "1.00" {
+			foundSellOutput = true
+		}
+	}
+	if !foundSellOutput {
+		t.Error("output sell row with price 1.00 was not stored")
+	}
+}
+
+// ============================================================================
+// RED: a model price edit must leave an audit trail with the pre-edit price
+// snapshot so price changes are attributable.
+// ============================================================================
+
+func TestHandleUpdateModel_AuditRecordsOldPricing(t *testing.T) {
+	a := appForModelsTest(t)
+	seedModelsForTest(t, a)
+
+	found, err := a.Models.FindByCode(context.Background(), "gpt-4o")
+	if err != nil || found == nil {
+		t.Fatalf("FindByCode gpt-4o: %v", err)
+	}
+	modelID := found.ID
+
+	// The seeded gpt-4o input sell price is 2.50; the audit snapshot must
+	// capture that pre-edit value.
+	actorID := uuid.New()
+	_, err = a.Pool.Exec(context.Background(),
+		`INSERT INTO users (id, email, password_hash, status, created_at, updated_at)
+		 VALUES ($1, 'audit-model@test.local', 'x', 'active', NOW(), NOW())`, actorID)
+	if err != nil {
+		t.Fatalf("insert audit actor: %v", err)
+	}
+
+	body := map[string]interface{}{
+		"pricings": []map[string]string{
+			{"dimension": "input", "unit_name": "1K tokens", "unit_price": "2.00", "price_type": "sell"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	mw := middleware.AuditAdminWrite(a.Pool)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		HandleUpdateModel(a).ServeHTTP(w, r)
+	}))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/models/"+modelID.String(), bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "10.0.0.11:4321"
+	req = setUserInModelsContext(req, actorID.String())
+	req = chiRouteCtx(req, "id", modelID.String())
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	var oldValue []byte
+	err = a.Pool.QueryRow(context.Background(),
+		`SELECT old_value FROM audit_logs WHERE resource_type = 'models' AND action LIKE 'PUT %' ORDER BY created_at DESC LIMIT 1`,
+	).Scan(&oldValue)
+	if err != nil {
+		t.Fatalf("query audit old_value: %v", err)
+	}
+	if !bytes.Contains(oldValue, []byte("2.50")) {
+		t.Errorf("audit old_value = %s, want it to contain pre-edit price 2.50", oldValue)
 	}
 }

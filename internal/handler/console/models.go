@@ -9,6 +9,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
+	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -203,6 +204,7 @@ type createModelPricingReq struct {
 	UnitName  string `json:"unit_name"`
 	UnitPrice string `json:"unit_price"`
 	Period    string `json:"period,omitempty"`
+	PriceType string `json:"price_type,omitempty"`
 }
 
 // HandleCreateModel handles POST /api/console/models.
@@ -266,9 +268,9 @@ func HandleCreateModel(a *app.App) http.HandlerFunc {
 
 		for _, p := range req.Pricings {
 			_, err = tx.Exec(dbCtx,
-				`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, created_at, updated_at)
-				 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'), $8, $8)`,
-				uuid.New(), modelID, req.Category, p.Dimension, p.UnitName, p.UnitPrice, p.Period, now,
+				`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, price_type, created_at, updated_at)
+				 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'), COALESCE(NULLIF($8, ''), 'sell'), $9, $9)`,
+				uuid.New(), modelID, req.Category, p.Dimension, p.UnitName, p.UnitPrice, p.Period, normalizePricingType(p.PriceType), now,
 			)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to insert model pricing"})
@@ -339,6 +341,26 @@ func HandleUpdateModel(a *app.App) http.HandlerFunc {
 
 		now := time.Now().UTC()
 
+		// Snapshot the current sell prices for the audit trail before the
+		// mutation so price changes are attributable (who changed what).
+		var beforePricing []map[string]string
+		priceRows, qerr := tx.Query(dbCtx,
+			`SELECT pricing_dimension, unit_price, period FROM model_pricing WHERE model_id = $1 AND price_type = 'sell' AND is_active = TRUE`,
+			modelID)
+		if qerr == nil {
+			for priceRows.Next() {
+				var dim, price, period string
+				if err := priceRows.Scan(&dim, &price, &period); err == nil {
+					beforePricing = append(beforePricing, map[string]string{"dimension": dim, "unit_price": price, "period": period})
+				}
+			}
+			priceRows.Close()
+		}
+		middleware.SetAuditOldValue(r.Context(), map[string]any{
+			"model_id": modelID.String(),
+			"pricing":  beforePricing,
+		})
+
 		// Update model fields
 		displayName := model.DisplayName
 		if req.DisplayName != nil {
@@ -376,11 +398,16 @@ func HandleUpdateModel(a *app.App) http.HandlerFunc {
 			}
 
 			for _, p := range req.Pricings {
+				if p.PriceType == domain.PriceTypeCost {
+					// Cost rows are owned by provider cost sync; a model edit
+					// must never re-insert them as sell rows.
+					continue
+				}
 				_, err = tx.Exec(dbCtx,
-					`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, price_version, created_at, updated_at)
-					 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'),
+					`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, price_type, price_version, created_at, updated_at)
+					 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'), $9,
 					         (SELECT COALESCE(MAX(price_version), 0) + 1 FROM model_pricing WHERE model_id = $2), $8, $8)`,
-					uuid.New(), modelID, string(model.Category), p.Dimension, p.UnitName, p.UnitPrice, p.Period, now,
+					uuid.New(), modelID, string(model.Category), p.Dimension, p.UnitName, p.UnitPrice, p.Period, now, normalizePricingType(p.PriceType),
 				)
 				if err != nil {
 					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to insert new pricing"})
@@ -504,5 +531,16 @@ func isValidModelCategory(category string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// normalizePricingType maps a client-supplied price type onto the two allowed
+// values, defaulting to sell (the type admin editors actually maintain).
+func normalizePricingType(t string) string {
+	switch t {
+	case domain.PriceTypeCost, domain.PriceTypeSell:
+		return t
+	default:
+		return domain.PriceTypeSell
 	}
 }
