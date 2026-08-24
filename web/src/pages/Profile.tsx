@@ -18,7 +18,7 @@ function fmtTime(iso: string): string { try { return new Date(iso).toLocaleStrin
 function trunc(s: string): string { return s && s.length > 40 ? s.slice(0,40)+"..." : s; }
 function roleLabel(r: string): string { if (r === "owner") return "拥有者"; if (r === "admin") return "管理员"; if (r === "member") return "成员"; return r; }
 
-export default function Profile() {
+export function ProfileContent() {
   const { user: authUser } = useAuth();
   const { data: profileData, isLoading: isLoadingProfile } = useConsoleQuery<ProfileData>("/profile");
   const { data: historyData, isLoading: isLoadingHistory } = useConsoleQuery<{ data: LoginHistoryEntry[] }>("/security/login-history");
@@ -50,18 +50,12 @@ export default function Profile() {
   }
 
   return (
-    <div>
-      <div className="mb-6">
-        <h2 className="font-display text-[25px] font-bold tracking-tight">个人设置</h2>
-        <p className="text-[13px] text-[#5C6472] mt-1">管理您的账户信息和安全设置</p>
-      </div>
-
-      <Tabs defaultValue="personal" className="max-w-2xl">
-        <TabsList>
-          <TabsTrigger value="personal">个人信息</TabsTrigger>
-          <TabsTrigger value="security">登录记录</TabsTrigger>
-          {isEnterpriseUser && <TabsTrigger value="enterprise">企业信息</TabsTrigger>}
-        </TabsList>
+    <Tabs defaultValue="personal" className="max-w-2xl">
+      <TabsList>
+        <TabsTrigger value="personal">个人信息</TabsTrigger>
+        <TabsTrigger value="security">登录记录</TabsTrigger>
+        {isEnterpriseUser && <TabsTrigger value="enterprise">企业信息</TabsTrigger>}
+      </TabsList>
 
         {/* Tab 1: Personal Info */}
         <TabsContent value="personal">
@@ -135,7 +129,18 @@ export default function Profile() {
             </CardContent></Card>
           </TabsContent>
         )}
-      </Tabs>
+    </Tabs>
+  );
+}
+
+export default function Profile() {
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="font-display text-[25px] font-bold tracking-tight">个人设置</h2>
+        <p className="text-[13px] text-[#5C6472] mt-1">管理您的账户信息和安全设置</p>
+      </div>
+      <ProfileContent />
     </div>
   );
 }

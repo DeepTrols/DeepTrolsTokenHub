@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { EmptyState, LoadingState } from "@/components/StateViews";
 import {
   Table,
@@ -87,7 +86,7 @@ function roleLabel(role: string): string {
   return role;
 }
 
-export default function TeamManagement() {
+export function TeamManagementContent() {
   const { user } = useAuth();
   const isOwner = user?.tenant_role === "owner";
 
@@ -261,71 +260,48 @@ export default function TeamManagement() {
 
   if (isLoading) {
     return (
-      <SectionPageLayout>
-        <SectionPageLayout.Header>
-          <SectionPageLayout.HeaderBlock>
-            <SectionPageLayout.Title>团队管理</SectionPageLayout.Title>
-          </SectionPageLayout.HeaderBlock>
-        </SectionPageLayout.Header>
-        <SectionPageLayout.Content>
-          <LoadingState message="加载团队成员..." />
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
+      <LoadingState message="加载团队成员..." />
     );
   }
 
   if (membersError) {
     return (
-      <SectionPageLayout>
-        <SectionPageLayout.Header>
-          <SectionPageLayout.HeaderBlock>
-            <SectionPageLayout.Title>团队管理</SectionPageLayout.Title>
-          </SectionPageLayout.HeaderBlock>
-        </SectionPageLayout.Header>
-        <SectionPageLayout.Content>
-          <Card className="border-destructive/30">
-            <CardContent className="p-6 text-center">
-              <p className="text-sm text-destructive mb-3">
-                {membersError instanceof Error ? membersError.message : "加载失败"}
-              </p>
-              <Button variant="outline" onClick={() => refetch()}>重试</Button>
-            </CardContent>
-          </Card>
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
+      <Card className="border-destructive/30">
+        <CardContent className="p-6 text-center">
+          <p className="text-sm text-destructive mb-3">
+            {membersError instanceof Error ? membersError.message : "加载失败"}
+          </p>
+          <Button variant="outline" onClick={() => refetch()}>重试</Button>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <SectionPageLayout>
-      <SectionPageLayout.Header>
-        <SectionPageLayout.HeaderBlock>
-          <SectionPageLayout.Title>团队管理</SectionPageLayout.Title>
-          <SectionPageLayout.Description>
-            共 {members.length} 人 · 管理员可给成员分配余额
-          </SectionPageLayout.Description>
-        </SectionPageLayout.HeaderBlock>
-        <SectionPageLayout.Actions>
-          <Button
-            onClick={() => {
-              createMutation.reset();
-              setCreateForm({ email: "", display_name: "", password: "", role: "member" });
-              setShowCreate(true);
-            }}
-          >
-            <UserPlus size={16} className="mr-1.5" />添加子账号
-          </Button>
-        </SectionPageLayout.Actions>
-      </SectionPageLayout.Header>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-display font-semibold">团队管理</h3>
+          <p className="text-[13px] text-[#5C6472] mt-0.5">共 {members.length} 人 · 管理员可给成员分配余额</p>
+        </div>
+        <Button
+          onClick={() => {
+            createMutation.reset();
+            setCreateForm({ email: "", display_name: "", password: "", role: "member" });
+            setShowCreate(true);
+          }}
+        >
+          <UserPlus size={16} className="mr-1.5" />添加子账号
+        </Button>
+      </div>
 
-      <SectionPageLayout.Content>
-        {rowActionError && (
-          <Card className="mb-4 border-destructive/30">
-            <CardContent className="p-3 text-sm text-destructive">
-              {rowActionError instanceof Error ? rowActionError.message : String(rowActionError)}
-            </CardContent>
-          </Card>
-        )}
+      {rowActionError && (
+        <Card className="border-destructive/30">
+          <CardContent className="p-3 text-sm text-destructive">
+            {rowActionError instanceof Error ? rowActionError.message : String(rowActionError)}
+          </CardContent>
+        </Card>
+      )}
 
         <div className="mb-4 relative max-w-sm">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -601,7 +577,10 @@ export default function TeamManagement() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </SectionPageLayout.Content>
-    </SectionPageLayout>
+    </div>
   );
+}
+
+export default function TeamManagement() {
+  return <TeamManagementContent />;
 }

@@ -1,6 +1,6 @@
 import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Key, Wallet, Receipt, Box, Play, LogOut, LayoutDashboard, Book, Settings, UserCircle, Users } from "lucide-react";
+import { Key, Wallet, Receipt, Box, Play, LogOut, LayoutDashboard, Book, Settings, UserCircle } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
 import { PendingReviewBanner } from "./PendingReviewBanner";
@@ -26,8 +26,7 @@ export default function ConsoleLayout() {
     { to: "/models", icon: Box, label: "模型广场", color: "text-[#D3A94E]" },
     { to: "/playground", icon: Play, label: "在线体验", color: "text-[#4F6BED]" },
     { to: "/docs", icon: Book, label: "开发文档", color: "text-[#0FA88B]" },
-    { to: "/profile", icon: UserCircle, label: "个人设置", color: "text-[#4F6BED]" },
-    ...(isEnterpriseAdmin ? [{ to: "/team", icon: Users, label: "团队管理", color: "text-[#8B6FE8]" }] : []),
+    { to: "/account", icon: UserCircle, label: "用户中心", color: "text-[#4F6BED]" },
     ...(isAdmin ? [{ to: "/admin/models", icon: Settings, label: "管理控制台", color: "text-[#D3A94E]" }] : []),
   ];
 

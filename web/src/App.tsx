@@ -21,8 +21,7 @@ import Channels from "./pages/Channels";
 import Reconciliation from "./pages/Reconciliation";
 import Users from "./pages/Users";
 import Costs from "./pages/Costs";
-import Profile from "./pages/Profile";
-import TeamManagement from "./pages/TeamManagement";
+import UserCenter from "./pages/UserCenter";
 import Docs from "./pages/Docs";
 
 export default function App() {
@@ -51,12 +50,9 @@ export default function App() {
         <Route path="bills" element={<Bills />} />
         <Route path="models" element={<ModelMarket />} />
         <Route path="playground" element={<Playground />} />
-        <Route path="profile" element={<Profile />} />
-        <Route path="team" element={
-          <RequireAuth tenantAdminOnly>
-            <TeamManagement />
-          </RequireAuth>
-        } />
+        <Route path="account" element={<UserCenter />} />
+        <Route path="profile" element={<Navigate to="/account" replace />} />
+        <Route path="team" element={<Navigate to="/account?tab=team" replace />} />
         <Route path="docs" element={<Docs />} />
       </Route>
 
