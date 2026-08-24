@@ -21,8 +21,6 @@ vi.mock("../lib/auth", () => ({
 import { api } from "../lib/api";
 const mockApiGet = api.get as ReturnType<typeof vi.fn>;
 
-const wallet = { balance: "100.00", frozen: "5.00", available: "95.00", currency: "CNY", total_charged: "50.00" };
-
 function seedTxs() {
   return [
     { id: "tx-1", type: "topup", amount: "+50.00", balance_after: "150.00", reference: "余额充值", created_at: "2026-08-01T00:00:00Z" },
@@ -39,8 +37,7 @@ describe("Bills", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders page title, balance cards and recharge records only", async () => {
-    mockApiGet.mockResolvedValueOnce(wallet);
+  it("renders page title and recharge records without balance cards", async () => {
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
 
     renderWithProviders(
@@ -50,9 +47,9 @@ describe("Bills", () => {
     );
 
     expect(screen.getByRole("heading", { name: "账单" })).toBeInTheDocument();
-    expect(await screen.findByText("可用余额")).toBeInTheDocument();
-    expect(screen.getByText("累计消费")).toBeInTheDocument();
-    expect(screen.getByText("充值记录")).toBeInTheDocument();
+    expect(await screen.findByText("充值记录")).toBeInTheDocument();
+    expect(screen.queryByText("可用余额")).not.toBeInTheDocument();
+    expect(screen.queryByText("累计消费")).not.toBeInTheDocument();
     expect(screen.queryByText("扣费")).not.toBeInTheDocument();
     expect(screen.queryByText("在线支付充值")).not.toBeInTheDocument();
   });

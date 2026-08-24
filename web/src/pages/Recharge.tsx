@@ -2,11 +2,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlipayIcon, WechatIcon } from "@/components/PaymentIcons";
-import { TopupTable } from "@/components/TopupTable";
 import { WalletSummary } from "@/components/WalletSummary";
 import { ErrorState, LoadingState } from "@/components/StateViews";
-import { useConsoleMutation } from "../lib/hooks/use-api";
-import { useWalletData } from "../lib/hooks/use-wallet";
+import { useConsoleMutation, useConsoleQuery } from "../lib/hooks/use-api";
+import { WalletData } from "../lib/api";
 import { formatAmount } from "../lib/format";
 import { WalletIcon, Zap } from "lucide-react";
 
@@ -26,7 +25,13 @@ function PayIcon({ kind }: { kind: "alipay" | "wechat" }) {
 }
 
 export default function Recharge() {
-  const { wallet, topups, isLoading, isError, errorMessage, refetch, txRefetch } = useWalletData();
+  const {
+    data: wallet,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useConsoleQuery<WalletData>("/wallet");
 
   const [selectedAmount, setSelectedAmount] = useState("50");
   const [customAmount, setCustomAmount] = useState("");
@@ -39,7 +44,6 @@ export default function Recharge() {
     { amount: string; payment_method: string }
   >("post", "/wallet/topup", "/wallet", {
     onSuccess: (result) => {
-      txRefetch();
       const bal = result?.data?.balance_after ? formatAmount(result.data.balance_after) : "?";
       setPaymentSuccess(`支付成功！当前余额 ${bal} ￥`);
       setPaymentError("");
@@ -79,7 +83,7 @@ export default function Recharge() {
         <div className="mb-6">
           <h2 className="font-display text-[25px] font-bold tracking-tight">充值</h2>
         </div>
-        <ErrorState error={errorMessage} onRetry={() => refetch()} title="加载钱包数据失败" />
+        <ErrorState error={error} onRetry={() => refetch()} title="加载钱包数据失败" />
       </div>
     );
   }
@@ -202,12 +206,6 @@ export default function Recharge() {
         <p className="text-xs text-[#5C6472]/80 mt-2">
           点击「充值」后将跳转至支付平台完成付款
         </p>
-      </div>
-
-      {/* ---- transaction history --------------------------------------------- */}
-      <div className="glass rounded-[22px] p-5">
-        <h3 className="font-display font-semibold mb-4">充值记录</h3>
-        <TopupTable topups={topups} />
       </div>
     </div>
   );
