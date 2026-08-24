@@ -1,5 +1,5 @@
 import React from "react";
-import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import {
   Box,
   BarChart3,
@@ -10,7 +10,6 @@ import {
   Building2,
   Route,
   Calculator,
-  Bell,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
@@ -25,16 +24,7 @@ const manageItems = [
 
 export default function AdminLayout() {
   const navigate = useNavigate();
-  const location = useLocation();
   const { logout } = useAuth();
-
-  const current = [
-    ...manageItems,
-    { to: "/admin/tenants", label: "企业管理" },
-    { to: "/admin/users", label: "个人管理" },
-    { to: "/admin/finance", label: "账务管理" },
-  ].find((item) => location.pathname.startsWith(item.to));
-  const breadcrumbLabel = current?.label ?? "管理控制台";
 
   const handleLogout = async () => {
     await logout();
@@ -141,17 +131,6 @@ export default function AdminLayout() {
         </aside>
 
         <div className="flex-1 min-w-0 flex flex-col gap-4">
-          <header className="glass rounded-2xl px-[22px] py-[13px] flex items-center gap-4">
-            <span className="text-[12.5px] text-[#5C6472] font-semibold whitespace-nowrap">管理控制台 / {breadcrumbLabel}</span>
-            <div className="ml-auto flex items-center gap-3">
-              <button type="button" aria-label="通知" className="nav-ic relative text-[#161A23] hover:bg-white/80">
-                <Bell size={17} />
-                <span className="absolute top-[10px] right-[11px] w-[9px] h-[9px] rounded-full bg-[#D3A94E] shadow-[0_0_10px_#D3A94E]" />
-              </button>
-              <span className="grid w-9 h-9 place-items-center rounded-[12px] bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white text-[12px] font-bold shadow-[0_6px_18px_rgba(79,107,237,0.35)]">管</span>
-            </div>
-          </header>
-
           <main className="flex-1 overflow-y-auto pr-1">
             <div className="px-1 pb-8">
               <RouteErrorBoundary>
