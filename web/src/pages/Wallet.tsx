@@ -7,15 +7,61 @@ import { useState } from "react";
 import { WalletData, Transaction } from "../lib/api";
 import { formatAmount } from "../lib/format";
 import { useConsoleMutation, useConsoleQuery } from "../lib/hooks/use-api";
-import {
-  ArrowUpRight,
-  ArrowDownRight,
-  RefreshCw,
-  WalletIcon,
-  Zap,
-} from "lucide-react";
+import { WalletIcon, Zap } from "lucide-react";
 
 const PRESET_AMOUNTS = ["10", "50", "100", "200", "500"];
+
+function PayIcon({ kind }: { kind: "alipay" | "wechat" }) {
+  const bg = kind === "alipay" ? "#1677FF" : "#07C160";
+  const text = kind === "alipay" ? "支" : "微";
+  return (
+    <span
+      className="grid w-9 h-9 place-items-center rounded-xl text-white text-[15px] font-bold shrink-0"
+      style={{ background: bg }}
+      aria-hidden="true"
+    >
+      {text}
+    </span>
+  );
+}
+
+function TopupTable({ topups }: { topups: Transaction[] }) {
+  if (topups.length === 0) {
+    return <p className="py-8 text-center text-[#5C6472]/80 text-sm">暂无充值记录</p>;
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>订单编号</TableHead>
+          <TableHead>状态</TableHead>
+          <TableHead className="text-right">金额</TableHead>
+          <TableHead>支付方式</TableHead>
+          <TableHead className="text-right">创建时间</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {topups.map((tx) => (
+          <TableRow key={tx.id}>
+            <TableCell className="font-mono text-xs">{tx.order_no || "—"}</TableCell>
+            <TableCell>
+              <span className={tx.status === "success" ? "text-[#0C7A55]" : "text-[#C4372C]"}>
+                {tx.status === "success" ? "成功" : tx.status || "—"}
+              </span>
+            </TableCell>
+            <TableCell className="text-right font-mono text-xs text-[#0C7A55]">+{formatAmount(tx.amount)} ￥</TableCell>
+            <TableCell className="text-xs">
+              {tx.payment_method === "alipay" ? "支付宝" : tx.payment_method === "wechat" ? "微信" : tx.payment_method || "—"}
+            </TableCell>
+            <TableCell className="text-right text-xs text-[#5C6472]">
+              {new Date(tx.created_at).toLocaleString("zh-CN")}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
 
 export default function Wallet() {
   // ---- wallet data -----------------------------------------------------------
@@ -49,13 +95,13 @@ export default function Wallet() {
   // ---- payment form ----------------------------------------------------------
   const [selectedAmount, setSelectedAmount] = useState("50");
   const [customAmount, setCustomAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("epay");
+  const [paymentMethod, setPaymentMethod] = useState("alipay");
   const [paymentError, setPaymentError] = useState("");
   const [paymentSuccess, setPaymentSuccess] = useState("");
 
   const topupMutation = useConsoleMutation<
     { data: { balance_after: string } },
-    { amount: string }
+    { amount: string; payment_method: string }
   >("post", "/wallet/topup", "/wallet", {
     onSuccess: (result) => {
       txRefetch();
@@ -76,38 +122,9 @@ export default function Wallet() {
       return;
     }
     try {
-      await topupMutation.mutateAsync({ amount: amt });
+      await topupMutation.mutateAsync({ amount: amt, payment_method: paymentMethod });
     } catch (err) {
       setPaymentError(err instanceof Error ? err.message : "支付失败，请稍后重试");
-    }
-  };
-
-  // ---- shared ----------------------------------------------------------------
-  const txIcon = (type: string) => {
-    switch (type) {
-      case "topup":
-        return <ArrowUpRight size={14} className="text-[#1BA878]" />;
-      case "charge":
-        return <ArrowDownRight size={14} className="text-[#E5484D]" />;
-      default:
-        return <RefreshCw size={14} className="text-[#5C6472]" />;
-    }
-  };
-
-  const txLabel = (type: string) => {
-    switch (type) {
-      case "topup":
-        return "充值";
-      case "charge":
-        return "扣费";
-      case "refund":
-        return "退款";
-      case "reserve":
-        return "冻结";
-      case "release":
-        return "解冻";
-      default:
-        return type;
     }
   };
 
@@ -188,45 +205,8 @@ export default function Wallet() {
 
       {view === "bills" ? (
         <div className="glass rounded-[22px] p-5">
-          <h3 className="font-display font-semibold mb-4">账单明细</h3>
-          {txs.length === 0 && (
-            <p className="py-8 text-center text-[#5C6472]/80 text-sm">暂无账单记录</p>
-          )}
-          {txs.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>类型</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead className="text-right">金额</TableHead>
-                  <TableHead className="text-right">时间</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {txs.map((tx) => {
-                  const positive = tx.type === "topup" || tx.type === "refund";
-                  return (
-                    <TableRow key={tx.id}>
-                      <TableCell>
-                        <span className="inline-flex items-center gap-1.5">
-                          {txIcon(tx.type)}
-                          {txLabel(tx.type)}
-                        </span>
-                      </TableCell>
-                      <TableCell>{tx.status === "success" ? "成功" : tx.status || "—"}</TableCell>
-                      <TableCell className={`text-right font-mono text-xs ${positive ? "text-[#0C7A55]" : "text-[#161A23]"}`}>
-                        {positive ? "+" : "-"}
-                        {formatAmount(tx.amount)} ￥
-                      </TableCell>
-                      <TableCell className="text-right text-xs text-[#5C6472]">
-                        {new Date(tx.created_at).toLocaleString("zh-CN")}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
+          <h3 className="font-display font-semibold mb-4">充值记录</h3>
+          <TopupTable topups={topups} />
         </div>
       ) : (
         <>
@@ -295,22 +275,50 @@ export default function Wallet() {
           <label className="block text-sm font-medium text-[#161A23] mb-2">
             选择支付方式
           </label>
-          <label className="flex items-center gap-3 p-3 glass-soft rounded-xl cursor-pointer transition-colors max-w-sm hover:border-[#4F6BED]/40">
-            <input
-              type="radio"
-              name="paymentMethod"
-              value="epay"
-              checked={paymentMethod === "epay"}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-              className="accent-[#4F6BED]"
-            />
-            <div>
-              <p className="text-sm font-medium">EPay 聚合支付</p>
-              <p className="text-xs text-[#5C6472]">
-                支持支付宝、微信支付等
-              </p>
-            </div>
-          </label>
+          <div className="flex flex-wrap gap-3">
+            <label
+              className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors border ${
+                paymentMethod === "alipay"
+                  ? "border-[#1677FF]/50 bg-white/80"
+                  : "glass-soft border-transparent hover:border-[#1677FF]/30"
+              }`}
+            >
+              <input
+                type="radio"
+                name="paymentMethod"
+                value="alipay"
+                checked={paymentMethod === "alipay"}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="accent-[#1677FF]"
+              />
+              <PayIcon kind="alipay" />
+              <div>
+                <p className="text-sm font-medium">支付宝</p>
+                <p className="text-xs text-[#5C6472]">推荐使用</p>
+              </div>
+            </label>
+            <label
+              className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors border ${
+                paymentMethod === "wechat"
+                  ? "border-[#07C160]/50 bg-white/80"
+                  : "glass-soft border-transparent hover:border-[#07C160]/30"
+              }`}
+            >
+              <input
+                type="radio"
+                name="paymentMethod"
+                value="wechat"
+                checked={paymentMethod === "wechat"}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="accent-[#07C160]"
+              />
+              <PayIcon kind="wechat" />
+              <div>
+                <p className="text-sm font-medium">微信支付</p>
+                <p className="text-xs text-[#5C6472]">安全便捷</p>
+              </div>
+            </label>
+          </div>
         </div>
 
         {/* pay button */}
@@ -330,39 +338,7 @@ export default function Wallet() {
       {/* ---- transaction history --------------------------------------------- */}
       <div className="glass rounded-[22px] p-5">
         <h3 className="font-display font-semibold mb-4">充值记录</h3>
-        {topups.length === 0 && (
-          <p className="py-8 text-center text-[#5C6472]/80 text-sm">
-            暂无充值记录
-          </p>
-        )}
-        {topups.length > 0 && (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>订单编号</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead className="text-right">金额</TableHead>
-                <TableHead>支付方式</TableHead>
-                <TableHead className="text-right">时间</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {topups.map((tx) => (
-                <TableRow key={tx.id}>
-                  <TableCell className="font-mono text-xs">{tx.order_no || "—"}</TableCell>
-                  <TableCell>
-                    <span className={tx.status === "success" ? "text-[#0C7A55]" : "text-[#C4372C]"}>
-                      {tx.status === "success" ? "成功" : tx.status || "—"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-xs text-[#0C7A55]">+{formatAmount(tx.amount)} ￥</TableCell>
-                  <TableCell className="text-xs">{tx.payment_method === "alipay" ? "支付宝" : tx.payment_method === "wechat" ? "微信" : tx.payment_method || "—"}</TableCell>
-                  <TableCell className="text-right text-xs text-[#5C6472]">{new Date(tx.created_at).toLocaleString("zh-CN")}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+        <TopupTable topups={topups} />
       </div>
         </>
       )}

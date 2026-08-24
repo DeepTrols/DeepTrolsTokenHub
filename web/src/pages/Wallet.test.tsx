@@ -57,7 +57,7 @@ describe("Wallet", () => {
     expect(screen.queryByText("冻结金额")).not.toBeInTheDocument();
   });
 
-  it("renders the bills view with full transaction history", async () => {
+  it("renders the bills view with only recharge records", async () => {
     mockApiGet.mockResolvedValueOnce(wallet);
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
 
@@ -68,8 +68,8 @@ describe("Wallet", () => {
     );
 
     expect(screen.getByRole("heading", { name: "账单" })).toBeInTheDocument();
-    expect(await screen.findByText("账单明细")).toBeInTheDocument();
-    expect(screen.getByText("扣费")).toBeInTheDocument();
+    expect(await screen.findByText("充值记录")).toBeInTheDocument();
+    expect(screen.queryByText("扣费")).not.toBeInTheDocument();
   });
 
   it("formats wallet amounts to 2 decimals with banker's rounding", async () => {
@@ -124,7 +124,26 @@ describe("Wallet", () => {
     await user.click(screen.getByRole("button", { name: "充值" }));
 
     await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith("/wallet/topup", { amount: "50" });
+      expect(mockApiPost).toHaveBeenCalledWith("/wallet/topup", {
+        amount: "50",
+        payment_method: "alipay",
+      });
     });
+  });
+
+  it("offers alipay and wechat payment methods with alipay selected by default", async () => {
+    mockApiGet.mockResolvedValueOnce(wallet);
+    mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
+
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/wallet"]}>
+        <Wallet />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("支付宝")).toBeInTheDocument();
+    expect(screen.getByText("微信支付")).toBeInTheDocument();
+    expect((screen.getByLabelText(/支付宝/) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText(/微信支付/) as HTMLInputElement).checked).toBe(false);
   });
 });
