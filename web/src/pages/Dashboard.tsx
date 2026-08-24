@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import { APIKeyData, UsageLog, WalletData } from "../lib/api";
 import { useConsoleQuery } from "../lib/hooks/use-api";
 import { formatAmount } from "../lib/format";
@@ -166,7 +167,7 @@ export default function Dashboard() {
     return `/usage?${params.toString()}`;
   }, [range, apiKeyId]);
 
-  const { data: usageData, isLoading: usageLoading, isError: usageError, refetch: refetchUsage } = useConsoleQuery<{ data: UsageLog[] }>(usagePath);
+  const { data: usageData, isLoading: usageLoading, isError: usageError, refetch: refetchUsage } = useConsoleQuery<{ data: UsageLog[] }>(usagePath, { placeholderData: keepPreviousData });
   const logs = usageData?.data ?? [];
 
   const stats = useMemo(() => sumUsage(logs), [logs]);

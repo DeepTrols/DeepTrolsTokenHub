@@ -170,6 +170,36 @@ describe("Dashboard（用量信息）", () => {
     expect(screen.getByText(formatRangeLabel(r30.from, r30.to))).toBeInTheDocument();
   });
 
+  it("keeps the dashboard rendered while a filter change refetches (no loading flash)", async () => {
+    const user = userEvent.setup();
+    let usageCalls = 0;
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.startsWith("/wallet")) return Promise.resolve(wallet);
+      if (path.startsWith("/api-keys")) return Promise.resolve({ data: keys });
+      if (path.startsWith("/usage")) {
+        usageCalls += 1;
+        // The first load resolves; the filter-triggered refetch stays pending.
+        return usageCalls === 1 ? Promise.resolve({ data: seedUsageLogs() }) : new Promise(() => {});
+      }
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<Dashboard />);
+
+    expect(await screen.findByText("清除筛选条件")).toBeInTheDocument();
+
+    const r7 = rangeForPreset("7d", new Date());
+    await user.click(screen.getByText(formatRangeLabel(r7.from, r7.to)));
+    await user.click(screen.getByText("近 30 天"));
+
+    // While the new range query is still pending, the page must not collapse
+    // into the loading spinner; it keeps showing the previous data in place.
+    expect(usageCalls).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("加载...")).not.toBeInTheDocument();
+    expect(screen.getByText("清除筛选条件")).toBeInTheDocument();
+    expect(screen.getByText("消费金额")).toBeInTheDocument();
+  });
+
   it("renders aggregated stat cards, chart tabs and the top model section", async () => {
     mockEndpoints(seedUsageLogs());
 
