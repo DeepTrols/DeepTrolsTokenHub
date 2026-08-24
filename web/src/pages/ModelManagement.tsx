@@ -1,13 +1,5 @@
-import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
-import { SectionPageLayout } from "@/components/SectionPageLayout";
+import { LoadingState } from "@/components/StateViews";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { useAdminMutation, useAdminQuery } from "../lib/hooks/use-api";
 import { Plus, Edit, Trash2, Box, ChevronDown, ChevronRight } from "lucide-react";
@@ -94,6 +86,7 @@ export default function ModelManagement() {
   const resetForm = () => {
     setCode(""); setProvider(""); setCategory("chat"); setDisplayName("");
     setContextWindow(0); setPricings([emptyPricing()]); setEditing(null);
+    setActionError("");
   };
 
   const openCreate = () => { resetForm(); setShowForm(true); };
@@ -179,7 +172,11 @@ export default function ModelManagement() {
   const toggleGroup = (provider: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
-      next.has(provider) ? next.delete(provider) : next.add(provider);
+      if (next.has(provider)) {
+        next.delete(provider);
+      } else {
+        next.add(provider);
+      }
       return next;
     });
 
@@ -285,6 +282,8 @@ export default function ModelManagement() {
               </div>
             ))}
           </div>
+
+          {actionError && <p className="text-sm text-[#C4372C] mt-3">{actionError}</p>}
 
           <div className="flex gap-3 mt-6">
             <Button onClick={handleSubmit}>

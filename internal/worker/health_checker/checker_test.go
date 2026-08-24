@@ -209,3 +209,26 @@ func TestHealthStatusForScore(t *testing.T) {
 		}
 	}
 }
+
+func TestAdjustHealthScore(t *testing.T) {
+	cases := []struct {
+		name    string
+		current int
+		healthy bool
+		want    int
+	}{
+		{"healthy from 0", 0, true, 30},
+		{"healthy clamps at 100", 90, true, 100},
+		{"healthy already at 100", 100, true, 100},
+		{"unhealthy from 100", 100, false, 70},
+		{"unhealthy clamps at 0", 20, false, 0},
+		{"unhealthy already at 0", 0, false, 0},
+		{"degraded stays in band", 40, true, 70},
+		{"degraded drops in band", 40, false, 10},
+	}
+	for _, c := range cases {
+		if got := adjustHealthScore(c.current, c.healthy); got != c.want {
+			t.Errorf("%s: adjustHealthScore(%d, %v) = %d, want %d", c.name, c.current, c.healthy, got, c.want)
+		}
+	}
+}

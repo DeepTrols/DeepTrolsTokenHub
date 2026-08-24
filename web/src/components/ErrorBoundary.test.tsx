@@ -3,6 +3,32 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ErrorBoundary from "./ErrorBoundary";
 
+/**
+ * React 18 (dev) deliberately rethrows event-handler errors so they surface
+ * as process-level uncaught exceptions. This test throws inside an onClick to
+ * assert the documented error-boundary limitation, so we swap the process
+ * uncaughtException listeners (including vitest's) for a no-op during the
+ * click, then restore them. Keeping the global vitest config strict means any
+ * OTHER unhandled error still fails the run.
+ */
+async function clickWithSuppressedUncaught(button: HTMLElement) {
+  const listeners = process.listeners("uncaughtException");
+  process.removeAllListeners("uncaughtException");
+  const swallow = () => {};
+  process.on("uncaughtException", swallow);
+  try {
+    await userEvent.setup().click(button);
+    // Give any queued rethrow (microtask/timer) a chance to flush while the
+    // suppression is still active.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  } finally {
+    process.removeListener("uncaughtException", swallow);
+    for (const listener of listeners) {
+      process.on("uncaughtException", listener);
+    }
+  }
+}
+
 /** Child component that throws during render when `shouldThrow` is true. */
 function Bomb({ shouldThrow }: { shouldThrow: boolean }) {
   if (shouldThrow) {
@@ -128,7 +154,6 @@ describe("ErrorBoundary", () => {
   });
 
   it("does NOT catch errors thrown in event handlers (documented limitation)", async () => {
-    const user = userEvent.setup();
     function ClickBomb() {
       return (
         <button
@@ -149,7 +174,7 @@ describe("ErrorBoundary", () => {
 
     // Event-handler errors are not caught by error boundaries; the error
     // propagates to the browser. Assert the boundary stays normal.
-    await user.click(screen.getByText("boom"));
+    await clickWithSuppressedUncaught(screen.getByText("boom"));
     expect(screen.queryByText("页面渲染错误")).not.toBeInTheDocument();
   });
 

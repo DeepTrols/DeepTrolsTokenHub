@@ -34,7 +34,6 @@ import { adminApi } from "../lib/api";
 
 const mockGet = adminApi.get as ReturnType<typeof vi.fn>;
 const mockPost = adminApi.post as ReturnType<typeof vi.fn>;
-const mockPut = adminApi.put as ReturnType<typeof vi.fn>;
 const mockDelete = adminApi.delete as ReturnType<typeof vi.fn>;
 
 function createMockProvider(overrides: Record<string, unknown> = {}) {

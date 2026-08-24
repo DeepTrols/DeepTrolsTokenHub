@@ -27,7 +27,6 @@ vi.mock("../lib/auth", () => ({
 import { api } from "../lib/api";
 
 const mockApiGet = api.get as ReturnType<typeof vi.fn>;
-const mockApiPost = api.post as ReturnType<typeof vi.fn>;
 
 // Stub global fetch for gateway calls (/v1/*)
 const originalFetch = globalThis.fetch;

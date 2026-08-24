@@ -1,5 +1,3 @@
-import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
-import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { useState } from "react";
 import { useAdminMutation, useAdminQuery } from "../lib/hooks/use-api";
 import { Plus, Edit, Trash2, Server, RefreshCw } from "lucide-react";
@@ -32,7 +30,10 @@ export default function Providers() {
   const oe = (p: ProviderData) => { setNm(p.name); setPr(p.provider || "openai"); setBu(p.base_url); setAk(""); setEd(p); setSf(true); };
   const hs = async () => { setEr(""); if (!nm.trim()) { setEr("名称为必填"); return; } try { if (ed) await uM.mutateAsync({ id: ed.id, name: nm.trim(), base_url: bu.trim(), api_key: ak.trim() }); else { if (!ak.trim()) { setEr("API Key 必填"); return; } await cM.mutateAsync({ name: nm.trim(), provider: pr, base_url: bu.trim(), api_key: ak.trim() }); } rf(); setSf(false); } catch (e) { setEr(e instanceof Error ? e.message : "失败"); } };
   const hsy = async (p: ProviderData) => { setSy(p.id); try { const r = await sM.mutateAsync({ id: p.id }); alert(r.message); } catch { alert("同步失败"); } finally { setSy(null); } };
-  const hd = async (p: ProviderData) => { if (!confirm("确定停用?")) return; try { await dM.mutateAsync({ id: p.id }); } catch { } };
+  const hd = async (p: ProviderData) => {
+    if (!confirm("确定停用?")) return;
+    try { await dM.mutateAsync({ id: p.id }); } catch { /* 删除失败留给列表状态与重试，不阻塞交互 */ }
+  };
 
   return <div>
     <div className="flex items-center justify-between mb-6"><div><h2 className="font-display text-[25px] font-bold tracking-tight">Provider 凭证管理</h2><p className="text-[13px] text-[#5C6472] mt-1">管理上游模型提供商的 API Key 凭证</p></div><Button onClick={oc}><Plus size={16} className="mr-1.5" />添加凭证</Button></div>

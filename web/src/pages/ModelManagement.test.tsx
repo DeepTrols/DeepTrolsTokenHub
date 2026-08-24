@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import ModelManagement from "./ModelManagement";
 import { renderWithProviders } from "../test/test-utils";
 
@@ -19,7 +19,6 @@ vi.mock("../lib/auth", () => ({
 
 import { adminApi } from "../lib/api";
 const mockAdminGet = adminApi.get as ReturnType<typeof vi.fn>;
-const mockAdminPost = adminApi.post as ReturnType<typeof vi.fn>;
 
 function seedModels() {
   return [

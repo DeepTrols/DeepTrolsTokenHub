@@ -1,11 +1,10 @@
-import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
+import { ErrorState } from "@/components/StateViews";
 import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { useMemo } from "react";
 import { BarChart3, TrendingUp } from "lucide-react";
 import { useConsoleQuery } from "../lib/hooks/use-api";
 import { formatAmount } from "../lib/format";
 import { type UsageLog } from "../lib/api";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 interface ModelBreakdown { model: string; tokens: number; cost: number; pct: number; }

@@ -6,6 +6,8 @@
 > 上次：2026-08-19（文档一致性修正：LiteLLM 移除同步 / HMAC 请求签名重新定位为可选 / Seedance 回调归类为 webhook / 健康阈值以代码为准 / Redis 自动释放语义澄清 / FX 标注按需；详见 docs/PROJECT_STATUS.md 十九节）
 > 本次：2026-08-20（状态同步：Redis 实时负载追踪 / 多实例并发跟踪 / Price Snapshot / 租户审核 由 ❌、🟡 转 ✅；详见 docs/PROJECT_STATUS.md 二十三节）
 > 上次：2026-08-21（B1 定价引擎落地：成本/售价分离 + 峰谷/缓存维度 + 无加价（售价=成本）+ PAYG 门禁，详见 PROJECT_STATUS.md 二十六节）
+> 本次：2026-08-24（第二篇端点状态修正：/v1/embeddings、/v1/images/generations、/v1/audio/speech 已实现并注册，
+> 实现率 2/16 → 5/16；详见 PROJECT_STATUS.md 二十七节）
 
 ---
 
@@ -43,15 +45,15 @@
 | POST /v1/responses | OpenAI Responses API | ❌ 未实现 |
 | POST /v1/messages | Anthropic Messages API | ❌ 未实现 |
 | POST /v1/messages/count_tokens | Anthropic token 预估 | ❌ 未实现 |
-| POST /v1/embeddings | 嵌入向量 | ❌ 未实现 |
-| POST /v1/images/generations | 图片生成 | ❌ 未实现 |
+| POST /v1/embeddings | 嵌入向量 | ✅ 已实现（转发 + 计费闭环） |
+| POST /v1/images/generations | 图片生成 | ✅ 已实现（转发 + 计费闭环） |
 | POST /v1/images/edits | 图片编辑 | ❌ 未实现 |
 | POST /v1/videos/generations | Seedance 视频创建 | ❌ 未实现 |
 | GET/DELETE /v1/videos/generations/:id | 视频任务查询/取消 | ❌ 未实现 |
 | GET /v1/videos/generations/:id/content/:index | 视频下载 | ❌ 未实现 |
 | POST /v1/providers/doubao/seedance/callback | Seedance 回调（⚠️ 上游→平台的 webhook，非客户端 API：需独立验签，不应走 /v1 Bearer 鉴权） | ❌ 未实现 |
 | POST /v1/audio/transcriptions | 语音转文字 | ❌ 未实现 |
-| POST /v1/audio/speech | 文字转语音 | ❌ 未实现 |
+| POST /v1/audio/speech | 文字转语音 | ✅ 已实现（raw 转发 + TTS 字符计费） |
 | POST /v1beta/models/{model}:generateContent | Gemini 原生图片 | ❌ 未实现 |
 | Redis 实时负载追踪 | ai:channel:load 键 + Lua | ✅ 已实现（2026-08-19 LoadTracker：请求开始 INCR / 结束 DECR；Redis 故障回退 DB current_load + 每分钟限流告警，不静默降级） |
 | 多实例并发跟踪 | INCR/DECR + 显式 DECR（defer 兜底）+ 心跳刷新 TTL（⚠️ 不能只靠 TTL 过期，否则活跃计数器会被清零、负载信号失真） | ✅ 已实现（显式 DECR + defer 兜底，双释放不为负；心跳每 TTL/2 刷新，进程崩溃计数随 TTL 自动消失） |
@@ -104,8 +106,8 @@
 | 3 | `POST /v1/messages` | ❌ | — |
 | 4 | `POST /v1/messages/count_tokens` | ❌ | — |
 | 5 | `GET /v1/models` | ✅ | N/A |
-| 6 | `POST /v1/embeddings` | ❌ | — |
-| 7 | `POST /v1/images/generations` | ❌ | — |
+| 6 | `POST /v1/embeddings` | ✅ | ✅ 完整（估算 token 计费） |
+| 7 | `POST /v1/images/generations` | ✅ | ✅ 完整（按图计费） |
 | 8 | `POST /v1/images/edits` | ❌ | — |
 | 9 | `POST /v1/videos/generations` | ❌ | — |
 | 10 | `GET /v1/videos/generations/:id` | ❌ | — |
@@ -113,10 +115,10 @@
 | 12 | `DELETE /v1/videos/generations/:id` | ❌ | — |
 | 13 | `POST /v1/providers/doubao/seedance/callback` | ❌ | — |
 | 14 | `POST /v1/audio/transcriptions` | ❌ | — |
-| 15 | `POST /v1/audio/speech` | ❌ | — |
+| 15 | `POST /v1/audio/speech` | ✅ | ✅ 完整（TTS 字符计费） |
 | 16 | `POST /v1beta/models/{model}:generateContent` | ❌ | — |
 
-**实现率**: 2/16（12.5%）
+**实现率**: 5/16（31.3%）
 
 ---
 

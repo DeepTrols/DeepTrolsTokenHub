@@ -108,18 +108,7 @@ func (c *Checker) checkChannel(ctx context.Context, chID string) error {
 		return err
 	}
 
-	score := currentScore
-	if anyHealthy {
-		score += healthStep
-		if score > 100 {
-			score = 100
-		}
-	} else {
-		score -= healthStep
-		if score < 0 {
-			score = 0
-		}
-	}
+	score := adjustHealthScore(currentScore, anyHealthy)
 	status := healthStatusForScore(score)
 
 	tag, err := c.pool.Exec(ctx,
@@ -135,6 +124,26 @@ func (c *Checker) checkChannel(ctx context.Context, chID string) error {
 }
 
 const healthStep = 30
+
+// adjustHealthScore moves the progressive score by ±healthStep with clamping
+// to [0, 100]: a single probe blip degrades gradually and recovery is gradual
+// too (see checkChannel). Extracted as a pure function so the scoring policy
+// is directly unit-testable without a database.
+func adjustHealthScore(current int, healthy bool) int {
+	score := current
+	if healthy {
+		score += healthStep
+		if score > 100 {
+			score = 100
+		}
+	} else {
+		score -= healthStep
+		if score < 0 {
+			score = 0
+		}
+	}
+	return score
+}
 
 // healthStatusForScore maps a progressive score to a health status.
 func healthStatusForScore(score int) string {

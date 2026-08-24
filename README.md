@@ -40,21 +40,17 @@ internal/
     user.go                  #   User（角色 + 状态）
     wallet.go                #   Wallet（乐观锁版本号）
   handler/
-    gateway/                 # OpenAI-compatible 网关（/v1/chat/completions, /v1/models）
-    console/                 # 控制台 API（23 端点：认证/密钥/用量/钱包/模型/安全）
-    middleware/               # 鉴权/租户/限流/安全头/CORS
+    gateway/                 # OpenAI-compatible 网关（/v1/chat/completions + /v1/models + embeddings/images/audio 转发）
+    console/                 # 控制台 API（认证/密钥/用量/钱包/模型/配额/团队/租户）
+    middleware/              # 鉴权/租户/限流/安全头/CORS
   service/
-    auth/                    # 认证服务（JWT 签发/密码/TOTP/登录历史）
     billing/                 # 计费引擎（Reserve/Commit/Release + 定价 + 配额）
     cache/                   # 响应缓存（SHA256→Redis，命中零计费）
     gateway/                 # 网关服务（路由 + OpenAI 兼容直连执行）
-    model/                   # 模型管理
-    reconciliation/          # 对账服务
-    tenant/                  # 租户管理
   repository/                # 数据访问接口（PostgreSQL 实现）
     apikey/ channel/ model/ quota/ tenant/ usage/ user/ wallet/
   worker/
-    health_checker/          # 渠道实例健康探测（60s 周期）
+    health_checker/          # 渠道实例健康探测（60s 周期，渐进评分）
     reconciliation/          # 对账 Worker（L0 漏记账 + L1 证据不匹配）
   pkg/
     db/                      # pgxpool 封装 + 事务工具
@@ -64,9 +60,9 @@ internal/
     jsonb/                   # PostgreSQL JSONB 辅助
     jwtutil/                 # JWT HS256 签发/验证
     keyhash/                 # HMAC-SHA256 API Key 哈希
+    lease/                   # Redis 分布式选主（SET NX EX）
     ratelimit/               # 限流（Redis 优先 + 内存降级）
     redis/                   # go-redis 客户端封装
-    totp/                    # TOTP RFC 6238（生成/验证/URI）
     usageparser/             # 上游 usage 解析（OpenAI 兼容格式）
 migrations/                  # PostgreSQL DDL（9 次迁移 000001~000009，24+ 张表）
 web/                         # React 前端（21 页面）

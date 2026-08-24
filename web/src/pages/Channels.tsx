@@ -1,5 +1,4 @@
-import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
-import { SectionPageLayout } from "@/components/SectionPageLayout";
+import { EmptyState } from "@/components/StateViews";
 import { useState } from "react";
 import { useAdminMutation, useAdminQuery } from "../lib/hooks/use-api";
 import { Plus, Trash2, Play, RotateCw, Server } from "lucide-react";
@@ -37,13 +36,6 @@ const PROVIDER_OPTIONS = [
 ];
 
 function providerLabel(p: string) { return PROVIDER_OPTIONS.find((o) => o.value === p)?.label || p; }
-
-const TAG_COLORS = ["blue", "green", "purple", "orange", "red", "teal"] as const;
-type TagColor = (typeof TAG_COLORS)[number];
-function tagColorClass(label: string): TagColor {
-  let h = 0; for (let i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) & 0xffff;
-  return TAG_COLORS[h % TAG_COLORS.length];
-}
 
 export default function Channels() {
   const { data: credData, isLoading, isError, error: fetchError, refetch } = useAdminQuery<{ data: CredentialData[] }>("/providers");

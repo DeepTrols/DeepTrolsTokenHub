@@ -958,3 +958,62 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - 租户/user_level 倍率、模型级售价倍率列、OEM 自助定价管理端点。
 - 其他厂商成本行（当前只有 DeepSeek 官方价；其余模型沿用既有售价行 + upstream_cost）。
+
+## 二十七、2026-08-24 工程改善批次：CI lint/前端测试门禁 + 死代码清理 + 测试补齐 + 配额页入口恢复
+
+> 背景：全仓审计发现 CI 前端 lint 步骤必挂（eslint 未安装且无配置）、vitest 全过但退出码 1、
+> `internal/service/auth` 为无引用死代码、管理端配额页有代码无路由/导航入口等（详见审计结论）。
+> 本批为"测试基建 + 机械重构"类变更，非核心路径，按 AGENTS.md 轻量流程执行，改完跑全量验证。
+
+### 27.1 前端 lint 基建（此前 `npm run lint` 必挂）
+
+- `eslint`（9.x）/ `@eslint/js` / `typescript-eslint` / `eslint-plugin-react-hooks` / `globals` 加入
+  devDependencies；新增 `web/eslint.config.js`（扁平配置；忽略 `_write-pages.js` 遗留脚本；
+  关闭 react-hooks v7 的 `set-state-in-effect` / `purity` 两条误伤规则并注释原因）。
+- 清理 118 处未使用导入/变量（Channels/Costs/Docs/Finance/ModelManagement/Playground/Policies/
+  Providers/UsageStats/Reconciliation + 7 个测试文件）；ModelManagement 的 `actionError` 由
+  "只 setState 不渲染"改为在表单内展示（错误不再静默）。
+- 结果：0 errors / 10 warnings（exhaustive-deps 性能建议，不阻塞 CI）。
+
+### 27.2 前端测试门禁
+
+- ErrorBoundary 测试故意在事件处理器抛错，React 18 dev 会把它重抛为进程级 uncaughtException，
+  导致 vitest 251/251 全过但退出码 1：改为测试内临时替换 uncaughtException 监听（其余未捕获
+  错误仍保持全局失败，未启用 `dangerouslyIgnoreUnhandledErrors`）。
+- `package.json` 新增 `test` / `test:watch` script；CI frontend job 增加 `npm test` 步骤
+  （此前前端测试从未进 CI）。
+
+### 27.3 死代码清理
+
+- 删除 `internal/service/auth`（包注释已声明 deprecated，全仓无引用）；README 项目结构同步
+  （移除不存在的 service/model、service/reconciliation、service/tenant、pkg/totp，补 pkg/lease，
+  更新网关/console 描述为现状）。
+
+### 27.4 测试补齐（覆盖率）
+
+- `internal/domain`：新增 Tenant/Channel/Model 纯逻辑测试（AllowTraffic / ValidTransitions /
+  IsRoutable / IsCallable），0% → 有覆盖。
+- `internal/service/cache`：新增 miniredis 测试（BuildKey 确定性 / scope 隔离 / Set-Get 回环 /
+  miss / 默认 TTL / 模型白名单 / nil client 禁用路径），0% → 有覆盖。
+- `internal/worker/health_checker`：评分逻辑抽出 `adjustHealthScore` 纯函数 + 表驱动测试
+  （±30 渐进、0/100 截断），覆盖率提升。
+
+### 27.5 配额管理入口恢复
+
+- `QuotaManagement.tsx`（管理端配额池 CRUD + 分配）此前无路由无导航，后端 `/api/admin/quotas`
+  全套 API 存在但前端不可达：`App.tsx` 增加 `/admin/quotas` 路由，`AdminLayout` 增加「配额管理」
+  导航项（Coins 图标）。
+
+### 27.6 验证（全绿）
+
+- Go：`go test ./... -count=1`（含 TEST_DATABASE_URL 真实 Postgres 集成测试）、`go vet ./...`、
+  `go build ./...`、全仓 gofmt 检查全绿。
+- 前端：`tsc -b`、`npm run lint`（0 errors）、`npm test`（251/251，退出码 0）、`vite build` 全绿。
+- CI：frontend job 的 lint 步骤由必挂变为可跑通，并新增测试步骤。
+
+### 27.7 已知遗留
+
+- lint 仍保留 10 条 exhaustive-deps warning（性能建议，未处理）。
+- `npm audit` 报告 3 个既有依赖漏洞（1 moderate / 2 high），非本批引入，待单独评估升级。
+- 8-24 前端批次（品牌 logo、导航精简、充值/账单拆分、用户中心合并、dashboard 筛选保留旧数据，
+  提交 `7b750ff..cb8294d`）此前未记录，本次在 27.1~27.5 变更之外补齐说明。

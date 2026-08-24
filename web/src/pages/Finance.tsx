@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState } from "react";
 import { useAdminQuery } from "../lib/hooks/use-api";
 import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
 import { SectionPageLayout } from "@/components/SectionPageLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatAmount } from "../lib/format";
@@ -31,17 +31,6 @@ interface LedgerRow {
   request_count: number;
   total_tokens: number;
   model_usage: ModelUsageRow[];
-}
-
-function statusVariant(s: string): "success" | "destructive" | "secondary" {
-  if (s === "active") return "success";
-  if (s === "banned") return "destructive";
-  return "secondary";
-}
-function statusLabel(s: string): string {
-  if (s === "active") return "正常";
-  if (s === "banned") return "已封禁";
-  return s;
 }
 
 export default function Finance() {

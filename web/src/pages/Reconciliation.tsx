@@ -1,4 +1,4 @@
-import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
+import { EmptyState, LoadingState } from "@/components/StateViews";
 import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { useAdminQuery } from "../lib/hooks/use-api";
 import { BarChart3 } from "lucide-react";

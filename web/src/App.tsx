@@ -21,6 +21,7 @@ import Channels from "./pages/Channels";
 import Reconciliation from "./pages/Reconciliation";
 import Users from "./pages/Users";
 import Costs from "./pages/Costs";
+import QuotaManagement from "./pages/QuotaManagement";
 import UserCenter from "./pages/UserCenter";
 import Docs from "./pages/Docs";
 
@@ -71,6 +72,7 @@ export default function App() {
         <Route path="tenants" element={<Tenants />} />
         <Route path="finance" element={<Finance />} />
         <Route path="policies" element={<Policies />} />
+        <Route path="quotas" element={<QuotaManagement />} />
         <Route path="providers" element={<Navigate to="/admin/channels" replace />} />
         <Route path="reconciliation" element={<Reconciliation />} />
         <Route path="users" element={<Users />} />

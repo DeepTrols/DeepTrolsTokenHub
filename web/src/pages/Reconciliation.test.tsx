@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import Reconciliation from "./Reconciliation";
 import { renderWithProviders } from "../test/test-utils";
 

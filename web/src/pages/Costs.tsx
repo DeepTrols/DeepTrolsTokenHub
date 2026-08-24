@@ -1,13 +1,9 @@
-import { EmptyState, ErrorState, LoadingState } from "@/components/StateViews";
-import { SectionPageLayout } from "@/components/SectionPageLayout";
 import { useAdminQuery } from "../lib/hooks/use-api";
 import { formatAmount } from "../lib/format";
-import { TrendingUp, BarChart3 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-const COLORS=["#6366f1","#10b981","#f59e0b","#ef4444","#8b5cf6","#06b6d4","#f97316","#84cc16"];
 interface CostSummary { model:string; request_count:number; final_cost:string; upstream_cost:string; profit:string; profit_margin:string; }
 export default function Costs(){
   const{data:costData,isLoading,isError,error,refetch}=useAdminQuery<{data:CostSummary[]}>("/costs");
@@ -15,7 +11,6 @@ export default function Costs(){
   const le=isError?(error instanceof Error?error.message:String(error)):"";
   const t=rows.reduce((a,r)=>{a.f+=parseFloat(r.final_cost||"0");a.u+=parseFloat(r.upstream_cost||"0");a.r+=r.request_count;return a},{f:0,u:0,r:0});
   const tp=t.f-t.u,tm=t.f>0?(tp/t.f)*100:0;
-  const cd=rows.map(r=>({name:r.model.length>22?r.model.slice(0,22)+"...":r.model,fn:r.model,cost:parseFloat(r.final_cost||"0")}));
   if(isLoading)return <div><h2 className="font-display text-[25px] font-bold tracking-tight mb-6">成本核算</h2><Card><CardContent className="p-12 text-center"><div className="animate-spin w-8 h-8 border-2 border-[#4F6BED] border-t-transparent rounded-full mx-auto mb-3"/><p className="text-muted-foreground">加载中...</p></CardContent></Card></div>;
   return <div>
     <div className="mb-4"><h2 className="font-display text-[25px] font-bold tracking-tight">数据看板</h2><p className="text-[13px] text-[#5C6472] mt-1">全平台成本分析</p></div>
