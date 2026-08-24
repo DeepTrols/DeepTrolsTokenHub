@@ -56,7 +56,7 @@ export default function ConsoleLayout() {
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `flex items-center gap-[10px] px-[9px] py-[7px] rounded-[10px] text-[13px] font-semibold border transition-all ${
+                  `flex items-center gap-[10px] px-[9px] py-[7px] rounded-[10px] text-[14px] font-semibold border transition-all ${
                     isActive
                       ? "bg-white/80 border-white/95 text-[#4F6BED] shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_26px_rgba(63,76,128,0.10)]"
                       : "border-transparent text-[#5C6472] hover:text-[#161A23] hover:bg-white/40"
@@ -79,8 +79,8 @@ export default function ConsoleLayout() {
             <div className="glass-soft flex items-center gap-2.5 rounded-xl p-2">
               <span className="grid w-9 h-9 shrink-0 place-items-center rounded-[10px] bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white text-[12px] font-bold shadow-[0_6px_18px_rgba(79,107,237,0.35)]">{avatarChar}</span>
               <span className="flex-1 min-w-0">
-                <div className="text-[12.5px] font-semibold truncate">{displayName}</div>
-                <div className="text-[10.5px] text-[#5C6472]">{(user?.tenant_name || "DeepTrols")} · {isAdmin ? "管理员" : (isEnterpriseAdmin ? "企业管理员" : "成员")}</div>
+                <div className="text-[13px] font-semibold truncate">{displayName}</div>
+                <div className="text-[11px] text-[#5C6472]">{(user?.tenant_name || "DeepTrols")} · {isAdmin ? "管理员" : (isEnterpriseAdmin ? "企业管理员" : "成员")}</div>
               </span>
               <button onClick={handleLogout} aria-label="退出登录" className="grid w-7 h-7 place-items-center rounded-lg text-[#5C6472] hover:text-[#E5484D] hover:bg-white/70 transition-colors shrink-0">
                 <LogOut size={14} />

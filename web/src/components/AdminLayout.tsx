@@ -32,7 +32,7 @@ export default function AdminLayout() {
   };
 
   const linkClass = (isActive: boolean) =>
-    `flex items-center gap-[10px] px-[11px] py-[8px] rounded-[11px] text-[13.5px] font-semibold border transition-all ${
+    `flex items-center gap-[10px] px-[11px] py-[8px] rounded-[11px] text-[14px] font-semibold border transition-all ${
       isActive
         ? "bg-white/80 border-white/95 text-[#4F6BED] shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_26px_rgba(63,76,128,0.10)]"
         : "border-transparent text-[#5C6472] hover:text-[#161A23] hover:bg-white/40"
@@ -114,14 +114,14 @@ export default function AdminLayout() {
           <div className="mt-auto pt-3 space-y-[3px]">
             <NavLink
               to="/dashboard"
-              className="flex items-center gap-[10px] px-[9px] py-[7px] rounded-[10px] text-[13px] font-semibold text-[#5C6472] hover:text-[#161A23] hover:bg-white/40 transition-all"
+              className="flex items-center gap-[10px] px-[9px] py-[7px] rounded-[10px] text-[14px] font-semibold text-[#5C6472] hover:text-[#161A23] hover:bg-white/40 transition-all"
             >
               <span className="nav-ic !w-[30px] !h-[30px] !rounded-[9px] text-[#0FA88B]"><Box size={15} /></span>
               用户门户
             </NavLink>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-[10px] w-full px-[9px] py-[7px] rounded-[10px] text-[13px] font-semibold text-[#5C6472] hover:text-[#E5484D] hover:bg-white/40 transition-all"
+              className="flex items-center gap-[10px] w-full px-[9px] py-[7px] rounded-[10px] text-[14px] font-semibold text-[#5C6472] hover:text-[#E5484D] hover:bg-white/40 transition-all"
             >
               <span className="nav-ic !w-[30px] !h-[30px] !rounded-[9px] text-[#E5484D]"><LogOut size={15} /></span>
               退出登录
