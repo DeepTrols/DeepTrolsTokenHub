@@ -128,6 +128,38 @@ func TestPricer_Calculate_ExplicitSellWins(t *testing.T) {
 	}
 }
 
+// TestPricer_Calculate_UsesEditedSellPrice locks the invariant that billing
+// follows the price shown in the model management UI: after an admin edits a
+// sell price (new value, bumped version), the very next charge uses the new
+// price and the evidence snapshot records it.
+func TestPricer_Calculate_UsesEditedSellPrice(t *testing.T) {
+	editedSell := makePricingEntry("input", "0.08", "0.0015")
+	editedSell.PriceType = domain.PriceTypeSell
+	editedSell.PriceVersion = 7
+	costRow := makePricingEntry("input", "0.0015", "0.0015")
+	costRow.PriceType = domain.PriceTypeCost
+
+	p := newTestPricer([]domain.ModelPricing{editedSell, costRow})
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1000}, time.Now())
+	if err != nil {
+		t.Fatalf("Calculate unexpected error: %v", err)
+	}
+	if !result.ListCost.Equal(decimal.NewFromFloat(0.08)) {
+		t.Errorf("ListCost = %s, want 0.08 (edited sell price, not old cost)", result.ListCost)
+	}
+	if len(result.ChargeLines) != 1 || !result.ChargeLines[0].UnitPrice.Equal(decimal.NewFromFloat(0.08)) {
+		t.Errorf("ChargeLines UnitPrice = %+v, want 0.08", result.ChargeLines)
+	}
+	rows, ok := result.PriceSnapshot["rows"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("snapshot rows = %T (%d), want []any with 1 row", rows, len(rows))
+	}
+	row := rows[0].(map[string]any)
+	if row["unit_price"] != "0.08" || row["price_version"] != int64(7) {
+		t.Errorf("snapshot unit_price/version = %v/%v, want 0.08/7", row["unit_price"], row["price_version"])
+	}
+}
+
 func TestPricer_Calculate_PeriodSelection(t *testing.T) {
 	peakRow := makePricingEntry("input", "0.003", "0.003")
 	peakRow.PriceType = domain.PriceTypeCost
