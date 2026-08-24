@@ -36,7 +36,7 @@ type ChargeLineInput struct {
 	PriceVersion    int
 }
 
-// tokenDimensions are priced per 1K tokens (unit_name "1K tokens"); all other
+// tokenDimensions are priced per 1M tokens (unit_name "1M tokens"); all other
 // dimensions (image/audio/tts/video) are priced per single unit.
 var tokenDimensions = map[string]bool{
 	"input":       true,
@@ -172,7 +172,7 @@ func (p *Pricer) CalculateAt(ctx context.Context, modelID uuid.UUID, tenantID *u
 
 		scale := decimal.NewFromInt(1)
 		if tokenDimensions[dim.name] {
-			scale = decimal.NewFromInt(1000)
+			scale = decimal.NewFromInt(1_000_000)
 		}
 		qty := decimal.NewFromInt(dim.qty)
 		lineCost := sellPrice.Mul(qty).Div(scale)

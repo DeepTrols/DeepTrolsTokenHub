@@ -32,7 +32,7 @@ interface ModelDetail {
 }
 
 const DIMENSIONS = ["input", "output", "cache_read", "cache_write", "reasoning", "image", "audio", "tts", "video"];
-const emptyPricing = (): PricingRow => ({ dimension: "", unit_name: "1K tokens", unit_price: "", price_type: "sell", period: "off_peak" });
+const emptyPricing = (): PricingRow => ({ dimension: "", unit_name: "1M tokens", unit_price: "", price_type: "sell", period: "off_peak" });
 
 const priceTypeLabel = (t?: string) => (t === "cost" ? "成本" : "售价");
 const periodLabel = (p?: string) => (p === "peak" ? "高峰" : "非高峰");
@@ -260,7 +260,7 @@ export default function ModelManagement() {
               <button onClick={addPricing} className="text-sm text-[#4F6BED] font-semibold hover:underline">+ 添加维度</button>
             </div>
             <p className="text-xs text-[#5C6472] mb-2">
-              token 类维度单价按 元 / 1K tokens 填写（如 DeepSeek V4-Flash 输入 0.003）；图片/音频等维度按单个单位填写。
+              token 类维度单价按 元 / 百万 tokens 填写（如 DeepSeek V4-Flash 输入 3）；图片/音频等维度按单个单位填写。
               计费严格按此处填写的单价计算，改价立即生效。
             </p>
             {pricings.map((p, idx) => (

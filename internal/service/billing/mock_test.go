@@ -135,7 +135,7 @@ func makePricingEntry(dimension, unitPrice, upstreamCost string) domain.ModelPri
 		ModelID:          uuid.New(),
 		RequestType:      "chat",
 		PricingDimension: dimension,
-		UnitName:         "token",
+		UnitName:         "1M tokens",
 		UnitPrice:        unitPrice,
 		Currency:         "CNY",
 		UpstreamCost:     upstreamCost,

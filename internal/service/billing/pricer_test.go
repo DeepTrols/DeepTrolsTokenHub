@@ -22,49 +22,49 @@ func newTestPricer(rows []domain.ModelPricing) *Pricer {
 }
 
 func TestPricer_Calculate_SingleDimension_TokenScale(t *testing.T) {
-	// Legacy sell row (no price_type): unit price is per 1K tokens.
+	// Sell row (no price_type): unit price is per 1M tokens (元/百万).
 	p := newTestPricer([]domain.ModelPricing{
-		makePricingEntry("input", "0.01", "0.005"),
+		makePricingEntry("input", "10", "5"),
 	})
 
-	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1000}, time.Now())
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1_000_000}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
 	}
-	// 1000 tokens * 0.01 / 1000 = 0.01
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.01)) {
-		t.Errorf("ListCost = %s, want 0.01", result.ListCost)
+	// 1,000,000 tokens * 10 / 1,000,000 = 10
+	if !result.ListCost.Equal(decimal.NewFromFloat(10)) {
+		t.Errorf("ListCost = %s, want 10", result.ListCost)
 	}
-	if !result.UpstreamCost.Equal(decimal.NewFromFloat(0.005)) {
-		t.Errorf("UpstreamCost = %s, want 0.005", result.UpstreamCost)
+	if !result.UpstreamCost.Equal(decimal.NewFromFloat(5)) {
+		t.Errorf("UpstreamCost = %s, want 5", result.UpstreamCost)
 	}
 	if len(result.ChargeLines) != 1 {
 		t.Fatalf("ChargeLines count = %d, want 1", len(result.ChargeLines))
 	}
-	if result.ChargeLines[0].Quantity != 1000 {
-		t.Errorf("Quantity = %d, want 1000", result.ChargeLines[0].Quantity)
+	if result.ChargeLines[0].Quantity != 1_000_000 {
+		t.Errorf("Quantity = %d, want 1000000", result.ChargeLines[0].Quantity)
 	}
-	if result.ChargeLines[0].LineCost.Equal(decimal.NewFromFloat(0.01)) == false {
-		t.Errorf("LineCost = %s, want 0.01", result.ChargeLines[0].LineCost)
+	if result.ChargeLines[0].LineCost.Equal(decimal.NewFromFloat(10)) == false {
+		t.Errorf("LineCost = %s, want 10", result.ChargeLines[0].LineCost)
 	}
 }
 
 func TestPricer_Calculate_MultiDimension(t *testing.T) {
 	p := newTestPricer([]domain.ModelPricing{
-		makePricingEntry("input", "0.01", "0.005"),
-		makePricingEntry("output", "0.03", "0.015"),
+		makePricingEntry("input", "10", "5"),
+		makePricingEntry("output", "30", "15"),
 	})
 
-	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1000, OutputTokens: 500}, time.Now())
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1_000_000, OutputTokens: 500_000}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
 	}
-	// 1000*0.01/1000 + 500*0.03/1000 = 0.01 + 0.015 = 0.025
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.025)) {
-		t.Errorf("ListCost = %s, want 0.025", result.ListCost)
+	// 1M*10/1M + 500K*30/1M = 10 + 15 = 25
+	if !result.ListCost.Equal(decimal.NewFromFloat(25)) {
+		t.Errorf("ListCost = %s, want 25", result.ListCost)
 	}
-	if !result.UpstreamCost.Equal(decimal.NewFromFloat(0.0125)) {
-		t.Errorf("UpstreamCost = %s, want 0.0125", result.UpstreamCost)
+	if !result.UpstreamCost.Equal(decimal.NewFromFloat(12.5)) {
+		t.Errorf("UpstreamCost = %s, want 12.5", result.UpstreamCost)
 	}
 	if len(result.ChargeLines) != 2 {
 		t.Fatalf("ChargeLines count = %d, want 2", len(result.ChargeLines))
@@ -87,44 +87,44 @@ func TestPricer_Calculate_NonTokenDimension(t *testing.T) {
 }
 
 func TestPricer_Calculate_CostRow_NoMarkup(t *testing.T) {
-	costRow := makePricingEntry("input", "0.0015", "0.0015")
+	costRow := makePricingEntry("input", "1.5", "1.5")
 	costRow.PriceType = domain.PriceTypeCost
 	costRow.Period = domain.PricingPeriodOffPeak
-	costRow.UnitName = "1K tokens"
+	costRow.UnitName = "1M tokens"
 
 	p := newTestPricer([]domain.ModelPricing{costRow})
-	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1000}, time.Now())
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1_000_000}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
 	}
-	// sell = cost = 0.0015 per 1K tokens (no markup)
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.0015)) {
-		t.Errorf("ListCost = %s, want 0.0015", result.ListCost)
+	// sell = cost = 1.5 per 1M tokens (no markup)
+	if !result.ListCost.Equal(decimal.NewFromFloat(1.5)) {
+		t.Errorf("ListCost = %s, want 1.5", result.ListCost)
 	}
-	if !result.UpstreamCost.Equal(decimal.NewFromFloat(0.0015)) {
-		t.Errorf("UpstreamCost = %s, want 0.0015", result.UpstreamCost)
+	if !result.UpstreamCost.Equal(decimal.NewFromFloat(1.5)) {
+		t.Errorf("UpstreamCost = %s, want 1.5", result.UpstreamCost)
 	}
-	if result.ChargeLines[0].UnitPrice.Equal(decimal.NewFromFloat(0.0015)) == false {
-		t.Errorf("UnitPrice = %s, want 0.0015", result.ChargeLines[0].UnitPrice)
+	if result.ChargeLines[0].UnitPrice.Equal(decimal.NewFromFloat(1.5)) == false {
+		t.Errorf("UnitPrice = %s, want 1.5", result.ChargeLines[0].UnitPrice)
 	}
 }
 
 func TestPricer_Calculate_ExplicitSellWins(t *testing.T) {
-	sellRow := makePricingEntry("input", "0.05", "0.02")
+	sellRow := makePricingEntry("input", "50", "20")
 	sellRow.PriceType = domain.PriceTypeSell
-	costRow := makePricingEntry("input", "0.0015", "0.0015")
+	costRow := makePricingEntry("input", "1.5", "1.5")
 	costRow.PriceType = domain.PriceTypeCost
 
 	p := newTestPricer([]domain.ModelPricing{costRow, sellRow})
-	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1000}, time.Now())
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1_000_000}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
 	}
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.05)) {
-		t.Errorf("ListCost = %s, want 0.05 (explicit sell wins)", result.ListCost)
+	if !result.ListCost.Equal(decimal.NewFromFloat(50)) {
+		t.Errorf("ListCost = %s, want 50 (explicit sell wins)", result.ListCost)
 	}
-	if !result.UpstreamCost.Equal(decimal.NewFromFloat(0.0015)) {
-		t.Errorf("UpstreamCost = %s, want 0.0015 (cost row is authoritative)", result.UpstreamCost)
+	if !result.UpstreamCost.Equal(decimal.NewFromFloat(1.5)) {
+		t.Errorf("UpstreamCost = %s, want 1.5 (cost row is authoritative)", result.UpstreamCost)
 	}
 }
 
@@ -133,43 +133,43 @@ func TestPricer_Calculate_ExplicitSellWins(t *testing.T) {
 // sell price (new value, bumped version), the very next charge uses the new
 // price and the evidence snapshot records it.
 func TestPricer_Calculate_UsesEditedSellPrice(t *testing.T) {
-	editedSell := makePricingEntry("input", "0.08", "0.0015")
+	editedSell := makePricingEntry("input", "80", "1.5")
 	editedSell.PriceType = domain.PriceTypeSell
 	editedSell.PriceVersion = 7
-	costRow := makePricingEntry("input", "0.0015", "0.0015")
+	costRow := makePricingEntry("input", "1.5", "1.5")
 	costRow.PriceType = domain.PriceTypeCost
 
 	p := newTestPricer([]domain.ModelPricing{editedSell, costRow})
-	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1000}, time.Now())
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1_000_000}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
 	}
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.08)) {
-		t.Errorf("ListCost = %s, want 0.08 (edited sell price, not old cost)", result.ListCost)
+	if !result.ListCost.Equal(decimal.NewFromFloat(80)) {
+		t.Errorf("ListCost = %s, want 80 (edited sell price, not old cost)", result.ListCost)
 	}
-	if len(result.ChargeLines) != 1 || !result.ChargeLines[0].UnitPrice.Equal(decimal.NewFromFloat(0.08)) {
-		t.Errorf("ChargeLines UnitPrice = %+v, want 0.08", result.ChargeLines)
+	if len(result.ChargeLines) != 1 || !result.ChargeLines[0].UnitPrice.Equal(decimal.NewFromFloat(80)) {
+		t.Errorf("ChargeLines UnitPrice = %+v, want 80", result.ChargeLines)
 	}
 	rows, ok := result.PriceSnapshot["rows"].([]any)
 	if !ok || len(rows) != 1 {
 		t.Fatalf("snapshot rows = %T (%d), want []any with 1 row", rows, len(rows))
 	}
 	row := rows[0].(map[string]any)
-	if row["unit_price"] != "0.08" || row["price_version"] != int64(7) {
-		t.Errorf("snapshot unit_price/version = %v/%v, want 0.08/7", row["unit_price"], row["price_version"])
+	if row["unit_price"] != "80" || row["price_version"] != int64(7) {
+		t.Errorf("snapshot unit_price/version = %v/%v, want 80/7", row["unit_price"], row["price_version"])
 	}
 }
 
 func TestPricer_Calculate_PeriodSelection(t *testing.T) {
-	peakRow := makePricingEntry("input", "0.003", "0.003")
+	peakRow := makePricingEntry("input", "3", "3")
 	peakRow.PriceType = domain.PriceTypeCost
 	peakRow.Period = domain.PricingPeriodPeak
-	offPeakRow := makePricingEntry("input", "0.0015", "0.0015")
+	offPeakRow := makePricingEntry("input", "1.5", "1.5")
 	offPeakRow.PriceType = domain.PriceTypeCost
 	offPeakRow.Period = domain.PricingPeriodOffPeak
 
 	p := newTestPricer([]domain.ModelPricing{offPeakRow, peakRow})
-	usage := &usageparser.NormalizedUsage{InputTokens: 1000}
+	usage := &usageparser.NormalizedUsage{InputTokens: 1_000_000}
 
 	// 10:30 Asia/Shanghai = peak
 	peakTime := time.Date(2026, 8, 21, 10, 30, 0, 0, shanghaiLocation)
@@ -177,8 +177,8 @@ func TestPricer_Calculate_PeriodSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("peak Calculate: %v", err)
 	}
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.003)) {
-		t.Errorf("peak ListCost = %s, want 0.003", result.ListCost)
+	if !result.ListCost.Equal(decimal.NewFromFloat(3)) {
+		t.Errorf("peak ListCost = %s, want 3", result.ListCost)
 	}
 	if result.Period != domain.PricingPeriodPeak {
 		t.Errorf("Period = %s, want peak", result.Period)
@@ -190,8 +190,8 @@ func TestPricer_Calculate_PeriodSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("off-peak Calculate: %v", err)
 	}
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.0015)) {
-		t.Errorf("off-peak ListCost = %s, want 0.0015", result.ListCost)
+	if !result.ListCost.Equal(decimal.NewFromFloat(1.5)) {
+		t.Errorf("off-peak ListCost = %s, want 1.5", result.ListCost)
 	}
 	if result.Period != domain.PricingPeriodOffPeak {
 		t.Errorf("Period = %s, want off_peak", result.Period)
@@ -199,19 +199,19 @@ func TestPricer_Calculate_PeriodSelection(t *testing.T) {
 }
 
 func TestPricer_Calculate_CacheReadDimension(t *testing.T) {
-	row := makePricingEntry("cache_read", "0.0001", "0.0001")
+	row := makePricingEntry("cache_read", "0.1", "0.1")
 	row.PriceType = domain.PriceTypeCost
 	row.Period = domain.PricingPeriodPeak
-	row.UnitName = "1K tokens"
+	row.UnitName = "1M tokens"
 
 	p := newTestPricer([]domain.ModelPricing{row})
-	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{CacheReadTokens: 5000}, time.Now())
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{CacheReadTokens: 5_000_000}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
 	}
-	// sell = cost = 0.0001 per 1K; 5000 tokens -> 0.0005
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.0005)) {
-		t.Errorf("ListCost = %s, want 0.0005", result.ListCost)
+	// sell = cost = 0.1 per 1M; 5M tokens -> 0.5
+	if !result.ListCost.Equal(decimal.NewFromFloat(0.5)) {
+		t.Errorf("ListCost = %s, want 0.5", result.ListCost)
 	}
 	if len(result.MissingPricing) != 0 {
 		t.Errorf("MissingPricing = %v, want empty", result.MissingPricing)
@@ -292,36 +292,36 @@ func TestPricer_Calculate_TenantIDForwarded(t *testing.T) {
 }
 
 func TestPricer_Calculate_TenantRowPreferred(t *testing.T) {
-	platform := makePricingEntry("input", "0.10", "0.05")
+	platform := makePricingEntry("input", "10", "5")
 	platform.PriceType = domain.PriceTypeSell
-	tenant := makePricingEntry("input", "0.20", "0.05")
+	tenant := makePricingEntry("input", "20", "5")
 	tenant.PriceType = domain.PriceTypeSell
 	tid := uuid.New()
 	tenant.TenantID = &tid
 
 	p := newTestPricer([]domain.ModelPricing{platform, tenant})
-	result, err := p.CalculateAt(context.Background(), uuid.New(), &tid, &usageparser.NormalizedUsage{InputTokens: 1000}, time.Now())
+	result, err := p.CalculateAt(context.Background(), uuid.New(), &tid, &usageparser.NormalizedUsage{InputTokens: 1_000_000}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
 	}
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.20)) {
-		t.Errorf("ListCost = %s, want 0.20 (tenant row preferred)", result.ListCost)
+	if !result.ListCost.Equal(decimal.NewFromFloat(20)) {
+		t.Errorf("ListCost = %s, want 20 (tenant row preferred)", result.ListCost)
 	}
 }
 
 func TestPricer_Calculate_InvalidSellPriceFallsBackToCost(t *testing.T) {
 	badSell := makePricingEntry("input", "not-a-number", "0.005")
 	badSell.PriceType = domain.PriceTypeSell
-	costRow := makePricingEntry("input", "0.0015", "0.0015")
+	costRow := makePricingEntry("input", "1.5", "1.5")
 	costRow.PriceType = domain.PriceTypeCost
 
 	p := newTestPricer([]domain.ModelPricing{badSell, costRow})
-	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1000}, time.Now())
+	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{InputTokens: 1_000_000}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
 	}
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.0015)) {
-		t.Errorf("ListCost = %s, want 0.0015 (fallback to real cost)", result.ListCost)
+	if !result.ListCost.Equal(decimal.NewFromFloat(1.5)) {
+		t.Errorf("ListCost = %s, want 1.5 (fallback to real cost)", result.ListCost)
 	}
 }
 
@@ -438,14 +438,14 @@ func TestPricer_PricingPeriodBoundaries(t *testing.T) {
 
 func TestPricer_ReasoningWithoutPrice_NotMissing(t *testing.T) {
 	p := newTestPricer([]domain.ModelPricing{
-		makePricingEntry("input", "0.01", "0.005"),
-		makePricingEntry("output", "0.03", "0.015"),
+		makePricingEntry("input", "10", "5"),
+		makePricingEntry("output", "30", "15"),
 	})
 
 	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{
-		InputTokens:     1000,
-		OutputTokens:    500,
-		ReasoningTokens: 200, // already included in OutputTokens
+		InputTokens:     1_000_000,
+		OutputTokens:    500_000,
+		ReasoningTokens: 200_000, // already included in OutputTokens
 	}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
@@ -455,29 +455,29 @@ func TestPricer_ReasoningWithoutPrice_NotMissing(t *testing.T) {
 			t.Fatal("reasoning must not be missing pricing when no reasoning row exists (it is included in output)")
 		}
 	}
-	// Cost = input 0.01 + output 0.015, NOT an extra reasoning line.
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.025)) {
-		t.Errorf("ListCost = %s, want 0.025 (no separate reasoning charge)", result.ListCost)
+	// Cost = input 10 + output 15, NOT an extra reasoning line.
+	if !result.ListCost.Equal(decimal.NewFromFloat(25)) {
+		t.Errorf("ListCost = %s, want 25 (no separate reasoning charge)", result.ListCost)
 	}
 }
 
 func TestPricer_ReasoningWithExplicitPrice_Charged(t *testing.T) {
 	p := newTestPricer([]domain.ModelPricing{
-		makePricingEntry("input", "0.01", "0.005"),
-		makePricingEntry("output", "0.03", "0.015"),
-		makePricingEntry("reasoning", "0.02", "0.01"),
+		makePricingEntry("input", "10", "5"),
+		makePricingEntry("output", "30", "15"),
+		makePricingEntry("reasoning", "20", "10"),
 	})
 
 	result, err := p.CalculateAt(context.Background(), uuid.New(), nil, &usageparser.NormalizedUsage{
-		InputTokens:     1000,
-		OutputTokens:    500,
-		ReasoningTokens: 200,
+		InputTokens:     1_000_000,
+		OutputTokens:    500_000,
+		ReasoningTokens: 200_000,
 	}, time.Now())
 	if err != nil {
 		t.Fatalf("Calculate unexpected error: %v", err)
 	}
-	// 0.01 + 0.015 + 200*0.02/1000 = 0.025 + 0.004 = 0.029
-	if !result.ListCost.Equal(decimal.NewFromFloat(0.029)) {
-		t.Errorf("ListCost = %s, want 0.029", result.ListCost)
+	// 10 + 15 + 200K*20/1M = 25 + 4 = 29
+	if !result.ListCost.Equal(decimal.NewFromFloat(29)) {
+		t.Errorf("ListCost = %s, want 29", result.ListCost)
 	}
 }

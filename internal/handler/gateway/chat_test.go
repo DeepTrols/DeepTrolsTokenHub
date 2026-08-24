@@ -353,14 +353,15 @@ func setAuthContext(r *http.Request, userID, apiKeyID uuid.UUID) *http.Request {
 	return r.WithContext(ctx)
 }
 
-// makePricingEntries returns standard pricing entries for token-based billing.
+// makePricingEntries returns standard pricing entries for token-based billing
+// (unit price per 1M tokens).
 func makePricingEntries() []domain.ModelPricing {
 	return []domain.ModelPricing{
 		{
 			ID:               uuid.New(),
 			ModelID:          uuid.Nil,
 			PricingDimension: "input",
-			UnitName:         "token",
+			UnitName:         "1M tokens",
 			UnitPrice:        "0.000015",
 			UpstreamCost:     "0.000010",
 			Currency:         "CNY",
@@ -370,7 +371,7 @@ func makePricingEntries() []domain.ModelPricing {
 			ID:               uuid.New(),
 			ModelID:          uuid.Nil,
 			PricingDimension: "output",
-			UnitName:         "token",
+			UnitName:         "1M tokens",
 			UnitPrice:        "0.000060",
 			UpstreamCost:     "0.000040",
 			Currency:         "CNY",
@@ -1876,9 +1877,9 @@ func TestHandleNonStreamingChat_HoldAmount_UsesPricer(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	// Verify the hold amount is derived from pricing (prices are per 1K tokens,
+	// Verify the hold amount is derived from pricing (prices are per 1M tokens,
 	// so a small prompt yields a small but positive hold).
-	expectedMin, _ := decimal.NewFromString("0.0000001")
+	expectedMin, _ := decimal.NewFromString("0.000000001")
 	if walletRepo.lastReserveAmt.LessThan(expectedMin) {
 		t.Errorf("reserve amount %s should be >= minimum %s", walletRepo.lastReserveAmt, expectedMin)
 	}
@@ -1914,7 +1915,7 @@ func TestHandleNonStreamingChat_PricingIncomplete_RejectsBeforeUpstream(t *testi
 	pricingRepo := &mockPricingRepo{
 		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
 			return []domain.ModelPricing{{
-				ID: uuid.New(), ModelID: mid, PricingDimension: "output", UnitName: "token",
+				ID: uuid.New(), ModelID: mid, PricingDimension: "output", UnitName: "1M tokens",
 				UnitPrice: "0.03", UpstreamCost: "0.015", Currency: "CNY", IsActive: true,
 			}}, nil
 		},
