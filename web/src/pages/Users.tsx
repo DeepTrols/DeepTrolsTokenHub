@@ -36,7 +36,7 @@ function statusLabel(s: string): string {
 
 export default function Users() {
   const { data, isLoading, isError, error, refetch } = useAdminQuery<{ data: UserRow[]; total: number }>(QUERY);
-  const all = data?.data ?? [];
+  const all = useMemo(() => data?.data ?? [], [data]);
   const total = data?.total ?? 0;
 
   const [q, setQ] = useState("");

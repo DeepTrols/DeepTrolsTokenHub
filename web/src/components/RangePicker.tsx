@@ -97,7 +97,7 @@ export interface RangePickerProps {
 }
 
 export default function RangePicker({ from, to, preset, now, onApply }: RangePickerProps) {
-  const nowDate = now ?? new Date();
+  const nowDate = useMemo(() => now ?? new Date(), [now]);
   const todayKey = useMemo(() => gmt8DayKey(nowDate.toISOString()), [nowDate]);
   const [open, setOpen] = useState(false);
   const [selFrom, setSelFrom] = useState<string | null>(null);

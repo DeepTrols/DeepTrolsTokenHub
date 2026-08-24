@@ -1017,3 +1017,38 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - `npm audit` 报告 3 个既有依赖漏洞（1 moderate / 2 high），非本批引入，待单独评估升级。
 - 8-24 前端批次（品牌 logo、导航精简、充值/账单拆分、用户中心合并、dashboard 筛选保留旧数据，
   提交 `7b750ff..cb8294d`）此前未记录，本次在 27.1~27.5 变更之外补齐说明。
+
+## 二十八、2026-08-24 工程小项批次：测试防假绿提示 + lint 全清零 + 冗余导出清理 + 配置文档口径
+
+> 用户明确跳过账外资金相关项（B2 钱包流水收口 / B3 零成本兜底 / B4 支付 / B5 预留 / B6 历史回填），
+> 本批只做不涉及资金的工程/文档小项。
+
+### 28.1 测试防假绿
+
+- `internal/repository/testutil/db.go`：`TEST_DATABASE_URL` 未设置时向 stderr 打印显式警告
+  （`-v` 可见），不再完全无声。
+- `Makefile`：`test` / `test-repo` / `test-race` 增加 `guard-test-db` 前置检查，未设置
+  `TEST_DATABASE_URL` 直接报错退出，杜绝"显示 ok 实为全部跳过"的假绿。
+- 已知限制：裸 `go test ./...`（不带 `-v`）仍会静默跳过（go test 对通过用例吞输出所致），
+  建议用 `make test` 或显式设置 `TEST_DATABASE_URL` 后运行。
+
+### 28.2 lint warnings 清零
+
+- 修复 10 条 react-hooks/exhaustive-deps：RangePicker `nowDate`、CallLogs `logs`/`apiKeys`、
+  Dashboard `logs`、Finance `rows`、Tenants `tenants`、Users `all` 均改为 `useMemo` 稳定引用。
+- 结果：`npm run lint` 0 errors / 0 warnings（上批遗留的 10 条 warning 全部消除）。
+
+### 28.3 冗余导出清理
+
+- `Profile.tsx` / `TeamManagement.tsx` 的默认导出（已被 UserCenter 取代，应用内无引用）删除；
+  `TeamManagement.test.tsx` 改为直接使用 `TeamManagementContent`。
+
+### 28.4 配置/文档口径
+
+- `.env.example`：`CORS_ORIGIN` 注释补充"Vite 5173 / docker web 容器 3000 二选一"说明。
+
+### 28.5 验证（全绿）
+
+- Go：`go test ./... -count=1`（含 TEST_DATABASE_URL 真实 Postgres 集成测试）、`go vet ./...`、
+  `go build ./...`、gofmt 全绿；`-v` 下确认警告输出正常。
+- 前端：`tsc -b`、`npm run lint`（0/0）、`npm test`（251/251，退出码 0）、`vite build` 全绿。

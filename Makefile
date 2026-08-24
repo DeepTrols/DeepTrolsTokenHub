@@ -13,15 +13,18 @@ run-worker:
 	go run ./cmd/worker
 
 # Test
-test:
+guard-test-db:
+	@test -n "$$TEST_DATABASE_URL" || (echo "ERROR: TEST_DATABASE_URL is not set — DB-backed tests would be silently skipped. Point it at a *_test database (see .env.example)." >&2; exit 1)
+
+test: guard-test-db
 	go test ./... -cover -count=1
 
 # Repository tests provision a private schema per package, so they are
 # parallel-safe across packages and against other concurrent test runs.
-test-repo:
+test-repo: guard-test-db
 	go test ./internal/repository/... -cover -count=1
 
-test-race:
+test-race: guard-test-db
 	go test ./... -race -count=1
 
 # List leftover per-package test schemas (dry-run); add -apply to drop them.

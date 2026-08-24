@@ -69,7 +69,7 @@ export default function Tenants() {
     error,
     refetch,
   } = useAdminQuery<{ data: TenantData[]; total: number }>("/tenants");
-  const tenants = data?.data ?? [];
+  const tenants = useMemo(() => data?.data ?? [], [data]);
   const total = data?.total ?? 0;
 
   const [q, setQ] = useState("");

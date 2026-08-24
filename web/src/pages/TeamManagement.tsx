@@ -580,7 +580,3 @@ export function TeamManagementContent() {
     </div>
   );
 }
-
-export default function TeamManagement() {
-  return <TeamManagementContent />;
-}

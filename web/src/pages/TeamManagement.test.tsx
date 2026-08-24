@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import TeamManagement from "./TeamManagement";
+import { TeamManagementContent } from "./TeamManagement";
 import { renderWithProviders } from "../test/test-utils";
 
 // Mock the api module
@@ -81,7 +81,7 @@ describe("TeamManagement", () => {
   });
 
   it("fetches members and the admin wallet on mount", async () => {
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
 
     await waitFor(() => {
       expect(mockApiGet).toHaveBeenCalledWith("/team");
@@ -96,7 +96,7 @@ describe("TeamManagement", () => {
     });
     mockApiGet.mockImplementation(() => pending);
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
 
     expect(screen.getByText("加载团队成员...")).toBeInTheDocument();
 
@@ -105,7 +105,7 @@ describe("TeamManagement", () => {
   });
 
   it("renders members with role and status badges", async () => {
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
 
     expect(await screen.findByText("老板")).toBeInTheDocument();
     expect(screen.getByText("bob@company.com")).toBeInTheDocument();
@@ -118,13 +118,13 @@ describe("TeamManagement", () => {
   it("shows empty state when no members exist", async () => {
     mockRoutes({ members: [] });
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
 
     expect(await screen.findByText("暂无团队成员")).toBeInTheDocument();
   });
 
   it("shows the owner row as non-operable", async () => {
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
 
     await screen.findByText("老板");
     expect(screen.getByText("所有者不可操作")).toBeInTheDocument();
@@ -135,7 +135,7 @@ describe("TeamManagement", () => {
   });
 
   it("shows each member's current balance in the list column", async () => {
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
 
     await screen.findByText("Bob");
 
@@ -153,7 +153,7 @@ describe("TeamManagement", () => {
       role: "member",
     });
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
     await screen.findByText("Bob");
 
     await user.click(screen.getByRole("button", { name: /添加子账号/ }));
@@ -177,7 +177,7 @@ describe("TeamManagement", () => {
   it("blocks creating a sub-account with a short password", async () => {
     const user = userEvent.setup();
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
     await screen.findByText("Bob");
 
     await user.click(screen.getByRole("button", { name: /添加子账号/ }));
@@ -198,7 +198,7 @@ describe("TeamManagement", () => {
       to_balance: "10",
     });
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
     await screen.findByText("Bob");
 
     await user.click(within(bobRow()).getByRole("button", { name: /分配余额/ }));
@@ -220,7 +220,7 @@ describe("TeamManagement", () => {
   it("rejects an allocation that exceeds the admin's available balance", async () => {
     const user = userEvent.setup();
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
     await screen.findByText("Bob");
 
     await user.click(within(bobRow()).getByRole("button", { name: /分配余额/ }));
@@ -238,7 +238,7 @@ describe("TeamManagement", () => {
       return Promise.resolve({ members: baseMembers });
     });
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
     await screen.findByText("Bob");
 
     await user.click(within(bobRow()).getByRole("button", { name: /分配余额/ }));
@@ -252,7 +252,7 @@ describe("TeamManagement", () => {
     const user = userEvent.setup();
     mockApiPut.mockResolvedValue({ status: "updated" });
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
     await screen.findByText("Bob");
 
     const aliceRow = screen.getByRole("row", { name: /alice@company\.com/ });
@@ -274,7 +274,7 @@ describe("TeamManagement", () => {
     const user = userEvent.setup();
     mockApiPut.mockResolvedValue({ status: "updated" });
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
     await screen.findByText("Bob");
 
     await user.click(within(bobRow()).getByRole("button", { name: /停用/ }));
@@ -291,7 +291,7 @@ describe("TeamManagement", () => {
     const user = userEvent.setup();
     mockApiDelete.mockResolvedValue({ status: "deleted" });
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
     await screen.findByText("Bob");
 
     await user.click(within(bobRow()).getByRole("button", { name: /移除成员/ }));
@@ -307,9 +307,10 @@ describe("TeamManagement", () => {
       return Promise.reject(new Error("Network error"));
     });
 
-    renderWithProviders(<TeamManagement />);
+    renderWithProviders(<TeamManagementContent />);
 
     expect(await screen.findByText("Network error")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /重试/ })).toBeInTheDocument();
   });
 });
+

@@ -168,7 +168,7 @@ export default function Dashboard() {
   }, [range, apiKeyId]);
 
   const { data: usageData, isLoading: usageLoading, isError: usageError, refetch: refetchUsage } = useConsoleQuery<{ data: UsageLog[] }>(usagePath, { placeholderData: keepPreviousData });
-  const logs = usageData?.data ?? [];
+  const logs = useMemo(() => usageData?.data ?? [], [usageData]);
 
   const stats = useMemo(() => sumUsage(logs), [logs]);
   const daily = useMemo(() => aggregateDaily(logs, range.from, range.to), [logs, range]);

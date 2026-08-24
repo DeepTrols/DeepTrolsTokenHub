@@ -54,9 +54,9 @@ export default function CallLogs() {
 
   const { data: usage, isLoading, isError, error, refetch } =
     useConsoleQuery<{ data: UsageLog[] }>(usageUrl);
-  const logs = usage?.data ?? [];
+  const logs = useMemo(() => usage?.data ?? [], [usage]);
   const { data: keysData } = useConsoleQuery<{ data: APIKeyData[] }>("/api-keys");
-  const apiKeys = keysData?.data ?? [];
+  const apiKeys = useMemo(() => keysData?.data ?? [], [keysData]);
 
   // Aggregate totals across every key touched by the fetched logs.
   const summary = useMemo(() => {

@@ -132,15 +132,3 @@ export function ProfileContent() {
     </Tabs>
   );
 }
-
-export default function Profile() {
-  return (
-    <div>
-      <div className="mb-6">
-        <h2 className="font-display text-[25px] font-bold tracking-tight">个人设置</h2>
-        <p className="text-[13px] text-[#5C6472] mt-1">管理您的账户信息和安全设置</p>
-      </div>
-      <ProfileContent />
-    </div>
-  );
-}

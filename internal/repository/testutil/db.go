@@ -22,6 +22,10 @@ func SetupPool(t *testing.T) *pgxpool.Pool {
 
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
+		// Default `go test` hides t.Skip output, so a missing TEST_DATABASE_URL
+		// used to look like a fully green run while every DB-backed test was
+		// skipped. Print an always-visible warning so the gap cannot be missed.
+		fmt.Fprintln(os.Stderr, "WARNING: TEST_DATABASE_URL not set; repository integration tests are SKIPPED (set it to a *_test database to run them)")
 		t.Skip("TEST_DATABASE_URL not set; skipping repository integration test")
 		return nil
 	}

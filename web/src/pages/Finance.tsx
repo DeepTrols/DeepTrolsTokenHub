@@ -35,7 +35,7 @@ interface LedgerRow {
 
 export default function Finance() {
   const { data, isLoading, isError, error, refetch } = useAdminQuery<{ data: LedgerRow[]; total: number }>("/ledger");
-  const rows = data?.data ?? [];
+  const rows = useMemo(() => data?.data ?? [], [data]);
   const total = rows.length;
 
   const [q, setQ] = useState("");
