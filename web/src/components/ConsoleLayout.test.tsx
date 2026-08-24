@@ -51,39 +51,44 @@ describe("ConsoleLayout 四角色导航", () => {
     vi.restoreAllMocks();
   });
 
-  it("hides 钱包管理 / 团队管理 / 管理控制台 for an enterprise member", () => {
+  it("hides 充值 / 账单 / 团队管理 / 管理控制台 for an enterprise member", () => {
     renderLayout();
 
     expect(screen.getByText("用量信息")).toBeInTheDocument();
-    expect(screen.queryByText("钱包管理")).not.toBeInTheDocument();
+    expect(screen.queryByText("用量统计")).not.toBeInTheDocument();
+    expect(screen.queryByText("充值")).not.toBeInTheDocument();
+    expect(screen.queryByText("账单")).not.toBeInTheDocument();
     expect(screen.queryByText("团队管理")).not.toBeInTheDocument();
     expect(screen.queryByText("管理控制台")).not.toBeInTheDocument();
   });
 
-  it("shows 钱包管理 and 团队管理 for an enterprise admin (owner)", () => {
+  it("shows 充值 / 账单 and 团队管理 for an enterprise admin (owner)", () => {
     auth.user.tenant_role = "owner";
     renderLayout();
 
-    expect(screen.getByText("钱包管理")).toBeInTheDocument();
+    expect(screen.getByText("充值")).toBeInTheDocument();
+    expect(screen.getByText("账单")).toBeInTheDocument();
     expect(screen.getByText("团队管理")).toBeInTheDocument();
     expect(screen.queryByText("管理控制台")).not.toBeInTheDocument();
   });
 
-  it("shows 钱包管理 but no 团队管理 for a personal user", () => {
+  it("shows 充值 / 账单 but no 团队管理 for a personal user", () => {
     auth.user.tenant_role = "";
     renderLayout();
 
-    expect(screen.getByText("钱包管理")).toBeInTheDocument();
+    expect(screen.getByText("充值")).toBeInTheDocument();
+    expect(screen.getByText("账单")).toBeInTheDocument();
     expect(screen.queryByText("团队管理")).not.toBeInTheDocument();
     expect(screen.queryByText("管理控制台")).not.toBeInTheDocument();
   });
 
-  it("shows 钱包管理 and 管理控制台 for a system admin", () => {
+  it("shows 充值 / 账单 and 管理控制台 for a system admin", () => {
     auth.user.role = "admin";
     auth.user.tenant_role = "owner";
     renderLayout();
 
-    expect(screen.getByText("钱包管理")).toBeInTheDocument();
+    expect(screen.getByText("充值")).toBeInTheDocument();
+    expect(screen.getByText("账单")).toBeInTheDocument();
     expect(screen.getByText("管理控制台")).toBeInTheDocument();
   });
 });

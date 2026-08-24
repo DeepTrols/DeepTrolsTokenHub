@@ -2,6 +2,7 @@ import { ErrorState, LoadingState } from "@/components/StateViews";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Link, useSearchParams } from "react-router-dom";
 import { useState } from "react";
 import { WalletData, Transaction } from "../lib/api";
 import { formatAmount } from "../lib/format";
@@ -32,7 +33,10 @@ export default function Wallet() {
     error: txError,
     refetch: txRefetch,
   } = useConsoleQuery<{ data: Transaction[] }>("/wallet/transactions");
-  const txs = (txData?.data ?? []).filter((t: any) => t.type === "topup");
+  const [searchParams] = useSearchParams();
+  const view = searchParams.get("view") === "bills" ? "bills" : "recharge";
+  const txs = txData?.data ?? [];
+  const topups = txs.filter((t: any) => t.type === "topup");
 
   const isLoading = walletLoading || txLoading;
   const isError = walletIsError || txIsError;
@@ -112,7 +116,7 @@ export default function Wallet() {
     return (
       <div>
         <div className="mb-6">
-          <h2 className="font-display text-[25px] font-bold tracking-tight">钱包管理</h2>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">{view === "bills" ? "账单" : "充值"}</h2>
           <p className="text-[13px] text-[#5C6472] mt-1">余额管理与充值</p>
         </div>
         <LoadingState message="加载钱包数据..." />
@@ -124,7 +128,7 @@ export default function Wallet() {
     return (
       <div>
         <div className="mb-6">
-          <h2 className="font-display text-[25px] font-bold tracking-tight">钱包管理</h2>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">{view === "bills" ? "账单" : "充值"}</h2>
         </div>
         <ErrorState
           error={errorMessage}
@@ -139,8 +143,26 @@ export default function Wallet() {
     <div>
       {/* ---- header ---------------------------------------------------------- */}
       <div className="mb-6">
-        <h2 className="font-display text-[25px] font-bold tracking-tight">钱包管理</h2>
-        <p className="text-[13px] text-[#5C6472] mt-1">余额管理与充值</p>
+        <h2 className="font-display text-[25px] font-bold tracking-tight">{view === "bills" ? "账单" : "充值"}</h2>
+        <p className="text-[13px] text-[#5C6472] mt-1">{view === "bills" ? "账户收支明细" : "余额管理与充值"}</p>
+        <div className="mt-4 inline-flex rounded-xl glass-soft p-1">
+          <Link
+            to="/wallet?view=recharge"
+            className={`px-4 py-1.5 rounded-lg text-[13px] font-semibold transition-colors ${
+              view === "recharge" ? "bg-white shadow-sm text-[#4F6BED]" : "text-[#5C6472] hover:text-[#161A23]"
+            }`}
+          >
+            充值
+          </Link>
+          <Link
+            to="/wallet?view=bills"
+            className={`px-4 py-1.5 rounded-lg text-[13px] font-semibold transition-colors ${
+              view === "bills" ? "bg-white shadow-sm text-[#4F6BED]" : "text-[#5C6472] hover:text-[#161A23]"
+            }`}
+          >
+            账单
+          </Link>
+        </div>
       </div>
 
       {/* ---- balance cards --------------------------------------------------- */}
@@ -164,6 +186,50 @@ export default function Wallet() {
         </div>
       </div>
 
+      {view === "bills" ? (
+        <div className="glass rounded-[22px] p-5">
+          <h3 className="font-display font-semibold mb-4">账单明细</h3>
+          {txs.length === 0 && (
+            <p className="py-8 text-center text-[#5C6472]/80 text-sm">暂无账单记录</p>
+          )}
+          {txs.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>类型</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead className="text-right">金额</TableHead>
+                  <TableHead className="text-right">时间</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {txs.map((tx) => {
+                  const positive = tx.type === "topup" || tx.type === "refund";
+                  return (
+                    <TableRow key={tx.id}>
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1.5">
+                          {txIcon(tx.type)}
+                          {txLabel(tx.type)}
+                        </span>
+                      </TableCell>
+                      <TableCell>{tx.status === "success" ? "成功" : tx.status || "—"}</TableCell>
+                      <TableCell className={`text-right font-mono text-xs ${positive ? "text-[#0C7A55]" : "text-[#161A23]"}`}>
+                        {positive ? "+" : "-"}
+                        {formatAmount(tx.amount)} ￥
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-[#5C6472]">
+                        {new Date(tx.created_at).toLocaleString("zh-CN")}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      ) : (
+        <>
       {/* ---- 在线充值 ------------------------------------------------------- */}
       <div className="glass rounded-[22px] p-5 mb-6">
         <h3 className="font-display font-semibold mb-4">在线支付充值</h3>
@@ -264,12 +330,12 @@ export default function Wallet() {
       {/* ---- transaction history --------------------------------------------- */}
       <div className="glass rounded-[22px] p-5">
         <h3 className="font-display font-semibold mb-4">充值记录</h3>
-        {txs.length === 0 && (
+        {topups.length === 0 && (
           <p className="py-8 text-center text-[#5C6472]/80 text-sm">
             暂无充值记录
           </p>
         )}
-        {txs.length > 0 && (
+        {topups.length > 0 && (
           <Table>
             <TableHeader>
               <TableRow>
@@ -281,7 +347,7 @@ export default function Wallet() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {txs.map((tx) => (
+              {topups.map((tx) => (
                 <TableRow key={tx.id}>
                   <TableCell className="font-mono text-xs">{tx.order_no || "—"}</TableCell>
                   <TableCell>
@@ -298,6 +364,8 @@ export default function Wallet() {
           </Table>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

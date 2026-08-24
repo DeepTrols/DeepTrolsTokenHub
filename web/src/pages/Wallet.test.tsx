@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import Wallet from "./Wallet";
 import { renderWithProviders } from "../test/test-utils";
 
@@ -44,12 +45,31 @@ describe("Wallet", () => {
     mockApiGet.mockResolvedValueOnce(wallet);
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
 
-    renderWithProviders(<Wallet />);
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/wallet"]}>
+        <Wallet />
+      </MemoryRouter>,
+    );
 
-    expect(screen.getByText("钱包管理")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "充值" })).toBeInTheDocument();
     expect(await screen.findByText("可用余额")).toBeInTheDocument();
     expect(screen.getByText("累计消费")).toBeInTheDocument();
     expect(screen.queryByText("冻结金额")).not.toBeInTheDocument();
+  });
+
+  it("renders the bills view with full transaction history", async () => {
+    mockApiGet.mockResolvedValueOnce(wallet);
+    mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
+
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/wallet?view=bills"]}>
+        <Wallet />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "账单" })).toBeInTheDocument();
+    expect(await screen.findByText("账单明细")).toBeInTheDocument();
+    expect(screen.getByText("扣费")).toBeInTheDocument();
   });
 
   it("formats wallet amounts to 2 decimals with banker's rounding", async () => {
@@ -60,7 +80,11 @@ describe("Wallet", () => {
     });
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
 
-    renderWithProviders(<Wallet />);
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/wallet"]}>
+        <Wallet />
+      </MemoryRouter>,
+    );
 
     // The ￥ symbol is rendered inside a nested <span>, so assert the number
     // itself (the card's direct text node). 累计消费 shows the absolute value,
@@ -73,7 +97,11 @@ describe("Wallet", () => {
   it("shows error with retry on fetch failure", async () => {
     mockApiGet.mockRejectedValue(new Error("wallet down"));
 
-    renderWithProviders(<Wallet />);
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/wallet"]}>
+        <Wallet />
+      </MemoryRouter>,
+    );
 
     expect(await screen.findByText("wallet down")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /重试/ })).toBeInTheDocument();
@@ -85,7 +113,11 @@ describe("Wallet", () => {
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
     mockApiPost.mockResolvedValue({ data: { balance_after: "145.00" } });
 
-    renderWithProviders(<Wallet />);
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/wallet"]}>
+        <Wallet />
+      </MemoryRouter>,
+    );
 
     await waitFor(() => expect(screen.getByText("50 ￥")).toBeInTheDocument());
     await user.click(screen.getByText("50 ￥"));

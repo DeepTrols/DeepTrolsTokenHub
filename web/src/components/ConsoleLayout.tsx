@@ -1,6 +1,6 @@
 import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Key, BarChart3, Wallet, Box, Play, LogOut, LayoutDashboard, FileText, Book, Settings, UserCircle, Users } from "lucide-react";
+import { Key, Wallet, Receipt, Box, Play, LogOut, LayoutDashboard, FileText, Book, Settings, UserCircle, Users } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
 import { PendingReviewBanner } from "./PendingReviewBanner";
@@ -18,10 +18,12 @@ export default function ConsoleLayout() {
     { to: "/dashboard", icon: LayoutDashboard, label: "用量信息", color: "text-[#4F6BED]" },
     { to: "/api-keys", icon: Key, label: "API keys", color: "text-[#0FA88B]" },
     { to: "/logs", icon: FileText, label: "调用记录", color: "text-[#D3A94E]" },
-    { to: "/usage", icon: BarChart3, label: "用量统计", color: "text-[#8B6FE8]" },
     ...(isEnterpriseMember
       ? []
-      : [{ to: "/wallet", icon: Wallet, label: "钱包管理", color: "text-[#0FA88B]" }]),
+      : [
+          { to: "/wallet?view=recharge", icon: Wallet, label: "充值", color: "text-[#0FA88B]" },
+          { to: "/wallet?view=bills", icon: Receipt, label: "账单", color: "text-[#0FA88B]" },
+        ]),
     { to: "/models", icon: Box, label: "模型广场", color: "text-[#D3A94E]" },
     { to: "/playground", icon: Play, label: "在线体验", color: "text-[#4F6BED]" },
     { to: "/docs", icon: Book, label: "开发文档", color: "text-[#0FA88B]" },
