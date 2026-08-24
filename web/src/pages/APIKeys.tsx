@@ -298,7 +298,12 @@ export default function APIKeys() {
     <div>
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
-          <h2 className="text-[25px] font-bold tracking-tight">API keys</h2>
+          <h2
+            className="text-[25px] font-bold tracking-tight"
+            style={{ fontFamily: "'Inter','PingFang SC','Microsoft YaHei',system-ui,sans-serif" }}
+          >
+            API keys
+          </h2>
           <p className="text-[13px] text-[#5C6472] mt-2 leading-relaxed max-w-[720px]">
             列表内是你的全部 API key，API key 请妥善保存。不要与他人共享你的 API key，或将其暴露在浏览器或其他客户端代码中。为了保护你的帐户安全，我们可能会自动禁用我们发现已公开泄露的 API key。
           </p>

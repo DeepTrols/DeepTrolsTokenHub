@@ -131,7 +131,7 @@ export default function AdminLayout() {
 
         <div className="flex-1 min-w-0 flex flex-col gap-4">
           <main className="flex-1 overflow-y-auto pr-1">
-            <div className="px-1 pb-8">
+            <div className="px-1 pt-3 pb-8">
               <RouteErrorBoundary>
                 <Outlet />
               </RouteErrorBoundary>

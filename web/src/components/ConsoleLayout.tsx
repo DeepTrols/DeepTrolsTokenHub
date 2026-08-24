@@ -91,7 +91,7 @@ export default function ConsoleLayout() {
 
         <div className="flex-1 min-w-0 flex flex-col gap-4">
           <main className="flex-1 overflow-y-auto pr-1">
-            <div className="px-1 pb-8 space-y-6">
+            <div className="px-1 pt-3 pb-8 space-y-6">
               <PendingReviewBanner tenantStatus={user?.tenant_status} />
               <RouteErrorBoundary>
                 <Outlet />
