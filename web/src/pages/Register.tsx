@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import BrandLogo from "../components/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,10 +67,7 @@ export default function Register() {
 
       <div className="relative z-10 glass rounded-[22px] w-full max-w-md p-10">
         <div className="text-center pb-2">
-          <div className="mx-auto mb-4 inline-flex items-center justify-center">
-            <span className="brand-mark"><span className="brand-coin gold" /><span className="brand-coin teal" /><span className="brand-coin white" /></span>
-          </div>
-          <h2 className="font-display text-[26px] font-bold">DeepTrols</h2>
+          <BrandLogo className="mx-auto mb-4 w-[180px]" />
           <p className="text-[13px] text-[#5C6472] mt-1">{copy.description}</p>
           <div className="mx-auto mt-5 inline-flex rounded-xl glass-soft p-1" role="group" aria-label="账号类型">
             {(["personal", "enterprise"] as const).map((t) => (

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Coins, Scale, ShieldCheck, FileCheck2, ArrowRight, KeyRound } from "lucide-react";
 import { useAuth } from "../lib/auth";
+import BrandLogo from "../components/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -98,10 +99,7 @@ export default function Login() {
       <div className="relative z-10 grid w-full max-w-[1280px] grid-cols-1 lg:grid-cols-[1.08fr_0.92fr] gap-6 items-stretch">
         {/* 左：品牌与产品价值 */}
         <div className="glass rounded-[22px] p-[42px] flex flex-col justify-center overflow-hidden">
-          <div className="flex items-center gap-[13px]">
-            <span className="brand-mark"><span className="brand-coin gold" /><span className="brand-coin teal" /><span className="brand-coin white" /></span>
-            <span className="font-display text-[20px] font-bold">DeepTrols</span>
-          </div>
+          <BrandLogo className="w-[210px]" />
           <div className="text-[12px] font-bold tracking-[0.2em] text-[#5C6472] mt-8">AI TOKEN 聚合与计费平台</div>
           <h1 className="text-[40px] leading-[1.14] font-bold mt-[16px] mb-3">
             一个 API Key，<br />调用<span className="relative text-[#4F6BED]">所有模型</span>
