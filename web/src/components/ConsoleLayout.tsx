@@ -15,7 +15,7 @@ export default function ConsoleLayout() {
   const isEnterpriseMember = user?.tenant_role === "member";
 
   const navItems = [
-    { to: "/dashboard", icon: LayoutDashboard, label: "数据看板", color: "text-[#4F6BED]" },
+    { to: "/dashboard", icon: LayoutDashboard, label: "用量信息", color: "text-[#4F6BED]" },
     { to: "/api-keys", icon: Key, label: "API keys", color: "text-[#0FA88B]" },
     { to: "/logs", icon: FileText, label: "调用记录", color: "text-[#D3A94E]" },
     { to: "/usage", icon: BarChart3, label: "用量统计", color: "text-[#8B6FE8]" },

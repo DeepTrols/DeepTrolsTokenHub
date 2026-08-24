@@ -54,7 +54,7 @@ describe("ConsoleLayout 四角色导航", () => {
   it("hides 钱包管理 / 团队管理 / 管理控制台 for an enterprise member", () => {
     renderLayout();
 
-    expect(screen.getByText("数据看板")).toBeInTheDocument();
+    expect(screen.getByText("用量信息")).toBeInTheDocument();
     expect(screen.queryByText("钱包管理")).not.toBeInTheDocument();
     expect(screen.queryByText("团队管理")).not.toBeInTheDocument();
     expect(screen.queryByText("管理控制台")).not.toBeInTheDocument();

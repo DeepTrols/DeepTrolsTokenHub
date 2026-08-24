@@ -321,14 +321,14 @@ export default function APIKeys() {
       )}
 
       {!isLoading && keys.length === 0 && (
-        <div className="rounded-lg border-y border-[#E5E7EB] bg-white py-12 text-center">
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white py-12 text-center">
           <p className="text-[#5C6472] font-medium">暂无 API key</p>
           <p className="text-sm mt-1 text-[#5C6472]/80">点击右上角"创建密钥"创建第一个 key</p>
         </div>
       )}
 
       {!isLoading && keys.length > 0 && (
-        <div className="border-y border-[#E5E7EB] bg-white">
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="divide-x divide-[#E5E7EB]">
