@@ -424,13 +424,13 @@ export default function Dashboard() {
       {/* 底部：按模型细分 */}
       {modelList.length > 0 && selectedModel ? (
         <div className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-5">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <h3 className="font-display text-[15px] font-bold font-mono">{selectedModel}</h3>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-[13px] font-semibold text-[#5C6472]">按模型查看</span>
             <select
               aria-label="选择模型"
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
-              className="glass-soft rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F6BED]/20"
+              className="glass-soft rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
             >
               {modelList.map((m) => (
                 <option key={m} value={m}>

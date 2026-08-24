@@ -185,7 +185,8 @@ describe("Dashboard（用量信息）", () => {
     expect(screen.getByText("API Key")).toBeInTheDocument();
 
     // deepseek-v4-flash 是费用最高的模型（30 + 5 > 1.9）
-    expect(await screen.findByRole("heading", { name: "deepseek-v4-flash" })).toBeInTheDocument();
+    const modelSelect = await screen.findByLabelText("选择模型");
+    expect(modelSelect).toHaveValue("deepseek-v4-flash");
   });
 
   it("switches the bottom model section via the model dropdown", async () => {
@@ -195,12 +196,13 @@ describe("Dashboard（用量信息）", () => {
     renderWithProviders(<Dashboard />);
 
     // 默认选中费用最高的模型
-    expect(await screen.findByRole("heading", { name: "deepseek-v4-flash" })).toBeInTheDocument();
+    const modelSelect = await screen.findByLabelText("选择模型");
+    expect(modelSelect).toHaveValue("deepseek-v4-flash");
+    expect(screen.getByText("按模型查看")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("选择模型"), "gpt-4o");
+    await user.selectOptions(modelSelect, "gpt-4o");
 
-    expect(screen.getByRole("heading", { name: "gpt-4o" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "deepseek-v4-flash" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("选择模型")).toHaveValue("gpt-4o");
   });
 
   it("shows loading spinner while data is pending", () => {
