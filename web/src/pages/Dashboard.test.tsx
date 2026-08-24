@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import RangePicker from "../components/RangePicker";
 import Dashboard, {
   aggregateDaily,
   formatRangeLabel,
@@ -7,6 +9,7 @@ import Dashboard, {
   sumUsage,
   topModelByCost,
 } from "./Dashboard";
+import { dayKeyToEnd, dayKeyToStart, rangeForPreset } from "../lib/gmt8";
 import { renderWithProviders } from "../test/test-utils";
 import { UsageLog } from "../lib/api";
 
@@ -104,10 +107,24 @@ describe("Dashboard（用量信息）", () => {
     expect(screen.getByText("累计消费金额")).toBeInTheDocument();
     expect(screen.getByText(/¥306\.78/)).toBeInTheDocument();
     expect(screen.getByText("去充值")).toBeInTheDocument();
-    expect(screen.getByText("余额预警已开启 去设置")).toBeInTheDocument();
+    expect(screen.queryByText("余额预警已开启 去设置")).not.toBeInTheDocument();
   });
 
-  it("renders filter toolbar with range, api key and export", async () => {
+  it("shows cumulative spend as a positive number even when the wallet value is negative", async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.startsWith("/wallet")) return Promise.resolve({ ...wallet, total_charged: "-306.78" });
+      if (path.startsWith("/api-keys")) return Promise.resolve({ data: keys });
+      if (path.startsWith("/usage")) return Promise.resolve({ data: [] });
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<Dashboard />);
+
+    expect(await screen.findByText(/¥306\.78/)).toBeInTheDocument();
+    expect(screen.queryByText(/¥-306\.78/)).not.toBeInTheDocument();
+  });
+
+  it("renders filter toolbar with range picker, api key and export", async () => {
     mockEndpoints(seedUsageLogs());
 
     renderWithProviders(<Dashboard />);
@@ -116,7 +133,37 @@ describe("Dashboard（用量信息）", () => {
     expect(screen.getByText("全部 API Key")).toBeInTheDocument();
     expect(screen.getByText("codex")).toBeInTheDocument();
     expect(screen.getByText("导出")).toBeInTheDocument();
-    expect(screen.getByText(/近 7 天/)).toBeInTheDocument();
+    const r = rangeForPreset("7d", new Date());
+    expect(screen.getByText(formatRangeLabel(r.from, r.to))).toBeInTheDocument();
+  });
+
+  it("opens the date range picker with quick options and double calendars", async () => {
+    const user = userEvent.setup();
+    mockEndpoints(seedUsageLogs());
+
+    renderWithProviders(<Dashboard />);
+
+    const r = rangeForPreset("7d", new Date());
+    await user.click(await screen.findByText(formatRangeLabel(r.from, r.to)));
+
+    for (const label of ["今天", "昨天", "近 7 天", "近 30 天", "本月", "上月", "自定义"]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.getAllByText(/2026年\d+月/).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("applies a quick preset from the range picker", async () => {
+    const user = userEvent.setup();
+    mockEndpoints(seedUsageLogs());
+
+    renderWithProviders(<Dashboard />);
+
+    const r7 = rangeForPreset("7d", new Date());
+    await user.click(await screen.findByText(formatRangeLabel(r7.from, r7.to)));
+    await user.click(screen.getByText("近 30 天"));
+
+    const r30 = rangeForPreset("30d", new Date());
+    expect(screen.getByText(formatRangeLabel(r30.from, r30.to))).toBeInTheDocument();
   });
 
   it("renders aggregated stat cards, chart tabs and the top model section", async () => {
@@ -138,7 +185,22 @@ describe("Dashboard（用量信息）", () => {
     expect(screen.getByText("API Key")).toBeInTheDocument();
 
     // deepseek-v4-flash 是费用最高的模型（30 + 5 > 1.9）
-    expect(await screen.findByText("deepseek-v4-flash")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "deepseek-v4-flash" })).toBeInTheDocument();
+  });
+
+  it("switches the bottom model section via the model dropdown", async () => {
+    const user = userEvent.setup();
+    mockEndpoints(seedUsageLogs());
+
+    renderWithProviders(<Dashboard />);
+
+    // 默认选中费用最高的模型
+    expect(await screen.findByRole("heading", { name: "deepseek-v4-flash" })).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("选择模型"), "gpt-4o");
+
+    expect(screen.getByRole("heading", { name: "gpt-4o" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "deepseek-v4-flash" })).not.toBeInTheDocument();
   });
 
   it("shows loading spinner while data is pending", () => {
@@ -233,5 +295,51 @@ describe("用量信息聚合工具", () => {
   it("topModelByCost returns the most expensive model", () => {
     expect(topModelByCost(seedUsageLogs())).toBe("deepseek-v4-flash");
     expect(topModelByCost([])).toBe("");
+  });
+});
+
+describe("RangePicker", () => {
+  const now = new Date("2026-08-24T12:00:00+08:00");
+
+  it("applies a quick preset", async () => {
+    const user = userEvent.setup();
+    const initial = rangeForPreset("7d", now);
+    const onApply = vi.fn();
+    renderWithProviders(<RangePicker from={initial.from} to={initial.to} preset="7d" now={now} onApply={onApply} />);
+
+    await user.click(screen.getByText(formatRangeLabel(initial.from, initial.to)));
+    await user.click(screen.getByText("近 30 天"));
+
+    const expected = rangeForPreset("30d", now);
+    expect(onApply).toHaveBeenCalledWith({ from: expected.from, to: expected.to, preset: "30d" });
+  });
+
+  it("selects a custom range and confirms", async () => {
+    const user = userEvent.setup();
+    const initial = rangeForPreset("7d", now);
+    const onApply = vi.fn();
+    renderWithProviders(<RangePicker from={initial.from} to={initial.to} preset="7d" now={now} onApply={onApply} />);
+
+    await user.click(screen.getByText(formatRangeLabel(initial.from, initial.to)));
+    await user.click(screen.getByLabelText("2026-08-19"));
+    await user.click(screen.getByLabelText("2026-08-21"));
+    await user.click(screen.getByText("确定"));
+
+    expect(onApply).toHaveBeenCalledWith({
+      from: dayKeyToStart("2026-08-19"),
+      to: dayKeyToEnd("2026-08-21"),
+      preset: "custom",
+    });
+  });
+
+  it("disables future dates", async () => {
+    const user = userEvent.setup();
+    const initial = rangeForPreset("7d", now);
+    renderWithProviders(<RangePicker from={initial.from} to={initial.to} preset="7d" now={now} onApply={vi.fn()} />);
+
+    await user.click(screen.getByText(formatRangeLabel(initial.from, initial.to)));
+
+    const future = screen.getByLabelText("2026-08-31") as HTMLButtonElement;
+    expect(future.disabled).toBe(true);
   });
 });

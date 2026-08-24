@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { APIKeyData, UsageLog, WalletData } from "../lib/api";
 import { useConsoleQuery } from "../lib/hooks/use-api";
 import { formatAmount } from "../lib/format";
+import RangePicker from "../components/RangePicker";
+import { PresetKey, gmt8DayKey, rangeForPreset } from "../lib/gmt8";
 import {
   Area,
   AreaChart,
@@ -15,8 +17,10 @@ import {
 } from "recharts";
 import { Download, MoreVertical, RotateCw } from "lucide-react";
 
-const GMT8_MS = 8 * 60 * 60 * 1000;
 const PALETTE = ["#4F6BED", "#0FA88B", "#8B6FE8", "#D3A94E", "#E5484D", "#12A5B0", "#C9A96A"];
+
+export { gmt8DayKey, gmt8DayStart, gmt8MonthStart, formatRangeLabel, rangeForPreset } from "../lib/gmt8";
+export type { PresetKey } from "../lib/gmt8";
 
 export interface UsageStats {
   cost: number;
@@ -32,33 +36,6 @@ export interface DailyPoint {
   tokens: number;
   models: Record<string, number>;
   keys: Record<string, number>;
-}
-
-// All dates on this page are GMT+8. Shifting the instant by +8h and slicing
-// the UTC date gives the civil date in Asia/Shanghai without timezone APIs.
-export function gmt8DayKey(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
-  return new Date(d.getTime() + GMT8_MS).toISOString().slice(0, 10);
-}
-
-export function gmt8DayStart(daysAgo: number, now = new Date()): Date {
-  const g = new Date(now.getTime() + GMT8_MS);
-  const startUtc = new Date(Date.UTC(g.getUTCFullYear(), g.getUTCMonth(), g.getUTCDate() - daysAgo));
-  return new Date(startUtc.getTime() - GMT8_MS);
-}
-
-export function gmt8MonthStart(now = new Date()): Date {
-  const g = new Date(now.getTime() + GMT8_MS);
-  const startUtc = new Date(Date.UTC(g.getUTCFullYear(), g.getUTCMonth(), 1));
-  return new Date(startUtc.getTime() - GMT8_MS);
-}
-
-export function formatRangeLabel(from: Date, to: Date): string {
-  const f = new Date(from.getTime() + GMT8_MS).toISOString().slice(5, 10).split("-").map(Number);
-  const t = new Date(to.getTime() + GMT8_MS).toISOString().slice(5, 10).split("-").map(Number);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(f[0])}/${p(f[1])}-${p(t[0])}/${p(t[1])}`;
 }
 
 export function sumUsage(logs: UsageLog[]): UsageStats {
@@ -160,27 +137,23 @@ function exportCSV(logs: UsageLog[]) {
   URL.revokeObjectURL(url);
 }
 
-const PERIODS = ["7d", "30d", "month"] as const;
-
 export default function Dashboard() {
   const now = useMemo(() => new Date(), []);
-  const [period, setPeriod] = useState<(typeof PERIODS)[number]>("7d");
+  const [preset, setPreset] = useState<PresetKey>("7d");
+  const [customRange, setCustomRange] = useState<{ from: Date; to: Date } | null>(null);
   const [apiKeyId, setApiKeyId] = useState("");
   const [chartGroup, setChartGroup] = useState<"model" | "apikey">("apikey");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("");
 
   const { data: wallet, isLoading: walletLoading, isError: walletError, refetch: refetchWallet } = useConsoleQuery<WalletData>("/wallet");
   const { data: keyData } = useConsoleQuery<{ data: APIKeyData[] }>("/api-keys");
   const keys = keyData?.data ?? [];
 
   const range = useMemo(() => {
-    const to = now;
-    let from: Date;
-    if (period === "30d") from = gmt8DayStart(29, now);
-    else if (period === "month") from = gmt8MonthStart(now);
-    else from = gmt8DayStart(6, now);
-    return { from, to };
-  }, [period, now]);
+    if (preset === "custom" && customRange) return customRange;
+    return rangeForPreset(preset, now);
+  }, [preset, customRange, now]);
 
   const usagePath = useMemo(() => {
     const params = new URLSearchParams({
@@ -197,20 +170,24 @@ export default function Dashboard() {
 
   const stats = useMemo(() => sumUsage(logs), [logs]);
   const daily = useMemo(() => aggregateDaily(logs, range.from, range.to), [logs, range]);
-  const topModel = useMemo(() => topModelByCost(logs), [logs]);
-  const modelLogs = useMemo(() => (topModel ? logs.filter((l) => l.model === topModel) : []), [logs, topModel]);
+  const modelList = useMemo(() => {
+    const cost: Record<string, number> = {};
+    for (const d of daily) for (const [m, c] of Object.entries(d.models)) cost[m] = (cost[m] || 0) + c;
+    return uniqueModels(daily).sort((a, b) => (cost[b] || 0) - (cost[a] || 0));
+  }, [daily]);
+  useEffect(() => {
+    if (!modelList.includes(selectedModel)) setSelectedModel(modelList[0] || "");
+  }, [modelList, selectedModel]);
+  const modelLogs = useMemo(
+    () => (selectedModel ? logs.filter((l) => l.model === selectedModel) : []),
+    [logs, selectedModel],
+  );
   const modelStats = useMemo(() => sumUsage(modelLogs), [modelLogs]);
   const modelDaily = useMemo(() => aggregateDaily(modelLogs, range.from, range.to), [modelLogs, range]);
   const seriesNames = useMemo(
     () => (chartGroup === "model" ? uniqueModels(daily) : uniqueKeys(daily)),
     [daily, chartGroup],
   );
-  const rangeLabel = useMemo(() => formatRangeLabel(range.from, range.to), [range]);
-  const periodLabels: Record<(typeof PERIODS)[number], string> = {
-    "7d": `近 7 天（${rangeLabel}）`,
-    "30d": `近 30 天（${rangeLabel}）`,
-    month: `本月（${rangeLabel}）`,
-  };
 
   const isLoading = walletLoading || usageLoading;
   const isError = walletError || usageError;
@@ -272,12 +249,7 @@ export default function Dashboard() {
         <div className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-5 flex items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[13px] font-semibold text-[#5C6472]">
-                充值余额 <sup className="text-[10px] text-[#5C6472]/60">②</sup>
-              </span>
-              <a href="/wallet" className="text-[11px] font-medium text-[#0FA88B] bg-[#0FA88B]/10 rounded-full px-2 py-0.5 hover:bg-[#0FA88B]/20">
-                余额预警已开启 去设置
-              </a>
+              <span className="text-[13px] font-semibold text-[#5C6472]">充值余额</span>
             </div>
             <p className="font-mono text-[28px] font-semibold tracking-tight mt-2">
               ¥{formatAmount(wallet?.available)}{" "}
@@ -292,7 +264,7 @@ export default function Dashboard() {
           <div>
             <span className="text-[13px] font-semibold text-[#5C6472]">累计消费金额</span>
             <p className="font-mono text-[28px] font-semibold tracking-tight mt-2">
-              ¥{formatAmount(wallet?.total_charged)}{" "}
+              ¥{formatAmount(Math.abs(parseFloat(wallet?.total_charged || "0")))}{" "}
               <span className="text-[13px] font-sans font-normal text-[#5C6472]">CNY</span>
             </p>
           </div>
@@ -301,17 +273,16 @@ export default function Dashboard() {
 
       {/* 筛选工具栏 */}
       <div className="flex flex-wrap items-center gap-3">
-        <select
-          value={period}
-          onChange={(e) => setPeriod(e.target.value as (typeof PERIODS)[number])}
-          className="glass-soft rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
-        >
-          {PERIODS.map((p) => (
-            <option key={p} value={p}>
-              {periodLabels[p]}
-            </option>
-          ))}
-        </select>
+        <RangePicker
+          from={range.from}
+          to={range.to}
+          preset={preset}
+          now={now}
+          onApply={({ from, to, preset: p }) => {
+            if (p === "custom") setCustomRange({ from, to });
+            setPreset(p);
+          }}
+        />
         <select
           value={apiKeyId}
           onChange={(e) => setApiKeyId(e.target.value)}
@@ -326,8 +297,10 @@ export default function Dashboard() {
         </select>
         <button
           onClick={() => {
-            setPeriod("7d");
+            setPreset("7d");
+            setCustomRange(null);
             setApiKeyId("");
+            setSelectedModel("");
           }}
           className="text-[13px] font-medium text-[#4F6BED] hover:underline"
         >
@@ -449,9 +422,23 @@ export default function Dashboard() {
       </div>
 
       {/* 底部：按模型细分 */}
-      {topModel ? (
+      {modelList.length > 0 && selectedModel ? (
         <div className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-5">
-          <h3 className="font-display text-[15px] font-bold font-mono">{topModel}</h3>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h3 className="font-display text-[15px] font-bold font-mono">{selectedModel}</h3>
+            <select
+              aria-label="选择模型"
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="glass-soft rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F6BED]/20"
+            >
+              {modelList.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div className="rounded-lg bg-[#F7F9FC] p-4">
               <h4 className="text-[13px] font-semibold text-[#5C6472]">
