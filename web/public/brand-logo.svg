@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440">
+  <title>TokenHub 平台品牌标识</title>
+
+  <!-- 浅灰白背景 -->
+  <rect x="0" y="0" width="1000" height="440" rx="28" fill="#F4F6F8" stroke="#E6E9EF" stroke-width="1" />
+
+  <!-- DEEPTROLS 英文主标（向右微斜） -->
+  <g transform="skewX(-8)">
+    <!-- D：亮紫色，左侧竖边中间断开 -->
+    <path
+      d="M 79 80 L 107 80 Q 143 80 143 155 Q 143 230 107 230 L 79 230 L 79 168 L 57 168 L 57 142 L 79 142 Z"
+      fill="#A855F7"
+      stroke="#FFFFFF"
+      stroke-width="3"
+      stroke-linejoin="miter"
+    />
+
+    <!-- E（两个）：三根平行水平横杠，无竖边，等长白色横线 -->
+    <g fill="#FFFFFF" stroke="#24336B" stroke-width="3">
+      <rect x="159" y="101" width="76" height="18" />
+      <rect x="159" y="146" width="76" height="18" />
+      <rect x="159" y="191" width="76" height="18" />
+    </g>
+    <g fill="#FFFFFF" stroke="#24336B" stroke-width="3">
+      <rect x="259" y="101" width="76" height="18" />
+      <rect x="259" y="146" width="76" height="18" />
+      <rect x="259" y="191" width="76" height="18" />
+    </g>
+
+    <!-- P：几何无衬线，直角转折 -->
+    <g fill="#24336B" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="miter">
+      <rect x="357" y="80" width="22" height="150" />
+      <path d="M 379 80 L 405 80 Q 439 80 439 118 Q 439 156 405 156 L 379 156 Z" />
+    </g>
+
+    <!-- T：标准粗体几何 T -->
+    <g fill="#24336B" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="miter">
+      <rect x="457" y="80" width="86" height="22" />
+      <rect x="489" y="102" width="22" height="128" />
+    </g>
+
+    <!-- R：右下角斜切缺口 -->
+    <g fill="#24336B" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="miter">
+      <rect x="557" y="80" width="22" height="150" />
+      <path d="M 579 80 L 605 80 Q 639 80 639 118 Q 639 156 605 156 L 579 156 Z" />
+      <path d="M 583 156 L 605 156 L 601 208 L 583 230 L 567 230 Z" />
+    </g>
+
+    <!-- O：圆润几何圆形 -->
+    <ellipse cx="700" cy="155" rx="34" ry="63" fill="none" stroke="#FFFFFF" stroke-width="28" />
+    <ellipse cx="700" cy="155" rx="34" ry="63" fill="none" stroke="#24336B" stroke-width="22" />
+
+    <!-- L：粗体几何 L -->
+    <g fill="#24336B" stroke="#FFFFFF" stroke-width="3" stroke-linejoin="miter">
+      <rect x="757" y="80" width="22" height="150" />
+      <rect x="757" y="208" width="86" height="22" />
+    </g>
+
+    <!-- S：流畅粗体 S 曲线 -->
+    <path
+      d="M 921 94 C 927 84 885 82 881 98 C 877 116 913 120 915 144 C 917 170 877 176 877 200 C 877 222 911 228 919 214"
+      fill="none"
+      stroke="#FFFFFF"
+      stroke-width="28"
+      stroke-linecap="butt"
+    />
+    <path
+      d="M 921 94 C 927 84 885 82 881 98 C 877 116 913 120 915 144 C 917 170 877 176 877 200 C 877 222 911 228 919 214"
+      fill="none"
+      stroke="#24336B"
+      stroke-width="22"
+      stroke-linecap="butt"
+    />
+  </g>
+
+  <!-- 下方小字：TokenHub平台（深靛蓝黑体，英文右下方） -->
+  <text
+    x="945"
+    y="330"
+    text-anchor="end"
+    font-size="30"
+    font-weight="700"
+    letter-spacing="1"
+    fill="#24336B"
+    font-family="'Microsoft YaHei','PingFang SC','Heiti SC','SimHei',sans-serif"
+  >TokenHub平台</text>
+</svg>
