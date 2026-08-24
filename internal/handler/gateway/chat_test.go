@@ -3020,3 +3020,149 @@ func TestHandleNonStreamingChat_EvidenceProviderFallbackDirect(t *testing.T) {
 		t.Errorf("evidence provider = %q, want %q", got, "direct")
 	}
 }
+
+// ============================================================================
+// RED: an upstream success WITHOUT usage must never settle at zero cost.
+// ============================================================================
+
+func TestHandleNonStreamingChat_NoUsage_ChargesEstimate(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeFn: func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+			// Upstream returned a successful response but no usage object.
+			respBody := map[string]any{
+				"id":      "chatcmpl-nousage",
+				"object":  "chat.completion",
+				"model":   "gpt-4o",
+				"choices": []any{},
+			}
+			return &gw.ExecuteResponse{
+				StatusCode:    http.StatusOK,
+				Body:          respBody,
+				Usage:         &usageparser.NormalizedUsage{},
+				UsageSource:   usageparser.SourceEstimated,
+				ProviderReqID: "chatcmpl-nousage",
+				DurationMs:    42,
+			}, nil
+		},
+	}
+	application, walletRepo, usageRepo := newNonStreamEnv(executor, false, "")
+
+	body := validRequestBody()
+	req := newNonStreamChatRequest(userID, apiKeyID, body)
+	w := httptest.NewRecorder()
+	HandleNonStreamingChat(w, req, application, "gpt-4o", body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	// A successful call without usage must still charge the estimate: settling
+	// zero would make every usage-less upstream response free.
+	if walletRepo.settleCalled == 0 {
+		t.Fatal("settle was not called")
+	}
+	if walletRepo.lastSettleAmt.LessThanOrEqual(decimal.Zero) {
+		t.Errorf("settle amount = %s, want > 0 (usage-less success must not be free)", walletRepo.lastSettleAmt)
+	}
+	log := waitForUsageLog(t, usageRepo)
+	if log.FinalCost.LessThanOrEqual(decimal.Zero) {
+		t.Errorf("usage log FinalCost = %s, want > 0", log.FinalCost)
+	}
+	if log.UsageSource != domain.UsageSourceEstimated {
+		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceEstimated)
+	}
+}
+
+// ============================================================================
+// RED: streaming requests must force stream_options.include_usage so the
+// upstream actually reports a final usage chunk instead of forcing estimates.
+// ============================================================================
+
+func TestHandleStreamingChat_InjectsIncludeUsage(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	modelID := uuid.New()
+
+	gotIncludeUsage := make(chan bool, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		opts, _ := reqBody["stream_options"].(map[string]any)
+		include, _ := opts["include_usage"].(bool)
+		gotIncludeUsage <- include
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		flusher, _ := w.(http.Flusher)
+		fmt.Fprintf(w, "data: {\"id\":\"chatcmpl-001\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"finish_reason\":null}]}\n\n")
+		flusher.Flush()
+		fmt.Fprintf(w, "data: {\"id\":\"chatcmpl-001\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":15,\"total_tokens\":35}}\n\n")
+		flusher.Flush()
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer upstream.Close()
+
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{{ID: channelID, ModelID: modelID, Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 1, MaxConcurrency: 10}}, nil
+		},
+		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{{ID: instanceID, ChannelID: channelID, BaseURL: upstream.URL, ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive}}, nil
+		},
+	}
+	pricingRepo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return makePricingEntries(), nil
+		},
+	}
+	txID := uuid.New()
+	walletRepo := &mockWalletRepo{
+		findByUserFn: func(ctx context.Context, uid uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error) {
+			return &domain.Wallet{ID: uuid.New(), UserID: uid, Balance: decimal.NewFromFloat(100.0), Frozen: decimal.Zero}, nil
+		},
+		reserveFn: func(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+			return &domain.WalletTransaction{ID: txID, WalletID: walletID, Amount: amount, IdempotencyKey: idempotencyKey, TxType: domain.WalletTxReserve}, nil
+		},
+		commitFn: func(ctx context.Context, tID uuid.UUID) error { return nil },
+	}
+	usageRepo := &mockUsageRepo{}
+	application := newTestApp(nil, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+	application.HttpClient = upstream.Client()
+
+	body := validRequestBody()
+	respBodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(respBodyBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "test-stream-include-usage")
+	req = setAuthContext(req, userID, apiKeyID)
+	w := httptest.NewRecorder()
+
+	HandleStreamingChat(w, req, application, "gpt-4o", body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	select {
+	case include := <-gotIncludeUsage:
+		if !include {
+			t.Error("stream_options.include_usage = false, want true (upstream would not report usage)")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream handler never saw the request body")
+	}
+	// The injected usage must flow into the final-chunk billing path.
+	waitForUsageLog(t, usageRepo)
+	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceFinalChunk {
+		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceFinalChunk)
+	}
+}

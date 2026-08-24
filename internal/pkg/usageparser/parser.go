@@ -28,7 +28,15 @@ const (
 	SourceEstimated  Source = "estimated"
 )
 
-// ParseOpenAIUsage extracts normalized usage from an OpenAI response body.
+// ParseOpenAIUsage extracts normalized usage from an OpenAI-compatible
+// response body. Domestic providers (DeepSeek, Qwen, GLM, Kimi, ...) all
+// expose OpenAI-shaped usage; the parser tolerates their field-name variants
+// by trying multiple candidate keys per dimension (first non-nil wins).
+//
+// Upstream-reported usage is untrusted: every dimension is clamped so a
+// negative or overlapping count can never shrink quota or double-bill a
+// request. TotalTokens falls back to the sum of the token dimensions when the
+// provider omits it.
 func ParseOpenAIUsage(raw map[string]any) (*NormalizedUsage, error) {
 	nu := &NormalizedUsage{}
 
@@ -37,29 +45,94 @@ func ParseOpenAIUsage(raw map[string]any) (*NormalizedUsage, error) {
 		return nu, nil
 	}
 
-	if v, ok := usage["prompt_tokens"].(float64); ok {
-		nu.InputTokens = int64(v)
-	}
-	if v, ok := usage["completion_tokens"].(float64); ok {
-		nu.OutputTokens = int64(v)
-	}
-	if v, ok := usage["total_tokens"].(float64); ok {
-		nu.TotalTokens = int64(v)
-	}
+	// DeepSeek reports cache hits at the top level (prompt_cache_hit_tokens),
+	// while OpenAI-compatible gateways usually nest them in prompt_tokens_details.
+	inputDetails, _ := firstNonNil(usage["prompt_tokens_details"], usage["input_tokens_details"]).(map[string]any)
+	outputDetails, _ := firstNonNil(usage["completion_tokens_details"], usage["output_tokens_details"]).(map[string]any)
 
-	// Check for cached tokens in prompt_tokens_details
-	if details, ok := usage["prompt_tokens_details"].(map[string]any); ok {
-		if v, ok := details["cached_tokens"].(float64); ok {
-			nu.CacheReadTokens = int64(v)
-		}
-	}
-	if details, ok := usage["completion_tokens_details"].(map[string]any); ok {
-		if v, ok := details["reasoning_tokens"].(float64); ok {
-			nu.ReasoningTokens = int64(v)
-		}
+	nu.InputTokens = int64FromAny(firstNonNil(usage["prompt_tokens"], usage["input_tokens"]))
+	nu.OutputTokens = int64FromAny(firstNonNil(usage["completion_tokens"], usage["output_tokens"]))
+	nu.CacheReadTokens = int64FromAny(firstNonNil(
+		inputDetails["cached_tokens"],
+		usage["prompt_cache_hit_tokens"], // DeepSeek
+		usage["cached_tokens"],
+		usage["cached_input_tokens"],
+	))
+	nu.CacheWriteTokens = int64FromAny(firstNonNil(
+		inputDetails["cache_write_tokens"],
+		usage["cache_write_input_tokens"],
+	))
+	nu.ReasoningTokens = int64FromAny(firstNonNil(
+		outputDetails["reasoning_tokens"],
+		usage["reasoning_tokens"],
+	))
+	nu.TotalTokens = int64FromAny(usage["total_tokens"])
+
+	clampNormalizedUsage(nu)
+	if nu.TotalTokens <= 0 {
+		nu.TotalTokens = nu.InputTokens + nu.OutputTokens + nu.CacheReadTokens + nu.CacheWriteTokens
 	}
 
 	return nu, nil
+}
+
+// clampNormalizedUsage enforces the billable-usage invariants:
+//   - no dimension may be negative;
+//   - cached reads cannot exceed prompt tokens;
+//   - cache writes cannot exceed the uncached portion of the prompt.
+//
+// It mutates nu in place so callers can never forget to apply it.
+func clampNormalizedUsage(nu *NormalizedUsage) {
+	nu.InputTokens = max64(nu.InputTokens, 0)
+	nu.OutputTokens = max64(nu.OutputTokens, 0)
+	nu.CacheReadTokens = clamp64(nu.CacheReadTokens, 0, nu.InputTokens)
+	nu.CacheWriteTokens = clamp64(nu.CacheWriteTokens, 0, max64(nu.InputTokens-nu.CacheReadTokens, 0))
+	nu.ReasoningTokens = max64(nu.ReasoningTokens, 0)
+	nu.TotalTokens = max64(nu.TotalTokens, 0)
+}
+
+func firstNonNil(values ...any) any {
+	for _, v := range values {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+func int64FromAny(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case float32:
+		return int64(n)
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return i
+	default:
+		return 0
+	}
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func clamp64(v, lo, hi int64) int64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // ParseAnthropicUsage extracts normalized usage from an Anthropic response body.

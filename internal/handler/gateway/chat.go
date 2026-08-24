@@ -284,6 +284,13 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 
 	// Calculate actual costs from upstream response usage (before settling,
 	// so the wallet is charged the REAL final cost, not the estimate).
+	// A successful upstream response without usage must never settle at zero:
+	// fall back to the request-derived estimate and mark it estimated so
+	// reconciliation can see the degraded usage source.
+	if resp.Usage == nil || !resp.Usage.HasUsage() {
+		resp.Usage = estimateUsageFromBody(body)
+		resp.UsageSource = usageparser.SourceEstimated
+	}
 	actualCosts := calculateActualCosts(r.Context(), application, routeResult, resp, tenantID)
 
 	// Settle reserved funds; reconcile the quota reservation against the
@@ -455,6 +462,15 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	// ---- Build upstream request ----
 	body["model"] = upstreamModel
 	body["stream"] = true
+	// Force the upstream to report a final usage chunk: without
+	// stream_options.include_usage most OpenAI-compatible providers omit usage
+	// from streaming responses and every stream would fall back to estimates.
+	if streamOpts, ok := body["stream_options"].(map[string]any); ok {
+		streamOpts["include_usage"] = true
+		body["stream_options"] = streamOpts
+	} else {
+		body["stream_options"] = map[string]any{"include_usage": true}
+	}
 
 	reqBytes, err := json.Marshal(body)
 	if err != nil {
