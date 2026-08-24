@@ -9,7 +9,8 @@ import Dashboard from "./pages/Dashboard";
 import APIKeys from "./pages/APIKeys";
 import CallLogs from "./pages/CallLogs";
 import UsageStats from "./pages/UsageStats";
-import Wallet from "./pages/Wallet";
+import Recharge from "./pages/Recharge";
+import Bills from "./pages/Bills";
 import ModelMarket from "./pages/ModelMarket";
 import ModelManagement from "./pages/ModelManagement";
 import Playground from "./pages/Playground";
@@ -45,7 +46,9 @@ export default function App() {
         <Route path="api-keys" element={<APIKeys />} />
         <Route path="logs" element={<CallLogs />} />
         <Route path="usage" element={<UsageStats />} />
-        <Route path="wallet" element={<Wallet />} />
+        <Route path="wallet" element={<Navigate to="/recharge" replace />} />
+        <Route path="recharge" element={<Recharge />} />
+        <Route path="bills" element={<Bills />} />
         <Route path="models" element={<ModelMarket />} />
         <Route path="playground" element={<Playground />} />
         <Route path="profile" element={<Profile />} />

@@ -91,4 +91,12 @@ describe("ConsoleLayout 四角色导航", () => {
     expect(screen.getByText("账单")).toBeInTheDocument();
     expect(screen.getByText("管理控制台")).toBeInTheDocument();
   });
+
+  it("links 充值 / 账单 to the two separate pages", () => {
+    auth.user.tenant_role = "owner";
+    renderLayout();
+
+    expect(screen.getByRole("link", { name: "充值" })).toHaveAttribute("href", "/recharge");
+    expect(screen.getByRole("link", { name: "账单" })).toHaveAttribute("href", "/bills");
+  });
 });

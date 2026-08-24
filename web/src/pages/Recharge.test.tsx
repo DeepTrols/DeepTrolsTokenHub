@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import Wallet from "./Wallet";
+import Recharge from "./Recharge";
 import { renderWithProviders } from "../test/test-utils";
 
 vi.mock("../lib/api", () => ({
@@ -32,7 +32,7 @@ function seedTxs() {
   ];
 }
 
-describe("Wallet", () => {
+describe("Recharge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -41,34 +41,34 @@ describe("Wallet", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders page title and two balance cards (no frozen funds)", async () => {
+  it("renders page title and two balance cards", async () => {
     mockApiGet.mockResolvedValueOnce(wallet);
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
 
     renderWithProviders(
-      <MemoryRouter initialEntries={["/wallet"]}>
-        <Wallet />
+      <MemoryRouter initialEntries={["/recharge"]}>
+        <Recharge />
       </MemoryRouter>,
     );
 
     expect(screen.getByRole("heading", { name: "充值" })).toBeInTheDocument();
     expect(await screen.findByText("可用余额")).toBeInTheDocument();
     expect(screen.getByText("累计消费")).toBeInTheDocument();
-    expect(screen.queryByText("冻结金额")).not.toBeInTheDocument();
   });
 
-  it("renders the bills view with only recharge records", async () => {
+  it("renders the topup form with recharge records below", async () => {
     mockApiGet.mockResolvedValueOnce(wallet);
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
 
     renderWithProviders(
-      <MemoryRouter initialEntries={["/wallet?view=bills"]}>
-        <Wallet />
+      <MemoryRouter initialEntries={["/recharge"]}>
+        <Recharge />
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", { name: "账单" })).toBeInTheDocument();
-    expect(await screen.findByText("充值记录")).toBeInTheDocument();
+    expect(await screen.findByText("在线支付充值")).toBeInTheDocument();
+    expect(screen.getByText("充值记录")).toBeInTheDocument();
+    // charge transactions are filtered out of the recharge records
     expect(screen.queryByText("扣费")).not.toBeInTheDocument();
   });
 
@@ -81,14 +81,11 @@ describe("Wallet", () => {
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
 
     renderWithProviders(
-      <MemoryRouter initialEntries={["/wallet"]}>
-        <Wallet />
+      <MemoryRouter initialEntries={["/recharge"]}>
+        <Recharge />
       </MemoryRouter>,
     );
 
-    // The ￥ symbol is rendered inside a nested <span>, so assert the number
-    // itself (the card's direct text node). 累计消费 shows the absolute value,
-    // so a negative total_charged renders without the minus sign.
     expect(await screen.findByText("95.24")).toBeInTheDocument();
     expect(screen.getByText("0.76")).toBeInTheDocument();
     expect(screen.queryByText("-0.76")).not.toBeInTheDocument();
@@ -98,8 +95,8 @@ describe("Wallet", () => {
     mockApiGet.mockRejectedValue(new Error("wallet down"));
 
     renderWithProviders(
-      <MemoryRouter initialEntries={["/wallet"]}>
-        <Wallet />
+      <MemoryRouter initialEntries={["/recharge"]}>
+        <Recharge />
       </MemoryRouter>,
     );
 
@@ -114,8 +111,8 @@ describe("Wallet", () => {
     mockApiPost.mockResolvedValue({ data: { balance_after: "145.00" } });
 
     renderWithProviders(
-      <MemoryRouter initialEntries={["/wallet"]}>
-        <Wallet />
+      <MemoryRouter initialEntries={["/recharge"]}>
+        <Recharge />
       </MemoryRouter>,
     );
 
@@ -136,8 +133,8 @@ describe("Wallet", () => {
     mockApiGet.mockResolvedValueOnce({ data: seedTxs() });
 
     renderWithProviders(
-      <MemoryRouter initialEntries={["/wallet"]}>
-        <Wallet />
+      <MemoryRouter initialEntries={["/recharge"]}>
+        <Recharge />
       </MemoryRouter>,
     );
 

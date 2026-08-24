@@ -20,8 +20,8 @@ export default function ConsoleLayout() {
     ...(isEnterpriseMember
       ? []
       : [
-          { to: "/wallet?view=recharge", icon: Wallet, label: "充值", color: "text-[#0FA88B]" },
-          { to: "/wallet?view=bills", icon: Receipt, label: "账单", color: "text-[#0FA88B]" },
+          { to: "/recharge", icon: Wallet, label: "充值", color: "text-[#0FA88B]" },
+          { to: "/bills", icon: Receipt, label: "账单", color: "text-[#0FA88B]" },
         ]),
     { to: "/models", icon: Box, label: "模型广场", color: "text-[#D3A94E]" },
     { to: "/playground", icon: Play, label: "在线体验", color: "text-[#4F6BED]" },

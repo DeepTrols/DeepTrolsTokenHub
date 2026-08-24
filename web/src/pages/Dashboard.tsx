@@ -257,7 +257,7 @@ export default function Dashboard() {
               <span className="text-[13px] font-sans font-normal text-[#5C6472]">CNY</span>
             </p>
           </div>
-          <a href="/wallet" className="rounded-lg bg-neutral-900 text-white text-sm font-semibold px-5 py-2.5 hover:bg-neutral-800 shrink-0">
+          <a href="/recharge" className="rounded-lg bg-neutral-900 text-white text-sm font-semibold px-5 py-2.5 hover:bg-neutral-800 shrink-0">
             去充值
           </a>
         </div>
