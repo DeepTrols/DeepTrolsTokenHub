@@ -3,6 +3,7 @@ import { APIKeyData, UsageLog, WalletData } from "../lib/api";
 import { useConsoleQuery } from "../lib/hooks/use-api";
 import { formatAmount } from "../lib/format";
 import RangePicker from "../components/RangePicker";
+import SelectMenu from "../components/SelectMenu";
 import { PresetKey, gmt8DayKey, rangeForPreset } from "../lib/gmt8";
 import {
   Area,
@@ -283,18 +284,16 @@ export default function Dashboard() {
             setPreset(p);
           }}
         />
-        <select
+        <SelectMenu
+          ariaLabel="API Key 筛选"
           value={apiKeyId}
-          onChange={(e) => setApiKeyId(e.target.value)}
-          className="glass-soft rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
-        >
-          <option value="">全部 API Key</option>
-          {keys.map((k) => (
-            <option key={k.id} value={k.id}>
-              {k.name || k.masked_key || k.id}
-            </option>
-          ))}
-        </select>
+          placeholder="全部 API Key"
+          options={[
+            { value: "", label: "全部 API Key" },
+            ...keys.map((k) => ({ value: k.id, label: k.name || k.masked_key || k.id })),
+          ]}
+          onChange={setApiKeyId}
+        />
         <button
           onClick={() => {
             setPreset("7d");
@@ -426,18 +425,12 @@ export default function Dashboard() {
         <div className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-5">
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[13px] font-semibold text-[#5C6472]">按模型查看</span>
-            <select
-              aria-label="选择模型"
+            <SelectMenu
+              ariaLabel="选择模型"
               value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="glass-soft rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
-            >
-              {modelList.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
+              options={modelList.map((m) => ({ value: m, label: m }))}
+              onChange={setSelectedModel}
+            />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div className="rounded-lg bg-[#F7F9FC] p-4">

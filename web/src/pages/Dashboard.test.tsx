@@ -125,16 +125,20 @@ describe("Dashboard（用量信息）", () => {
   });
 
   it("renders filter toolbar with range picker, api key and export", async () => {
+    const user = userEvent.setup();
     mockEndpoints(seedUsageLogs());
 
     renderWithProviders(<Dashboard />);
 
     expect(await screen.findByText("清除筛选条件")).toBeInTheDocument();
     expect(screen.getByText("全部 API Key")).toBeInTheDocument();
-    expect(screen.getByText("codex")).toBeInTheDocument();
     expect(screen.getByText("导出")).toBeInTheDocument();
     const r = rangeForPreset("7d", new Date());
     expect(screen.getByText(formatRangeLabel(r.from, r.to))).toBeInTheDocument();
+
+    // 打开 API Key 下拉后能看到密钥选项
+    await user.click(screen.getByRole("button", { name: "API Key 筛选" }));
+    expect(screen.getByText("codex")).toBeInTheDocument();
   });
 
   it("opens the date range picker with quick options and double calendars", async () => {
@@ -186,7 +190,7 @@ describe("Dashboard（用量信息）", () => {
 
     // deepseek-v4-flash 是费用最高的模型（30 + 5 > 1.9）
     const modelSelect = await screen.findByLabelText("选择模型");
-    expect(modelSelect).toHaveValue("deepseek-v4-flash");
+    expect(modelSelect).toHaveTextContent("deepseek-v4-flash");
   });
 
   it("switches the bottom model section via the model dropdown", async () => {
@@ -197,12 +201,13 @@ describe("Dashboard（用量信息）", () => {
 
     // 默认选中费用最高的模型
     const modelSelect = await screen.findByLabelText("选择模型");
-    expect(modelSelect).toHaveValue("deepseek-v4-flash");
+    expect(modelSelect).toHaveTextContent("deepseek-v4-flash");
     expect(screen.getByText("按模型查看")).toBeInTheDocument();
 
-    await user.selectOptions(modelSelect, "gpt-4o");
+    await user.click(modelSelect);
+    await user.click(screen.getByText("gpt-4o"));
 
-    expect(screen.getByLabelText("选择模型")).toHaveValue("gpt-4o");
+    expect(screen.getByLabelText("选择模型")).toHaveTextContent("gpt-4o");
   });
 
   it("shows loading spinner while data is pending", () => {
