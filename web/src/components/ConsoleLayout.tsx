@@ -46,8 +46,8 @@ export default function ConsoleLayout() {
 
       <div className="relative z-10 flex h-full gap-5 p-5">
         <aside className="glass w-[220px] shrink-0 rounded-[20px] p-[12px] flex flex-col">
-          <div className="flex items-center gap-[10px] px-2 pt-1 pb-3">
-            <img src="/brand-logo.png" alt="DEEPTROLS" className="w-[170px]" style={{ height: "auto" }} />
+          <div className="px-1 pt-1.5 pb-4 border-b border-black/5 mb-2">
+            <img src="/brand-logo.png" alt="DEEPTROLS" className="w-[186px] h-auto" />
           </div>
 
           <nav className="flex flex-col gap-[3px] overflow-y-auto pr-0.5" aria-label="主导航">

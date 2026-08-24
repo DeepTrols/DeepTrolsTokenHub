@@ -98,7 +98,7 @@ export default function Login() {
       <div className="relative z-10 grid w-full max-w-[1280px] grid-cols-1 lg:grid-cols-[1.08fr_0.92fr] gap-6 items-stretch">
         {/* 左：品牌与产品价值 */}
         <div className="glass rounded-[22px] p-[42px] flex flex-col justify-center overflow-hidden">
-          <img src="/brand-logo.png" alt="DEEPTROLS" className="w-[210px]" style={{ height: "auto" }} />
+          <img src="/brand-logo.png" alt="DEEPTROLS" className="w-[236px] h-auto" />
           <div className="text-[12px] font-bold tracking-[0.2em] text-[#5C6472] mt-8">AI TOKEN 聚合与计费平台</div>
           <h1 className="text-[40px] leading-[1.14] font-bold mt-[16px] mb-3">
             一个 API Key，<br />调用<span className="relative text-[#4F6BED]">所有模型</span>
