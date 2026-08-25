@@ -2184,3 +2184,31 @@ cd web && npm run test:e2e
 - 单事务执行，删除后 `deepseek` provider 下 `inactive` 行为 0，active 模型数 = 3；
 - `/api/public/stats` 返回 `{"models":3}`；
 - 真实 3 个 V4 模型各保留 1 条 active 渠道 + 实例，base_url / route 未受影响。
+
+## 六十七、2026-08-25 修复渠道管理「测试」按钮 404
+
+> 渠道管理页对凭证点「测试」返回 404。根因：`deepseek-vision` 渠道实例的
+> `channel_instances.config` 只有 `{"api_key":...}`（一次性脚本建的），缺
+> `provider`/`display_name`；`HandleTestProvider` 读取 `config->>'provider'`
+> 得到 NULL，Scan 到 string 报错被当成 “Provider not found”。
+
+### 67.1 变更
+
+- **后端 `HandleTestProvider`**：
+  - SQL 改为 `COALESCE(ci.config->>'provider', m.provider)`（provider 回退到
+    渠道所属模型的 provider），`base_url`/`api_key` 也做 COALESCE；
+  - 区分 `pgx.ErrNoRows`（→ 404）与其他查询错误（→ 500 并记日志），不再把
+    Scan 错误伪装成“不存在”。
+- **回归测试**：`TestHandleTestProvider_MissingProviderInConfig` 复现
+  config 缺 provider 的场景，验证回退到 model provider 且返回 200。
+- **种子脚本**：`scripts/seed_providers.sql` / `.go` 的 `channel_instances.config`
+  补齐 `"provider"` 与 `"display_name"`，避免新库复现。
+- **开发库**：为 `provider_route='deepseek-v4-flash-vision-exp'` 的实例补齐
+  config 的 `provider`/`display_name`。
+
+### 67.2 验证
+
+- `go build/vet/gofmt` + `go test ./... -count=1` 全绿（含新增回归测试）；
+- 前端 `npm test`（205/205）、`lint`、`build` 全绿；
+- 重建并重启 `bin/api.exe` 到 8080 后，实际调用测试接口：
+  `ok=true, models=3, model_codes=[deepseek-v4-flash, deepseek-v4-pro, deepseek-v4-flash-vision-exp]`。

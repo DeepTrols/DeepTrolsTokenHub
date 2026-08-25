@@ -47,24 +47,24 @@ INSERT INTO channel_instances (id, channel_id, instance_type, base_url, provider
 -- DeepSeek
 ('c0000001-0001-0001-0001-000000000001', 'b0000001-0001-0001-0001-000000000001', 'serverless',
  'https://api.deepseek.com', 'deepseek-v4-flash', 0, 10,
- '{"api_key":"REPLACE_WITH_DEEPSEEK_API_KEY"}', 'active', NOW(), NOW()),
+ '{"api_key":"REPLACE_WITH_DEEPSEEK_API_KEY","provider":"deepseek","display_name":"DeepSeek"}', 'active', NOW(), NOW()),
 ('c0000001-0001-0001-0001-000000000002', 'b0000001-0001-0001-0001-000000000002', 'serverless',
  'https://api.deepseek.com', 'deepseek-v4-pro', 0, 10,
- '{"api_key":"REPLACE_WITH_DEEPSEEK_API_KEY"}', 'active', NOW(), NOW()),
+ '{"api_key":"REPLACE_WITH_DEEPSEEK_API_KEY","provider":"deepseek","display_name":"DeepSeek"}', 'active', NOW(), NOW()),
 ('c0000001-0001-0001-0001-000000000007', 'b0000001-0001-0001-0001-000000000007', 'serverless',
  'https://api.deepseek.com', 'deepseek-v4-flash-vision-exp', 0, 10,
- '{"api_key":"REPLACE_WITH_DEEPSEEK_API_KEY"}', 'active', NOW(), NOW()),
+ '{"api_key":"REPLACE_WITH_DEEPSEEK_API_KEY","provider":"deepseek","display_name":"DeepSeek"}', 'active', NOW(), NOW()),
 -- Qwen (Aliyun)
 ('c0000001-0001-0001-0001-000000000003', 'b0000001-0001-0001-0001-000000000003', 'serverless',
  'https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', 'qwen3.5-plus', 0, 10,
- '{"api_key":"REPLACE_WITH_QWEN_API_KEY"}', 'active', NOW(), NOW()),
+ '{"api_key":"REPLACE_WITH_QWEN_API_KEY","provider":"qwen","display_name":"Qwen 通义千问"}', 'active', NOW(), NOW()),
 ('c0000001-0001-0001-0001-000000000004', 'b0000001-0001-0001-0001-000000000004', 'serverless',
  'https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', 'qwen3.5-flash', 0, 10,
- '{"api_key":"REPLACE_WITH_QWEN_API_KEY"}', 'active', NOW(), NOW()),
+ '{"api_key":"REPLACE_WITH_QWEN_API_KEY","provider":"qwen","display_name":"Qwen 通义千问"}', 'active', NOW(), NOW()),
 ('c0000001-0001-0001-0001-000000000005', 'b0000001-0001-0001-0001-000000000005', 'serverless',
  'https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', 'qwen3.7-plus', 0, 10,
- '{"api_key":"REPLACE_WITH_QWEN_API_KEY"}', 'active', NOW(), NOW()),
+ '{"api_key":"REPLACE_WITH_QWEN_API_KEY","provider":"qwen","display_name":"Qwen 通义千问"}', 'active', NOW(), NOW()),
 ('c0000001-0001-0001-0001-000000000006', 'b0000001-0001-0001-0001-000000000006', 'serverless',
  'https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', 'qwen3.7-max', 0, 10,
- '{"api_key":"REPLACE_WITH_QWEN_API_KEY"}', 'active', NOW(), NOW())
+ '{"api_key":"REPLACE_WITH_QWEN_API_KEY","provider":"qwen","display_name":"Qwen 通义千问"}', 'active', NOW(), NOW())
 ON CONFLICT DO NOTHING;

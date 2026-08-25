@@ -1384,3 +1384,66 @@ func TestHandleTestProvider_ProbeFailure(t *testing.T) {
 		t.Errorf("error empty, want failure detail")
 	}
 }
+
+// TestHandleTestProvider_MissingProviderInConfig 复现真实场景：channel_instances.config
+// 只有 api_key（无 provider/display_name），例如一次性脚本或旧种子写入的实例。
+// 测试接口应对 provider 回退到模型 provider，而不是 404。
+func TestHandleTestProvider_MissingProviderInConfig(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "test-noprovider@example.com", "pass", "No Provider")
+	modelID := seedModelForProviderTest(t, a, "probe-model", "deepseek")
+
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	now := time.Now().UTC()
+	ctx := context.Background()
+	_, err := a.Pool.Exec(ctx,
+		`INSERT INTO channels (id, name, model_id, pool_type, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, 'shared', 'active', $4, $4)`,
+		channelID, "Probe no-provider", modelID, now)
+	if err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	// config 只有 api_key，没有 provider —— 这正是导致 404 的坏数据。
+	configJSON, _ := json.Marshal(map[string]string{"api_key": "sk-probe"})
+	_, err = a.Pool.Exec(ctx,
+		`INSERT INTO channel_instances (id, channel_id, instance_type, base_url, config, status, created_at, updated_at)
+		 VALUES ($1, $2, 'deepseek', 'https://api.deepseek.com', $3, 'active', $4, $4)`,
+		instanceID, channelID, configJSON, now)
+	if err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+
+	orig := discoverModelsFn
+	discoverModelsFn = func(providerType, baseURL, apiKey string) ([]modelRef, error) {
+		if providerType != "deepseek" {
+			t.Errorf("provider = %q, want deepseek (model provider fallback)", providerType)
+		}
+		return []modelRef{{ID: "deepseek-v4-flash"}}, nil
+	}
+	defer func() { discoverModelsFn = orig }()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers/"+channelID.String()+"/test", nil)
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/admin/providers/{id}/test", HandleTestProvider(a))
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	var resp struct {
+		OK     bool `json:"ok"`
+		Models int  `json:"models"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.OK {
+		t.Errorf("ok = false, want true (provider should fall back to model provider), body: %s", w.Body.String())
+	}
+	if resp.Models != 1 {
+		t.Errorf("models = %d, want 1", resp.Models)
+	}
+}

@@ -112,18 +112,22 @@ func main() {
 		fmt.Printf("OK channel: %s\n", ch.Name)
 	}
 
-	type instDef struct{ ID, ChannelID, BaseURL, Route, Key string }
+	type instDef struct{ ID, ChannelID, BaseURL, Route, Key, ProviderType, DisplayName string }
 	instances := []instDef{
-		{"c0000001-0001-0001-0001-000000000001", "b0000001-0001-0001-0001-000000000001", "https://api.deepseek.com", "deepseek-v4-flash", dsKey},
-		{"c0000001-0001-0001-0001-000000000002", "b0000001-0001-0001-0001-000000000002", "https://api.deepseek.com", "deepseek-v4-pro", dsKey},
-		{"c0000001-0001-0001-0001-000000000007", "b0000001-0001-0001-0001-000000000007", "https://api.deepseek.com", "deepseek-v4-flash-vision-exp", dsKey},
-		{"c0000001-0001-0001-0001-000000000003", "b0000001-0001-0001-0001-000000000003", "https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.5-plus", qwKey},
-		{"c0000001-0001-0001-0001-000000000004", "b0000001-0001-0001-0001-000000000004", "https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.5-flash", qwKey},
-		{"c0000001-0001-0001-0001-000000000005", "b0000001-0001-0001-0001-000000000005", "https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.7-plus", qwKey},
-		{"c0000001-0001-0001-0001-000000000006", "b0000001-0001-0001-0001-000000000006", "https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.7-max", qwKey},
+		{"c0000001-0001-0001-0001-000000000001", "b0000001-0001-0001-0001-000000000001", "https://api.deepseek.com", "deepseek-v4-flash", dsKey, "deepseek", "DeepSeek"},
+		{"c0000001-0001-0001-0001-000000000002", "b0000001-0001-0001-0001-000000000002", "https://api.deepseek.com", "deepseek-v4-pro", dsKey, "deepseek", "DeepSeek"},
+		{"c0000001-0001-0001-0001-000000000007", "b0000001-0001-0001-0001-000000000007", "https://api.deepseek.com", "deepseek-v4-flash-vision-exp", dsKey, "deepseek", "DeepSeek"},
+		{"c0000001-0001-0001-0001-000000000003", "b0000001-0001-0001-0001-000000000003", "https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.5-plus", qwKey, "qwen", "Qwen 通义千问"},
+		{"c0000001-0001-0001-0001-000000000004", "b0000001-0001-0001-0001-000000000004", "https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.5-flash", qwKey, "qwen", "Qwen 通义千问"},
+		{"c0000001-0001-0001-0001-000000000005", "b0000001-0001-0001-0001-000000000005", "https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.7-plus", qwKey, "qwen", "Qwen 通义千问"},
+		{"c0000001-0001-0001-0001-000000000006", "b0000001-0001-0001-0001-000000000006", "https://ws-m852wcwkjo52jqef.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "qwen3.7-max", qwKey, "qwen", "Qwen 通义千问"},
 	}
 	for _, inst := range instances {
-		cfg, _ := json.Marshal(map[string]string{"api_key": inst.Key})
+		cfg, _ := json.Marshal(map[string]string{
+			"api_key":      inst.Key,
+			"provider":     inst.ProviderType,
+			"display_name": inst.DisplayName,
+		})
 		sql := `INSERT INTO channel_instances (id,channel_id,instance_type,base_url,provider_route,current_load,max_load,config,status,created_at,updated_at)
 				VALUES ($1,$2,'serverless',$3,$4,0,10,$5,'active',NOW(),NOW()) ON CONFLICT DO NOTHING`
 		_, err := pool.Exec(ctx, sql, inst.ID, inst.ChannelID, inst.BaseURL, inst.Route, string(cfg))

@@ -2,6 +2,7 @@ package console
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"github.com/deeptrols/api/internal/provider"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // providerResponse is the JSON shape returned for a single provider in list/detail responses.
@@ -594,13 +596,22 @@ func HandleTestProvider(a *app.App) http.HandlerFunc {
 		dbCtx := r.Context()
 		var pv, baseURL, apiKey string
 		err = a.Pool.QueryRow(dbCtx,
-			`SELECT ci.config->>'provider', ci.base_url, ci.config->>'api_key'
+			`SELECT COALESCE(ci.config->>'provider', m.provider),
+			        COALESCE(ci.base_url, ''),
+			        COALESCE(ci.config->>'api_key', '')
 			 FROM channel_instances ci
 			 JOIN channels ch ON ci.channel_id = ch.id
+			 JOIN models m ON m.id = ch.model_id
 			 WHERE ch.id = $1 AND ci.status = 'active'
+			 ORDER BY ci.created_at, ci.id
 			 LIMIT 1`, providerID).Scan(&pv, &baseURL, &apiKey)
 		if err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Provider not found"})
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "Provider not found"})
+				return
+			}
+			log.Printf("provider: test lookup failed for %s: %v", providerID, err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read provider"})
 			return
 		}
 		if baseURL == "" {
