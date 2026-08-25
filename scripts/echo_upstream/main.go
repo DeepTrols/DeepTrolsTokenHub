@@ -21,6 +21,7 @@ func main() {
 	mux.HandleFunc("/v1/chat/completions", chatHandler)
 	mux.HandleFunc("/v1/audio/transcriptions", transcriptionHandler)
 	mux.HandleFunc("/v1/images/edits", imagesEditsHandler)
+	mux.HandleFunc("/v1/videos/generations", videoGenerationsHandler)
 	addr := "127.0.0.1:8090"
 	fmt.Printf("echo upstream listening on %s\n", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
@@ -92,4 +93,19 @@ func imagesEditsHandler(w http.ResponseWriter, r *http.Request) {
 		"created": 1,
 		"data":    []map[string]any{{"url": "https://img.example.com/e2e.png"}},
 	})
+}
+
+func videoGenerationsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	var body map[string]any
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body["model"] == "" {
+		http.Error(w, `{"error":"model required"}`, http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": "upstream-video-1"})
 }

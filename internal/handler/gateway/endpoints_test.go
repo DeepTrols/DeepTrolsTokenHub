@@ -31,6 +31,7 @@ func makeEndpointPricingEntries() []domain.ModelPricing {
 		{ID: uuid.New(), ModelID: uuid.Nil, PricingDimension: "image", UnitName: "image", UnitPrice: "0.050000", UpstreamCost: "0.040000", Currency: "CNY", IsActive: true},
 		{ID: uuid.New(), ModelID: uuid.Nil, PricingDimension: "audio", UnitName: "second", UnitPrice: "0.001000", UpstreamCost: "0.000800", Currency: "CNY", IsActive: true},
 		{ID: uuid.New(), ModelID: uuid.Nil, PricingDimension: "tts", UnitName: "character", UnitPrice: "0.000010", UpstreamCost: "0.000008", Currency: "CNY", IsActive: true},
+		{ID: uuid.New(), ModelID: uuid.Nil, PricingDimension: "video", UnitName: "video", UnitPrice: "0.080000", UpstreamCost: "0.060000", Currency: "CNY", IsActive: true},
 	}
 }
 

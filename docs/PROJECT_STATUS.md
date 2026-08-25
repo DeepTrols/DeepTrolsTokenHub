@@ -1938,3 +1938,36 @@ cd web && npm run test:e2e
   返回 200 `你好`；`/v1/images/edits` 返回 200 JSON；usage 落账
   `cost=0.001`（audio）与 `cost=0.05`（image）；缺失定价时 422
   `pricing_incomplete`（fail-closed 生效）。
+
+## 五十八、2026-08-25 Phase 4 端点补全：视频生成异步任务（async_jobs）
+
+> 按蓝图 Phase 4 落地 `/v1/videos/generations` 创建/查询/取消三件套
+> （豆包 Seedance / 可灵式异步任务），钱包预留挂接任务生命周期。
+
+### 58.1 变更
+
+- 迁移 `000020_async_jobs`：`async_jobs`（user/key/tenant/model/status/
+  upstream_job_id/result_url/error/hold_tx_id/request_id + 索引）。
+- `internal/handler/gateway/video.go`：
+  - `POST /v1/videos/generations`：model/prompt/n 校验 → 路由 → 预算预留
+    （先于上游）→ 转发 `/v1/videos/generations`；同步 `data[].url` 结果立即
+    结算（dimension `video`）返回 200；上游返回 task id 时落库
+    `processing` 并保留预留，返回 202；
+  - `GET /v1/videos/generations/{id}`：任务状态/结果查询（限本人）；
+  - `DELETE /v1/videos/generations/{id}`：取消任务并释放钱包预留
+    （`FOR UPDATE` 防并发重复取消）。
+- `cmd/api/main.go`：注册三个视频路由。
+- `scripts/echo_upstream`：新增 videos/generations 处理器（返回异步 task id）。
+
+### 58.2 测试
+
+- `video_test.go`：同步结算（charge dimension video、RequestType video）、
+  异步建任务（202 + task_id + 保留不释放）、状态查询 + 取消释放预留 +
+  二次取消 409（真实 PG）、n 非法 400。
+
+### 58.3 验证
+
+- Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
+- 真实环境（API 8082 + echo + dev DB 升到 000020）：POST → 202
+  `processing` + `task_id=upstream-video-1`；GET → 200 状态查询；
+  DELETE → 200 `cancelled`；再 GET 状态持久化为 cancelled。

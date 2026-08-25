@@ -84,6 +84,9 @@ func main() {
 		r.Post("/images/edits", gateway.HandleImagesEdits(application))
 		r.Post("/audio/speech", gateway.HandleAudioSpeech(application))
 		r.Post("/audio/transcriptions", gateway.HandleAudioTranscriptions(application))
+		r.Post("/videos/generations", gateway.HandleVideoGenerations(application))
+		r.Get("/videos/generations/{id}", gateway.HandleVideoJobStatus(application))
+		r.Delete("/videos/generations/{id}", gateway.HandleVideoJobCancel(application))
 	})
 
 	// Console API (JWT-protected, user-facing).
