@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -117,29 +119,49 @@ func (r *Router) RouteCandidates(ctx context.Context, identity *domain.RequestId
 		return nil, ErrNoChannelAvailable
 	}
 
-	sortCandidatesByScore(candidates)
+	// Phase 2 routing: fallback_order groups → strategy ordering → sticky
+	// session → request-hash rotation (rendezvous approximation).
+	routingKey := identity.RequestID
+	if routingKey == "" {
+		routingKey = identity.UserID.String() + publicModelCode
+	}
+	candidates = orderChannels(candidates, routingKey)
 	if len(candidates) > max {
 		candidates = candidates[:max]
 	}
 
 	results := make([]RouteResult, 0, len(candidates))
+	now := time.Now().UTC()
 	for _, ch := range candidates {
 		instances, err := r.channels.ListInstances(ctx, ch.ID)
 		if err != nil || len(instances) == 0 {
 			continue
 		}
-		instance := instances[0]
-		bestLoad := effectiveLoad(ctx, r.loads, instance)
-		for _, inst := range instances[1:] {
-			if l := effectiveLoad(ctx, r.loads, inst); l < bestLoad {
-				instance = inst
-				bestLoad = l
+		// Skip instances in cooldown or already at their concurrency limit;
+		// among the rest pick the one with the lowest real-time load.
+		var instance *domain.ChannelInstance
+		var bestLoad int64 = 1<<63 - 1
+		for i := range instances {
+			inst := &instances[i]
+			if inst.CooldownUntil != nil && inst.CooldownUntil.After(now) {
+				continue
 			}
+			load := effectiveLoad(ctx, r.loads, *inst)
+			if inst.ConcurrencyLimit > 0 && load >= int64(inst.ConcurrencyLimit) {
+				continue
+			}
+			if load < bestLoad {
+				instance = inst
+				bestLoad = load
+			}
+		}
+		if instance == nil {
+			continue
 		}
 		channelCopy := ch // avoid loop-variable aliasing
 		results = append(results, RouteResult{
 			Channel:       &channelCopy,
-			Instance:      &instance,
+			Instance:      instance,
 			UpstreamModel: instance.ProviderRoute,
 		})
 	}
@@ -147,6 +169,114 @@ func (r *Router) RouteCandidates(ctx context.Context, identity *domain.RequestId
 		return nil, ErrNoChannelAvailable
 	}
 	return results, nil
+}
+
+// orderChannels applies Phase 2 channel ordering: stable grouping by
+// fallback_order (ascending), then per-group strategy ordering with sticky
+// session preference and request-hash rotation. The input slice is not
+// mutated.
+func orderChannels(channels []domain.Channel, routingKey string) []domain.Channel {
+	if len(channels) <= 1 {
+		return channels
+	}
+	groups := map[int][]domain.Channel{}
+	var orders []int
+	for _, ch := range channels {
+		if _, ok := groups[ch.FallbackOrder]; !ok {
+			orders = append(orders, ch.FallbackOrder)
+		}
+		groups[ch.FallbackOrder] = append(groups[ch.FallbackOrder], ch)
+	}
+	sort.Ints(orders)
+	ordered := make([]domain.Channel, 0, len(channels))
+	for _, order := range orders {
+		ordered = append(ordered, orderGroup(groups[order], routingKey)...)
+	}
+	return ordered
+}
+
+// orderGroup orders one fallback tier: sticky channels first (deterministic
+// by routing key), then non-sticky channels by strategy (quality → health,
+// otherwise weight/max_concurrency score), then a request-hash rotation so
+// different requests spread across siblings.
+func orderGroup(group []domain.Channel, routingKey string) []domain.Channel {
+	if len(group) <= 1 {
+		return group
+	}
+	var sticky, rest []domain.Channel
+	for _, ch := range group {
+		if ch.StickySession {
+			sticky = append(sticky, ch)
+		} else {
+			rest = append(rest, ch)
+		}
+	}
+	out := make([]domain.Channel, 0, len(group))
+	if len(sticky) > 0 {
+		idx := hashIndex(routingKey, len(sticky))
+		out = append(out, sticky[idx])
+		sticky = append(sticky[:idx], sticky[idx+1:]...)
+		out = append(out, sticky...)
+	}
+	if len(rest) > 1 {
+		if containsQualityStrategy(rest) {
+			sort.SliceStable(rest, func(i, j int) bool {
+				if rest[i].HealthScore != rest[j].HealthScore {
+					return rest[i].HealthScore > rest[j].HealthScore
+				}
+				return routeScore(rest[i]) > routeScore(rest[j])
+			})
+		} else {
+			sortCandidatesByScore(rest)
+		}
+		if routingKey != "" && scoresEqual(rest) {
+			rot := hashIndex(routingKey, len(rest))
+			if rot > 0 {
+				rest = append(rest[rot:], rest[:rot]...)
+			}
+		}
+	}
+	out = append(out, rest...)
+	return out
+}
+
+// scoresEqual reports whether all channels in the group have identical
+// routing scores, i.e. they are interchangeable siblings. Only then is
+// request-hash rotation applied, so weighted orderings stay deterministic.
+func scoresEqual(channels []domain.Channel) bool {
+	if len(channels) < 2 {
+		return true
+	}
+	base := routeScore(channels[0])
+	for _, ch := range channels[1:] {
+		if routeScore(ch) != base {
+			return false
+		}
+	}
+	return true
+}
+
+func containsQualityStrategy(channels []domain.Channel) bool {
+	for _, ch := range channels {
+		if ch.Strategy == domain.RouteStrategyQuality {
+			return true
+		}
+	}
+	return false
+}
+
+func routeScore(ch domain.Channel) float64 {
+	return float64(ch.Weight) / float64(ch.MaxConcurrency+1)
+}
+
+// hashIndex returns a deterministic index in [0, n) for a routing key.
+func hashIndex(key string, n int) int {
+	if n <= 0 || key == "" {
+		return 0
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	return int(h.Sum32() % uint32(n))
 }
 
 // effectiveLoad returns the real-time in-flight count when a load source is

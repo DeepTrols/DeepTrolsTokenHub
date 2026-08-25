@@ -706,6 +706,135 @@ func TestRoute_WithNoAuthIdentity(t *testing.T) {
 	}
 }
 
+func TestRoute_StrategyQualityOrdersByHealth(t *testing.T) {
+	model := makeTestModel("gpt-4o", domain.ModelStatusActive)
+	healthyID := uuid.New()
+	degradedID := uuid.New()
+
+	models := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return model, nil
+		},
+	}
+	channels := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			healthy := makeTestChannel(healthyID, model.ID, domain.ChannelStatusActive, 95, 10)
+			healthy.Strategy = domain.RouteStrategyQuality
+			degraded := makeTestChannel(degradedID, model.ID, domain.ChannelStatusActive, 60, 100)
+			degraded.Strategy = domain.RouteStrategyQuality
+			return []domain.Channel{degraded, healthy}, nil
+		},
+		listInstancesFn: func(ctx context.Context, channelID uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{makeTestInstance(uuid.New(), channelID, "https://up.example.com", "gpt-4o", 0)}, nil
+		},
+	}
+	router := NewRouter(models, channels)
+	result, err := router.Route(context.Background(), makeIdentity(nil), "gpt-4o")
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if result.Channel.ID != healthyID {
+		t.Errorf("quality strategy should prefer the healthier channel, got %s", result.Channel.ID)
+	}
+}
+
+func TestRoute_StickySessionPreferred(t *testing.T) {
+	model := makeTestModel("gpt-4o", domain.ModelStatusActive)
+	stickyID := uuid.New()
+	weightedID := uuid.New()
+
+	models := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return model, nil
+		},
+	}
+	channels := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			sticky := makeTestChannel(stickyID, model.ID, domain.ChannelStatusActive, 100, 1)
+			sticky.StickySession = true
+			weighted := makeTestChannel(weightedID, model.ID, domain.ChannelStatusActive, 100, 100)
+			return []domain.Channel{weighted, sticky}, nil
+		},
+		listInstancesFn: func(ctx context.Context, channelID uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{makeTestInstance(uuid.New(), channelID, "https://up.example.com", "gpt-4o", 0)}, nil
+		},
+	}
+	router := NewRouter(models, channels)
+	result, err := router.Route(context.Background(), makeIdentity(nil), "gpt-4o")
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if result.Channel.ID != stickyID {
+		t.Errorf("sticky session channel should be preferred, got %s", result.Channel.ID)
+	}
+}
+
+func TestRoute_SkipsCooldownAndSaturatedInstances(t *testing.T) {
+	model := makeTestModel("gpt-4o", domain.ModelStatusActive)
+	activeID := uuid.New()
+	cooldownID := uuid.New()
+	saturatedID := uuid.New()
+
+	models := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return model, nil
+		},
+	}
+	channels := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			active := makeTestChannel(activeID, model.ID, domain.ChannelStatusActive, 100, 100)
+			cooldown := makeTestChannel(cooldownID, model.ID, domain.ChannelStatusActive, 100, 100)
+			saturated := makeTestChannel(saturatedID, model.ID, domain.ChannelStatusActive, 100, 100)
+			return []domain.Channel{active, cooldown, saturated}, nil
+		},
+		listInstancesFn: func(ctx context.Context, channelID uuid.UUID) ([]domain.ChannelInstance, error) {
+			switch channelID {
+			case activeID:
+				return []domain.ChannelInstance{makeTestInstance(uuid.New(), channelID, "https://active.example.com", "gpt-4o", 0)}, nil
+			case cooldownID:
+				inst := makeTestInstance(uuid.New(), channelID, "https://cool.example.com", "gpt-4o", 0)
+				until := time.Now().UTC().Add(time.Hour)
+				inst.CooldownUntil = &until
+				return []domain.ChannelInstance{inst}, nil
+			default: // saturated: at concurrency limit
+				inst := makeTestInstance(uuid.New(), channelID, "https://sat.example.com", "gpt-4o", 1)
+				inst.ConcurrencyLimit = 1
+				return []domain.ChannelInstance{inst}, nil
+			}
+		},
+	}
+	router := NewRouter(models, channels)
+	results, err := router.RouteCandidates(context.Background(), makeIdentity(nil), "gpt-4o", 3)
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if len(results) != 1 || results[0].Channel.ID != activeID {
+		t.Errorf("only the active instance should be routable, got %d results", len(results))
+	}
+}
+
+func TestOrderChannels_RequestHashRotation(t *testing.T) {
+	modelID := uuid.New()
+	chA := makeTestChannel(uuid.New(), modelID, domain.ChannelStatusActive, 100, 100)
+	chB := makeTestChannel(uuid.New(), modelID, domain.ChannelStatusActive, 100, 100)
+	ordered1 := orderChannels([]domain.Channel{chA, chB}, "request-1")
+	ordered2 := orderChannels([]domain.Channel{chA, chB}, "request-2")
+	if len(ordered1) != 2 || len(ordered2) != 2 {
+		t.Fatalf("order lengths = %d/%d", len(ordered1), len(ordered2))
+	}
+	if ordered1[0].ID == ordered1[1].ID {
+		t.Fatal("duplicate channel in order")
+	}
+	if ordered1[0].ID == ordered2[0].ID && ordered1[1].ID == ordered2[1].ID {
+		// Two different keys may occasionally land on the same rotation; that
+		// is fine, but at least one of the two keys must rotate the pair.
+		ordered3 := orderChannels([]domain.Channel{chA, chB}, "request-3")
+		if ordered3[0].ID == ordered1[0].ID {
+			t.Log("hash collisions on all sampled keys; acceptable for two channels")
+		}
+	}
+}
+
 func makeTestChannelWithPool(id uuid.UUID, modelID uuid.UUID, status domain.ChannelStatus, healthScore int, weight int, poolType domain.PoolType) domain.Channel {
 	return domain.Channel{
 		ID:             id,

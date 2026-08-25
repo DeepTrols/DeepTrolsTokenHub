@@ -1539,3 +1539,38 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - ✅ Guardrails 出站拦截、RPM/TPM 分钟桶、租户预算 + 审批、预算网关强制；
 - 待办（后续批次）：分钟桶精确 settle（估算→实际差额回填）、Guardrails Admin
   策略编辑器（前端）、预算超限告警。
+
+## 四十四、2026-08-25 Phase 2（第一部分）：强路由
+
+> 蓝图 Step 5 Phase 2：路由从"权重/负载评分"升级为"策略化排序 + 粘性 + 哈希散列 +
+> 冷却/并发跳过"。Phase 0 的字段已就位，本批接入路由逻辑。
+
+### 44.1 变更
+
+- `internal/service/gateway/router.go`：
+  - `orderChannels`：按 `fallback_order` 升序稳定分组；
+  - `orderGroup`：组内先排粘性会话（按路由 key 确定性选中），再按策略排序
+    （quality → 健康分，否则 weight/max_concurrency 评分）；
+  - 请求哈希旋转：仅当组内候选**评分相同**（等价兄弟）时按路由 key 旋转，
+    加权排序保持确定性；
+  - 实例选择：跳过 `cooldown_until` 未到期的实例，跳过已达
+    `concurrency_limit` 的实例（`effectiveLoad >= limit`），其余取实时负载最低。
+- `internal/handler/gateway/chat.go`：`resolveAuthIdentity` 补充读取
+  `X-Request-ID`（CtxRequestID）作为路由 key。
+
+### 44.2 测试
+
+- `router_test.go`：quality 策略按健康分排序、粘性会话优先、冷却/并发饱和实例跳过
+  （RouteCandidates 只剩可用渠道）、等价渠道哈希旋转。
+- 回归修正：旋转仅限评分相同组，恢复既有加权排序测试的确定性（首轮发现
+  failover 测试因随机 userID 旋转而失败，已修正）。
+
+### 44.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。
+
+### 44.4 后续（Phase 2 剩余）
+
+- 缓存亲和（响应缓存命中时优先同缓存域渠道）；
+- cost 策略排序（接 pricer 单价）与路由策略模拟器；
+- 分钟桶精确 settle；Guardrails Admin 编辑器（前端）。

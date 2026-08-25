@@ -932,6 +932,7 @@ func resolveAuthIdentity(r *http.Request) *domain.RequestIdentity {
 	keyIDStr, _ := r.Context().Value(middleware.CtxAPIKeyID).(string)
 	userIDStr, _ := r.Context().Value(middleware.CtxUserID).(string)
 	tenantIDStr, _ := r.Context().Value(middleware.CtxTenantID).(string)
+	requestIDStr, _ := r.Context().Value(middleware.CtxRequestID).(string)
 
 	var (
 		keyID    uuid.UUID
@@ -957,6 +958,7 @@ func resolveAuthIdentity(r *http.Request) *domain.RequestIdentity {
 		APIKeyID:    keyID,
 		UserID:      userID,
 		TenantID:    tenantID,
+		RequestID:   requestIDStr,
 		RequestType: "chat",
 	}
 }
