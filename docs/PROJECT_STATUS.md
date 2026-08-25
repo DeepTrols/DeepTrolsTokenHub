@@ -2163,3 +2163,24 @@ cd web && npm run test:e2e
   `model_codes = ["deepseek-v4-flash","deepseek-v4-pro","deepseek-v4-flash-vision-exp"]`，
   `models = 3`，`ok = true`。
 - Go `build/vet/gofmt` + `go test ./... -count=1` 全绿；前端 `npm test`/`lint`/`build` 全绿。
+
+## 六十六、2026-08-25 清理 DeepSeek inactive 残留
+
+> 把历史 echo/E2E 冒烟在开发库留下的 `deepseek-chat` inactive 残留模型及其
+> inactive 渠道/实例/定价/用量一并清掉，只保留真实的 3 个 V4 模型及其 active 渠道。
+
+### 66.1 变更
+
+- 删除 inactive 模型 `deepseek-chat`（及 3 条 `model_pricing`）；
+- 删除其下 12 个 inactive E2E 渠道与 12 个 channel_instances；
+- 删除绑定这些渠道/实例或 `public_model_code='deepseek-chat'` 的 E2E
+  `usage_logs` 共 10 条（连同 `provider_evidence` / `charge_lines`）；
+- 保留：`deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp`
+  及各 1 条 active 渠道/实例（`DeepSeek-deepseek-v4-flash` / `deepseek-vision` /
+  `DeepSeek-deepseek-v4-pro`）。
+
+### 66.2 验证
+
+- 单事务执行，删除后 `deepseek` provider 下 `inactive` 行为 0，active 模型数 = 3；
+- `/api/public/stats` 返回 `{"models":3}`；
+- 真实 3 个 V4 模型各保留 1 条 active 渠道 + 实例，base_url / route 未受影响。
