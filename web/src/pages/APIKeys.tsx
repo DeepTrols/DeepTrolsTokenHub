@@ -361,7 +361,7 @@ export default function APIKeys() {
       {isLoading && <div className="py-12 text-center text-[#5C6472]">加载 API keys...</div>}
 
       {!isLoading && isError && (
-        <div className="rounded-lg border border-[#E5484D]/25 bg-white p-5 text-[#C4372C] text-sm mb-4">
+        <div className="glass rounded-2xl border-[#E5484D]/25 p-5 text-[#C4372C] text-sm mb-4">
           <p className="font-medium">加载失败</p>
           <button onClick={() => refetch()} className="mt-2 rounded-lg bg-[#E5484D] px-4 py-2 text-sm font-semibold text-white hover:brightness-110">
             重试
@@ -370,17 +370,17 @@ export default function APIKeys() {
       )}
 
       {!isLoading && keys.length === 0 && (
-        <div className="rounded-2xl border border-[#E5E7EB] bg-white py-12 text-center">
+        <div className="glass rounded-2xl py-12 text-center">
           <p className="text-[#5C6472] font-medium">暂无 API key</p>
           <p className="text-sm mt-1 text-[#5C6472]/80">点击右上角"创建密钥"创建第一个 key</p>
         </div>
       )}
 
       {!isLoading && keys.length > 0 && (
-        <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
+        <div className="glass rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="divide-x divide-[#E5E7EB]">
+              <tr className="divide-x divide-black/10 bg-white/55">
                 <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">名称</th>
                 <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">key</th>
                 <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">创建日期</th>
@@ -389,9 +389,9 @@ export default function APIKeys() {
                 <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#E5E7EB]">
+            <tbody className="divide-y divide-black/10">
               {keys.map((k) => (
-                <tr key={k.id} className="divide-x divide-[#E5E7EB]">
+                <tr key={k.id} className="divide-x divide-black/10 hover:bg-white/60">
                   <td className="px-4 py-3 text-[#161A23]">{k.name}</td>
                   <td className="px-4 py-3 font-mono text-[13px] text-[#161A23]">{k.masked_key}</td>
                   <td className="px-4 py-3 text-[#161A23]">{gmt8DateTime(k.created_at)}</td>

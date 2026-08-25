@@ -2212,3 +2212,23 @@ cd web && npm run test:e2e
 - 前端 `npm test`（205/205）、`lint`、`build` 全绿；
 - 重建并重启 `bin/api.exe` 到 8080 后，实际调用测试接口：
   `ok=true, models=3, model_codes=[deepseek-v4-flash, deepseek-v4-pro, deepseek-v4-flash-vision-exp]`。
+
+## 六十八、2026-08-25 用量信息/Dashboard 与 API keys 页统一为玻璃质感
+
+> 让「用量信息」与「API keys」两页的卡片容器、表格与局部面板与全站液态玻璃
+> 风格对齐（复用 `glass` / `glass-soft` 组件类），与模型管理、渠道管理等页面一致。
+
+### 68.1 变更
+
+- **`web/src/pages/Dashboard.tsx`**：加载态、错误态、充值余额/累计消费两张卡、
+  3 个统计卡、消费金额大图卡、按模型细分卡 由 `rounded-lg bg-white ... shadow-sm`
+  改为 `glass rounded-2xl`；「按模型查看」里请求次数 / Tokens 两个小面板由
+  `bg-[#F7F9FC]` 改为 `glass-soft rounded-xl`。
+- **`web/src/pages/APIKeys.tsx`**：错误态、空态、密钥列表表容器由
+  `rounded-2xl border-[#E5E7EB] bg-white` 改为 `glass rounded-2xl`；表头加
+  `bg-white/55`、行分割线改 `divide-black/10`、行 hover 加 `hover:bg-white/60`。
+
+### 68.2 验证
+
+- 前端 `npm test`（205/205，27 文件）、`lint`（0/0）、`build` 全绿；
+- 两页断言只依赖文本（标题/数值），不依赖类名，样式改动不影响现有测试。

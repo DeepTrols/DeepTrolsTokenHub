@@ -201,7 +201,7 @@ export default function Dashboard() {
           <h2 className="font-display text-[25px] font-bold tracking-tight">用量信息</h2>
           <p className="text-[13px] text-[#5C6472] mt-1">所有日期均按 GMT+8 时间显示，数据可能有 5 分钟延迟。</p>
         </div>
-        <div className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-12 text-center">
+        <div className="glass rounded-2xl p-12 text-center">
           <div className="animate-spin w-8 h-8 border-2 border-[#4F6BED] border-t-transparent rounded-full mx-auto mb-3" />
           <p className="text-muted-foreground">加载...</p>
         </div>
@@ -216,7 +216,7 @@ export default function Dashboard() {
           <h2 className="font-display text-[25px] font-bold tracking-tight">用量信息</h2>
           <p className="text-[13px] text-[#5C6472] mt-1">所有日期均按 GMT+8 时间显示，数据可能有 5 分钟延迟。</p>
         </div>
-        <div className="rounded-lg bg-white border border-[#E5484D]/20 shadow-sm p-6 text-center">
+        <div className="glass rounded-2xl border-[#E5484D]/25 p-6 text-center">
           <p className="text-[#C4372C] mb-3">加载失败，请稍后重试</p>
           <button
             onClick={() => {
@@ -248,7 +248,7 @@ export default function Dashboard() {
 
       {/* 第一行：充值余额 + 累计消费金额 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-5 flex items-center justify-between gap-4">
+        <div className="glass rounded-2xl p-5 flex items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[13px] font-semibold text-[#5C6472]">充值余额</span>
@@ -262,7 +262,7 @@ export default function Dashboard() {
             去充值
           </a>
         </div>
-        <div className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-5 flex items-center justify-between gap-4">
+        <div className="glass rounded-2xl p-5 flex items-center justify-between gap-4">
           <div>
             <span className="text-[13px] font-semibold text-[#5C6472]">累计消费金额</span>
             <p className="font-mono text-[28px] font-semibold tracking-tight mt-2">
@@ -354,7 +354,7 @@ export default function Dashboard() {
       {/* 第二行：3 个统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {statCards.map((c) => (
-          <div key={c.label} className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-5">
+          <div key={c.label} className="glass rounded-2xl p-5">
             <p className="text-[12px] font-semibold text-[#5C6472]">{c.label}</p>
             <p className="font-mono text-[26px] font-semibold tracking-tight mt-2">{c.value}</p>
           </div>
@@ -362,7 +362,7 @@ export default function Dashboard() {
       </div>
 
       {/* 大图表：消费金额柱状图 */}
-      <div className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-5">
+      <div className="glass rounded-2xl p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
           <h3 className="font-display text-[15px] font-bold">
             消费金额（CNY）
@@ -423,7 +423,7 @@ export default function Dashboard() {
 
       {/* 底部：按模型细分 */}
       {modelList.length > 0 && selectedModel ? (
-        <div className="rounded-lg bg-white border border-black/[0.06] shadow-sm p-5">
+        <div className="glass rounded-2xl p-5">
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[13px] font-semibold text-[#5C6472]">按模型查看</span>
             <SelectMenu
@@ -434,7 +434,7 @@ export default function Dashboard() {
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <div className="rounded-lg bg-[#F7F9FC] p-4">
+            <div className="glass-soft rounded-xl p-4">
               <h4 className="text-[13px] font-semibold text-[#5C6472]">
                 API 请求次数{" "}
                 <span className="ml-1 font-mono text-[#161A23]">{modelStats.requests.toLocaleString("en-US")}</span>
@@ -463,7 +463,7 @@ export default function Dashboard() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-            <div className="rounded-lg bg-[#F7F9FC] p-4">
+            <div className="glass-soft rounded-xl p-4">
               <h4 className="text-[13px] font-semibold text-[#5C6472]">
                 Tokens{" "}
                 <span className="ml-1 font-mono text-[#161A23]">{modelStats.tokens.toLocaleString("en-US")}</span>
