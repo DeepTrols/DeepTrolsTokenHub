@@ -148,6 +148,7 @@ func main() {
 		r.Put("/providers/{id}", console.HandleUpdateProvider(application))
 		r.Delete("/providers/{id}", console.HandleDeleteProvider(application))
 		r.Post("/providers/{id}/sync", console.HandleSyncProviderModels(application))
+		r.Post("/providers/{id}/test", console.HandleTestProvider(application))
 
 		r.Get("/channels", console.HandleListChannels(application))
 		r.Post("/channels", console.HandleCreateChannel(application))

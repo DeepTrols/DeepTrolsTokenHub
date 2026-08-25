@@ -1,5 +1,6 @@
 import { EmptyState } from "@/components/StateViews";
 import { useState } from "react";
+import { adminApi } from "../lib/api";
 import { useAdminMutation, useAdminQuery } from "../lib/hooks/use-api";
 import { Plus, Trash2, Play, RotateCw, Server } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,15 @@ interface CredentialData {
   id: string; name: string; provider: string; base_url: string;
   masked_key: string; status: string; model_count: number;
   channel_ids: string[]; created_at: string; updated_at: string;
+}
+
+interface ProbeResult {
+  ok: boolean;
+  ms: number;
+  models?: number;
+  model_codes?: string[];
+  capabilities?: Record<string, number>;
+  error?: string;
 }
 
 const PROVIDER_OPTIONS = [
@@ -39,7 +49,7 @@ export default function Channels() {
   const loadError = isError ? (fetchError instanceof Error ? fetchError.message : String(fetchError)) : "";
 
   const [testingId, setTestingId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; ms: number }>>({});
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; ms: number; detail?: string }>>({});
 
   const createMut = useAdminMutation<unknown, Record<string, unknown>>("post", "/providers");
   const updateMut = useAdminMutation<unknown, { id: string } & Record<string, unknown>>("put", (v) => `/providers/${v.id}`, "/providers");
@@ -47,10 +57,26 @@ export default function Channels() {
 
   const handleTestCredential = async (cred: CredentialData) => {
     setTestingId(cred.id);
-    const start = Date.now();
-    try { await new Promise((r) => setTimeout(r, 300 + Math.random() * 700)); setTestResults((prev) => ({ ...prev, [cred.id]: { ok: true, ms: Date.now() - start } })); }
-    catch { setTestResults((prev) => ({ ...prev, [cred.id]: { ok: false, ms: Date.now() - start } })); }
-    finally { setTestingId(null); }
+    try {
+      const res = await adminApi.post<ProbeResult>(`/providers/${cred.id}/test`);
+      setTestResults((prev) => ({
+        ...prev,
+        [cred.id]: {
+          ok: res.ok,
+          ms: res.ms ?? 0,
+          detail: res.ok
+            ? `${res.models ?? 0} 个模型`
+            : (res.error || "连接失败，请检查 API Key 与 Base URL"),
+        },
+      }));
+    } catch (e) {
+      setTestResults((prev) => ({
+        ...prev,
+        [cred.id]: { ok: false, ms: 0, detail: e instanceof Error ? e.message : "连接失败" },
+      }));
+    } finally {
+      setTestingId(null);
+    }
   };
 
   const handleDeleteCredential = async (cred: CredentialData) => {
@@ -154,7 +180,9 @@ export default function Channels() {
                 </div>
                 {testResults[cred.id] && (
                   <div className={`mt-3 pt-3 border-t border-black/10 text-xs ${testResults[cred.id].ok ? "text-[#0C7A55]" : "text-destructive"}`}>
-                    {testResults[cred.id].ok ? `测试通过 · 响应时间 ${testResults[cred.id].ms}ms` : "测试失败 · 请检查 API Key 和 Base URL"}
+                    {testResults[cred.id].ok
+                      ? `测试通过 · ${testResults[cred.id].detail} · 响应时间 ${testResults[cred.id].ms}ms`
+                      : `测试失败 · ${testResults[cred.id].detail}`}
                   </div>
                 )}
               </CardContent>

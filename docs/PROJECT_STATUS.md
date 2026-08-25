@@ -1792,3 +1792,31 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 前端 `npm test`（246/246，含新增 11 例）、`lint`（0/0）、`build` 全绿；
 - 说明：纯前端变更，后端接口（`rate_limit_rpm/tpm`）已有 Go 集成测试覆盖，
   未改动 Go 代码。
+
+## 五十四、2026-08-25 Provider 真实连通性探测（替换假测试按钮）
+
+> Phase 5 前端补齐第八批：把渠道列表的假"测试"（随机延时假装成功）替换为
+> 真实上游探测，配合 Phase 3 能力推断（Provider 编辑器升级的第一步）。
+
+### 54.1 变更
+
+- 后端 `internal/handler/console/providers.go`：`POST /api/admin/providers/{id}/test`——
+  读取凭证（channel_instances），真实调用上游 `/models`（复用 `discoverModels`），
+  返回 `ok / ms / models / model_codes / capabilities`；失败返回 200 + `ok:false` +
+  `error`（探测结果本身是合法响应，不伪装失败为 500）；仅 admin，无状态变更。
+- `cmd/api/main.go`：注册 `/api/admin/providers/{id}/test` 路由。
+- 前端 `web/src/pages/Channels.tsx`：`handleTestCredential` 改为调用新端点，
+  成功展示"模型数 + 响应时间"，失败展示上游错误详情；加载中禁用按钮并旋转图标。
+
+### 54.2 测试
+
+- `providers_test.go`：无鉴权 401 / 非管理员 403 / 非法 ID 400 / 不存在 404 /
+  探测成功（2 模型 + chat:2 能力）/ 探测失败（ok=false + 错误详情）6 例；
+- `Channels.test.tsx`：探测成功渲染模型数与耗时、失败渲染错误详情 2 例。
+
+### 54.3 验证
+
+- Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
+- 前端 `npm test`（248/248）、`lint`（0/0）、`build` 全绿；
+- 真实环境：本地 API 对现有 DeepSeek 凭证调用探测端点，200 + `ok:true`，
+  上游实测 241ms、发现 3 个模型、`capabilities.chat=3`。

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Channels from "./Channels";
 import { renderWithProviders } from "../test/test-utils";
 
@@ -17,6 +18,7 @@ vi.mock("../lib/auth", () => ({
 
 import { adminApi } from "../lib/api";
 const mockAdminGet = adminApi.get as ReturnType<typeof vi.fn>;
+const mockAdminPost = adminApi.post as ReturnType<typeof vi.fn>;
 
 function seedCredentials() {
   return [
@@ -66,5 +68,38 @@ describe("Channels", () => {
     mockAdminGet.mockRejectedValue(new Error("channels down"));
     renderWithProviders(<Channels />);
     expect(await screen.findByText("channels down")).toBeInTheDocument();
+  });
+
+  it("runs a real connectivity probe and reports model count", async () => {
+    const user = userEvent.setup();
+    mockAdminGet.mockResolvedValue({ data: seedCredentials() });
+    mockAdminPost.mockResolvedValue({
+      ok: true,
+      ms: 128,
+      models: 3,
+      model_codes: ["deepseek-chat", "deepseek-reasoner"],
+      capabilities: { chat: 3 },
+    });
+
+    renderWithProviders(<Channels />);
+
+    await user.click((await screen.findAllByText("测试"))[0]);
+
+    await waitFor(() => {
+      expect(mockAdminPost).toHaveBeenCalledWith("/providers/c1/test");
+    });
+    expect(await screen.findByText(/测试通过 · 3 个模型 · 响应时间 128ms/)).toBeInTheDocument();
+  });
+
+  it("surfaces the probe failure detail", async () => {
+    const user = userEvent.setup();
+    mockAdminGet.mockResolvedValue({ data: seedCredentials() });
+    mockAdminPost.mockResolvedValue({ ok: false, ms: 512, error: "HTTP 401: invalid api key" });
+
+    renderWithProviders(<Channels />);
+
+    await user.click((await screen.findAllByText("测试"))[0]);
+
+    expect(await screen.findByText(/测试失败 · HTTP 401: invalid api key/)).toBeInTheDocument();
   });
 });

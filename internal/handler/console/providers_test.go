@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/deeptrols/api/internal/repository/apikey"
 	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/user"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -1116,5 +1118,182 @@ func TestMaskAPIKey(t *testing.T) {
 				t.Errorf("maskAPIKey(%q) = %q, want %q", tt.key, got, tt.want)
 			}
 		})
+	}
+}
+
+// =============================================================================
+// HandleTestProvider Tests
+// =============================================================================
+
+// seedProviderInstanceForTest creates an active channel + instance that
+// carries the provider credential, returning the channel (provider) ID.
+func seedProviderInstanceForTest(t *testing.T, a *app.App, providerType, baseURL, apiKey string) uuid.UUID {
+	t.Helper()
+	modelID := seedModelForProviderTest(t, a, "probe-model", providerType)
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	now := time.Now().UTC()
+	ctx := context.Background()
+
+	_, err := a.Pool.Exec(ctx,
+		`INSERT INTO channels (id, name, model_id, pool_type, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, 'shared', 'active', $4, $4)`,
+		channelID, "Probe "+providerType, modelID, now,
+	)
+	if err != nil {
+		t.Fatalf("seed provider channel: %v", err)
+	}
+
+	config := map[string]interface{}{"api_key": apiKey, "provider": providerType, "display_name": "Probe " + providerType}
+	configJSON, _ := json.Marshal(config)
+	_, err = a.Pool.Exec(ctx,
+		`INSERT INTO channel_instances (id, channel_id, instance_type, base_url, config, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, 'active', $6, $6)`,
+		instanceID, channelID, providerType, baseURL, configJSON, now,
+	)
+	if err != nil {
+		t.Fatalf("seed provider instance: %v", err)
+	}
+	return channelID
+}
+
+func TestHandleTestProvider_NoAuth(t *testing.T) {
+	a := appForProviderTest(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers/00000000-0000-0000-0000-000000000000/test", nil)
+	w := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/admin/providers/{id}/test", HandleTestProvider(a))
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusUnauthorized, w.Body.String())
+	}
+}
+
+func TestHandleTestProvider_NotAdmin(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "test-notadmin@example.com", "pass", "Not Admin")
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers/00000000-0000-0000-0000-000000000000/test", nil)
+	req = setUserContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/admin/providers/{id}/test", HandleTestProvider(a))
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusForbidden, w.Body.String())
+	}
+}
+
+func TestHandleTestProvider_InvalidID(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "test-badid@example.com", "pass", "Bad ID")
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers/not-a-uuid/test", nil)
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/admin/providers/{id}/test", HandleTestProvider(a))
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+}
+
+func TestHandleTestProvider_NotFound(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "test-missing@example.com", "pass", "Missing")
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers/00000000-0000-0000-0000-000000000000/test", nil)
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/admin/providers/{id}/test", HandleTestProvider(a))
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+}
+
+func TestHandleTestProvider_Success(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "test-ok@example.com", "pass", "Probe OK")
+	channelID := seedProviderInstanceForTest(t, a, "deepseek", "https://api.deepseek.com", "sk-probe")
+
+	orig := discoverModelsFn
+	discoverModelsFn = func(provider, baseURL, apiKey string) ([]modelRef, error) {
+		if provider != "deepseek" {
+			t.Errorf("provider = %q, want deepseek", provider)
+		}
+		if apiKey != "sk-probe" {
+			t.Errorf("api_key = %q, want sk-probe", apiKey)
+		}
+		return []modelRef{{ID: "deepseek-chat"}, {ID: "deepseek-reasoner"}}, nil
+	}
+	defer func() { discoverModelsFn = orig }()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers/"+channelID.String()+"/test", nil)
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/admin/providers/{id}/test", HandleTestProvider(a))
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	var resp struct {
+		OK           bool           `json:"ok"`
+		MS           int64          `json:"ms"`
+		Models       int            `json:"models"`
+		ModelCodes   []string       `json:"model_codes"`
+		Capabilities map[string]int `json:"capabilities"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.OK {
+		t.Errorf("ok = false, want true")
+	}
+	if resp.Models != 2 {
+		t.Errorf("models = %d, want 2", resp.Models)
+	}
+	if len(resp.ModelCodes) != 2 || resp.ModelCodes[0] != "deepseek-chat" {
+		t.Errorf("model_codes = %v, want [deepseek-chat deepseek-reasoner]", resp.ModelCodes)
+	}
+	if resp.Capabilities["chat"] != 2 {
+		t.Errorf("capabilities = %v, want chat:2", resp.Capabilities)
+	}
+}
+
+func TestHandleTestProvider_ProbeFailure(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "test-fail@example.com", "pass", "Probe Fail")
+	channelID := seedProviderInstanceForTest(t, a, "deepseek", "https://api.deepseek.com", "sk-bad")
+
+	orig := discoverModelsFn
+	discoverModelsFn = func(provider, baseURL, apiKey string) ([]modelRef, error) {
+		return nil, fmt.Errorf("HTTP 401: invalid api key")
+	}
+	defer func() { discoverModelsFn = orig }()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers/"+channelID.String()+"/test", nil)
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/admin/providers/{id}/test", HandleTestProvider(a))
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (probe failure is a valid 200 response)", w.Code, http.StatusOK)
+	}
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.OK {
+		t.Errorf("ok = true, want false")
+	}
+	if resp.Error == "" {
+		t.Errorf("error empty, want failure detail")
 	}
 }

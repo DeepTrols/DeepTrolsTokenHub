@@ -554,6 +554,74 @@ func HandleSyncProviderModels(a *app.App) http.HandlerFunc {
 	}
 }
 
+// HandleTestProvider runs a live connectivity probe against a provider
+// credential's upstream /models endpoint and reports latency, discovered
+// models, and inferred capabilities. It never mutates state.
+func HandleTestProvider(a *app.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if rejectNonAdmin(w, r) {
+			return
+		}
+		providerID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid provider ID"})
+			return
+		}
+
+		dbCtx := r.Context()
+		var pv, baseURL, apiKey string
+		err = a.Pool.QueryRow(dbCtx,
+			`SELECT ci.config->>'provider', ci.base_url, ci.config->>'api_key'
+			 FROM channel_instances ci
+			 JOIN channels ch ON ci.channel_id = ch.id
+			 WHERE ch.id = $1 AND ci.status = 'active'
+			 LIMIT 1`, providerID).Scan(&pv, &baseURL, &apiKey)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Provider not found"})
+			return
+		}
+		if baseURL == "" {
+			if url, ok := defaultBaseURLs[pv]; ok {
+				baseURL = url
+			}
+		}
+
+		start := time.Now()
+		discovered, probeErr := discoverModelsFn(pv, baseURL, apiKey)
+		elapsed := time.Since(start).Milliseconds()
+
+		if probeErr != nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":    false,
+				"ms":    elapsed,
+				"error": probeErr.Error(),
+			})
+			return
+		}
+
+		codes := make([]string, 0, len(discovered))
+		capabilities := map[string]int{}
+		tmpl, hasTemplate := provider.Lookup(pv)
+		for _, mdl := range discovered {
+			codes = append(codes, mdl.ID)
+			if hasTemplate {
+				cat := provider.InferCategory(mdl.ID, tmpl)
+				capabilities[cat]++
+			}
+		}
+		if len(codes) > 20 {
+			codes = codes[:20]
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":           true,
+			"ms":           elapsed,
+			"models":       len(discovered),
+			"model_codes":  codes,
+			"capabilities": capabilities,
+		})
+	}
+}
+
 type modelRef struct {
 	ID string `json:"id"`
 }
