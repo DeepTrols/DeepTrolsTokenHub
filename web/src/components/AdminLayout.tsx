@@ -9,6 +9,7 @@ import {
   DollarSign,
   Building2,
   Route,
+  ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
@@ -18,6 +19,7 @@ const manageItems = [
   { to: "/admin/channels", icon: Shield, label: "渠道管理", color: "text-[#0FA88B]" },
   { to: "/admin/reconciliation", icon: BarChart3, label: "对账管理", color: "text-[#8B6FE8]" },
   { to: "/admin/routing-simulator", icon: Route, label: "路由模拟器", color: "text-[#12A5B0]" },
+  { to: "/admin/guardrails", icon: ShieldAlert, label: "内容策略", color: "text-[#8B6FE8]" },
 ];
 
 export default function AdminLayout() {

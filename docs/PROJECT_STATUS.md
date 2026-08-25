@@ -1656,3 +1656,26 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
 - 前端 `npm test`（229/229）、`lint`（0/0）、`build` 全绿。
+
+## 四十八、2026-08-25 前端 Guardrails 策略编辑器
+
+> Phase 5 前端补齐第二批：内容策略管理页面。
+
+### 48.1 变更
+
+- `web/src/pages/Guardrails.tsx`：
+  - 策略列表（名称/状态/检测项/绑定摘要）；
+  - 新建/编辑弹窗：名称/描述/状态、检测项行编辑（名称、类型 pattern/sensitive/model、
+    动作 block/audit/mask、关键词逗号分隔）、绑定（全部租户/指定租户 + checkpoint +
+    protocol）；
+  - 保存（POST /api/admin/guardrails）与删除（DELETE /{id}）。
+- 路由 `/admin/guardrails` + AdminLayout「内容策略」导航（ShieldAlert）。
+
+### 48.2 测试
+
+- `Guardrails.test.tsx`：列表渲染、新建弹窗打开。
+
+### 48.3 验证
+
+- 前端 `npm test`（231/231）、`lint`（0/0）、`build` 全绿；
+- Go 后端无改动（复用 47 节 Guardrails API），`go test ./...` 维持全绿。

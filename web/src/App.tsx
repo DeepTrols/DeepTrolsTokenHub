@@ -20,6 +20,7 @@ import Channels from "./pages/Channels";
 import Reconciliation from "./pages/Reconciliation";
 import Users from "./pages/Users";
 import RoutingSimulator from "./pages/RoutingSimulator";
+import Guardrails from "./pages/Guardrails";
 import UserCenter from "./pages/UserCenter";
 import Docs from "./pages/Docs";
 
@@ -73,6 +74,7 @@ export default function App() {
         <Route path="reconciliation" element={<Reconciliation />} />
         <Route path="users" element={<Users />} />
         <Route path="routing-simulator" element={<RoutingSimulator />} />
+        <Route path="guardrails" element={<Guardrails />} />
       </Route>
     </Routes>
   );
