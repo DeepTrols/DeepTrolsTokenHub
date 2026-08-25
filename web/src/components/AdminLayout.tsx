@@ -13,6 +13,7 @@ import {
   ReceiptText,
   ScrollText,
   Coins,
+  Activity,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
@@ -26,6 +27,7 @@ const manageItems = [
   { to: "/admin/billing", icon: ReceiptText, label: "账单同步", color: "text-[#0FA88B]" },
   { to: "/admin/audit", icon: ScrollText, label: "审计日志", color: "text-[#5C6472]" },
   { to: "/admin/budgets", icon: Coins, label: "预算管理", color: "text-[#D3A94E]" },
+  { to: "/admin/gateway-health", icon: Activity, label: "网关健康", color: "text-[#0FA88B]" },
 ];
 
 export default function AdminLayout() {

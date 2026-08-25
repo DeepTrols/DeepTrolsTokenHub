@@ -25,6 +25,7 @@ import BillingSync from "./pages/BillingSync";
 import AuditLogs from "./pages/AuditLogs";
 import BudgetAdmin from "./pages/BudgetAdmin";
 import BudgetTeam from "./pages/BudgetTeam";
+import GatewayHealth from "./pages/GatewayHealth";
 import UserCenter from "./pages/UserCenter";
 import Docs from "./pages/Docs";
 
@@ -83,6 +84,7 @@ export default function App() {
         <Route path="billing" element={<BillingSync />} />
         <Route path="audit" element={<AuditLogs />} />
         <Route path="budgets" element={<BudgetAdmin />} />
+        <Route path="gateway-health" element={<GatewayHealth />} />
       </Route>
     </Routes>
   );

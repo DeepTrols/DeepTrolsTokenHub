@@ -1742,3 +1742,24 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - 前端 `npm test`（234/234）、`lint`（0/0）、`build` 全绿；
 - Go `go test ./... -count=1`（真实 PG）全绿。
+
+## 五十二、2026-08-25 网关健康视图（后端接口 + 前端页面）
+
+> Phase 5 前端补齐第六批：渠道/实例实时健康总览。
+
+### 52.1 变更
+
+- 后端 `internal/handler/console/gateway.go`：`GET /api/admin/gateway/health`——
+  渠道（健康分/状态/策略/粘性/权重）+ 实例（base_url/负载/并发上限/冷却/检查时间）。
+- 前端 `web/src/pages/GatewayHealth.tsx`（`/admin/gateway-health`）：健康/状态/策略/
+  负载/冷却表格 + 刷新；AdminLayout「网关健康」导航（Activity）。
+
+### 52.2 测试
+
+- `console/gateway_test.go`：真实 PG 种子渠道+实例 → 返回健康行与负载；
+- `GatewayHealth.test.tsx`：渲染健康/负载（3/10）。
+
+### 52.3 验证
+
+- Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
+- 前端 `npm test`（235/235）、`lint`（0/0）、`build` 全绿。

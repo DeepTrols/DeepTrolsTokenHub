@@ -178,6 +178,7 @@ func main() {
 		r.Post("/budgets/requests/{id}/approve", console.HandleApproveBudgetRequest(application))
 		r.Post("/budgets/requests/{id}/reject", console.HandleRejectBudgetRequest(application))
 		r.Get("/audit", console.HandleListAuditLogs(application))
+		r.Get("/gateway/health", console.HandleGatewayHealth(application))
 		r.Post("/routing/simulate", console.HandleSimulateRouting(application))
 		r.Get("/guardrails", console.HandleListGuardrailPolicies(application))
 		r.Post("/guardrails", console.HandleSaveGuardrailPolicy(application))
