@@ -19,7 +19,6 @@ import (
 	"github.com/deeptrols/api/internal/guardrails"
 	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
-	"github.com/deeptrols/api/internal/repository/budget"
 	"github.com/deeptrols/api/internal/repository/model"
 	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/usage"
@@ -1942,81 +1941,6 @@ func TestChatRoutingKey_CacheAffinity(t *testing.T) {
 	// Nil cache → default routing.
 	if got := chatRoutingKey(req, nil, "gpt-4o"); got != "" {
 		t.Errorf("nil cache key = %q, want empty", got)
-	}
-}
-
-type fakeChatBudgetRepo struct {
-	budget *domain.Budget
-}
-
-func (f *fakeChatBudgetRepo) FindMonthly(context.Context, uuid.UUID) (*domain.Budget, error) {
-	if f.budget == nil {
-		return nil, budget.ErrNotFound
-	}
-	return f.budget, nil
-}
-
-func (f *fakeChatBudgetRepo) AccrueSpend(context.Context, uuid.UUID, decimal.Decimal) error {
-	return nil
-}
-
-// TestHandleChatCompletions_BudgetExceeded verifies the tenant budget gate
-// returns 429 before any wallet/upstream work.
-func TestHandleChatCompletions_BudgetExceeded(t *testing.T) {
-	modelID := uuid.New()
-	channelID := uuid.New()
-	instanceID := uuid.New()
-	tenantID := uuid.New()
-
-	modelRepo := &mockModelRepo{
-		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
-			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
-		},
-		tenantModelFn: func(ctx context.Context, tenantID uuid.UUID, modelCode string) (*domain.TenantModel, error) {
-			return &domain.TenantModel{ModelID: modelID, IsListed: true, AllowPayg: true}, nil
-		},
-	}
-	channelRepo := &mockChannelRepo{
-		listByModelFn: func(ctx context.Context, mid uuid.UUID, _ *uuid.UUID) ([]domain.Channel, error) {
-			return []domain.Channel{{
-				ID: channelID, ModelID: modelID, Status: domain.ChannelStatusActive,
-				HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 1, MaxConcurrency: 10,
-			}}, nil
-		},
-		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
-			return []domain.ChannelInstance{{
-				ID: instanceID, ChannelID: channelID, BaseURL: "http://localhost:9999/v1",
-				ProviderRoute: "gpt-4o", Config: map[string]any{}, Status: domain.InstanceStatusActive,
-			}}, nil
-		},
-	}
-	pricingRepo := &mockPricingRepo{
-		findByModelFn: func(ctx context.Context, mid uuid.UUID, _ *uuid.UUID) ([]domain.ModelPricing, error) {
-			return makePricingEntries(), nil
-		},
-	}
-	application := newTestApp(nil, modelRepo, channelRepo, pricingRepo, &mockWalletRepo{}, &mockUsageRepo{})
-	limit, _ := decimal.NewFromString("0.00000000000001")
-	application.BudgetChecker = billing.NewBudgetChecker(&fakeChatBudgetRepo{
-		budget: &domain.Budget{
-			TenantID: tenantID, LimitAmount: limit, SpentAmount: decimal.Zero,
-			Status: domain.BudgetStatusActive,
-		},
-	})
-
-	body := bytes.NewBufferString(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
-	req = setAuthContext(req, uuid.New(), uuid.New())
-	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxTenantID, tenantID.String()))
-	w := httptest.NewRecorder()
-
-	HandleChatCompletions(application).ServeHTTP(w, req)
-
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("status = %d, want 429; body: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "budget_exceeded") {
-		t.Errorf("body = %s, want budget_exceeded", w.Body.String())
 	}
 }
 

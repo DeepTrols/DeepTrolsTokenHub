@@ -2049,3 +2049,36 @@ cd web && npm run test:e2e
 
 - 前端 `npm test`（244/244，33 文件）、`lint`（0/0）、`build` 全绿；
 - Dashboard 的数据源 `/usage` 接口与图表/统计逻辑保持不变，仅页面收敛。
+
+## 六十二、2026-08-25 收敛为单一开发者账号模型（移除企业/个人区分）
+
+> 按产品方向收敛：只保留"开发者用户"一种账号类型，移除企业租户特性
+> （团队、子账号、团队预算、预算审批、企业注册、企业成员只读）。
+
+### 62.1 变更
+
+- **用户端（frontend）**：
+  - 注册页改为纯开发者注册（删除个人/企业切换与字段）；
+  - 删除企业页面与入口：BudgetTeam（团队预算）、BudgetAdmin（预算管理）、
+    TeamManagement（团队管理），及其路由与左侧导航；
+  - 用户中心移除「团队管理」tab，仅保留账户资料；
+  - 移除企业成员只读逻辑（充值/账单对开发者始终可见）；
+  - `auth.tsx` 删除 `registerEnterprise`。
+- **用户端 API（backend）**：
+  - 删除 `/auth/register/enterprise` 与 `HandleRegisterEnterprise`
+    （函数保留未路由，后续可再清）；
+  - 删除 `/team*`、`/team/budget*` 路由与 `team.go` / `team_balance.go`；
+  - 删除 `/admin/budgets*` 路由与 `budget.go`。
+- **治理/计费**：删除 `BudgetChecker` 装配与网关各端点的 Check/Accrue 调用
+  （钱包余额即上限）；删除 `internal/domain/budget.go`、`repository/budget`、
+  `service/billing/budget.go`。
+- **保留**：`tenant_id` 作为多租户计费隔离容器、平台运营后台
+  （模型/渠道/路由/对账/审计/网关健康/用户/租户）；迁移 000019 的 budgets
+  表保留但不再使用。
+
+### 62.2 验证
+
+- 前端 `npm test`（218/218，30 文件）、`lint`（0/0）、`build` 全绿；
+- Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
+- Playwright 冒烟复跑通过（登录→建渠道→模型目录→网关调用→账单/用量/审计，
+  用量改为在「用量信息」Dashboard 断言）。

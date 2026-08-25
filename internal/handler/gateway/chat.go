@@ -278,12 +278,6 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	}
 
 	// Tenant budget gate (Phase 1): check estimated cost before upstream.
-	if application.BudgetChecker != nil {
-		if berr := application.BudgetChecker.Check(r.Context(), tenantID, holdAmount); berr != nil {
-			writeError(w, http.StatusTooManyRequests, "budget_exceeded", "Tenant budget exceeded")
-			return
-		}
-	}
 
 	// Budget reserve: lookup wallet and hold funds before upstream call.
 	requestID := r.Header.Get("X-Request-ID")
@@ -471,9 +465,6 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		walletCharged = holdAmount
 		underfunded = true
 	}
-	if application.BudgetChecker != nil {
-		application.BudgetChecker.Accrue(r.Context(), tenantID, finalCost)
-	}
 	// ---- Store response in cache ----
 	if cacheSvc != nil && cacheSvc.IsEnabled() && cacheSvc.IsModelAccepted(modelName) {
 		if respBodyBytes, jerr := json.Marshal(resp.Body); jerr == nil {
@@ -562,12 +553,6 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	}
 
 	// Tenant budget gate (Phase 1): check estimated cost before upstream.
-	if application.BudgetChecker != nil {
-		if berr := application.BudgetChecker.Check(r.Context(), tenantID, holdAmount); berr != nil {
-			writeError(w, http.StatusTooManyRequests, "budget_exceeded", "Tenant budget exceeded")
-			return
-		}
-	}
 
 	var reserveResult *billing.ReserveResult
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
@@ -809,9 +794,6 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 			}
 			walletCharged = holdAmount
 			underfunded = true
-		}
-		if application.BudgetChecker != nil {
-			application.BudgetChecker.Accrue(commitCtx, tenantID, finalCost)
 		}
 		settleMinuteBucket(r, application, normUsage.TotalTokens)
 	}

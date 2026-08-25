@@ -65,8 +65,9 @@ test("核心链路冒烟：登录→建渠道→模型目录→网关调用→�
   // 5) 账单/用量可见
   await page.goto("/bills");
   await expect(page.getByRole("heading", { name: "充值记录" })).toBeVisible({ timeout: 30_000 });
-  await page.goto("/usage");
-  await expect(page.getByText("deepseek-chat", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "用量信息" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("按模型查看")).toBeVisible({ timeout: 30_000 });
 
   // 6) 审计可见（建渠道是 admin 写操作）
   await page.goto("/admin/audit");

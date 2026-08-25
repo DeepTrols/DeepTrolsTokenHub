@@ -254,12 +254,6 @@ func handleForwardedMultipartExecution(
 	}
 
 	// Tenant budget gate (Phase 1): check estimated cost before upstream.
-	if application.BudgetChecker != nil {
-		if berr := application.BudgetChecker.Check(r.Context(), tenantID, holdAmount); berr != nil {
-			writeError(w, http.StatusTooManyRequests, "budget_exceeded", "Tenant budget exceeded")
-			return
-		}
-	}
 
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 	if err != nil {
@@ -395,9 +389,6 @@ func handleForwardedMultipartExecution(
 		walletCharged = holdAmount
 		underfunded = true
 	}
-	if application.BudgetChecker != nil {
-		application.BudgetChecker.Accrue(r.Context(), tenantID, finalCost)
-	}
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
 	}
@@ -519,12 +510,6 @@ func handleForwardedRawExecution(
 	}
 
 	// Tenant budget gate (Phase 1): check estimated cost before upstream.
-	if application.BudgetChecker != nil {
-		if berr := application.BudgetChecker.Check(r.Context(), tenantID, holdAmount); berr != nil {
-			writeError(w, http.StatusTooManyRequests, "budget_exceeded", "Tenant budget exceeded")
-			return
-		}
-	}
 
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 	if err != nil {
@@ -677,9 +662,6 @@ func handleForwardedRawExecution(
 		walletCharged = holdAmount
 		underfunded = true
 	}
-	if application.BudgetChecker != nil {
-		application.BudgetChecker.Accrue(r.Context(), tenantID, finalCost)
-	}
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
 	}
@@ -753,12 +735,6 @@ func handleForwardedEndpointExecution(
 	}
 
 	// Tenant budget gate (Phase 1): check estimated cost before upstream.
-	if application.BudgetChecker != nil {
-		if berr := application.BudgetChecker.Check(r.Context(), tenantID, holdAmount); berr != nil {
-			writeError(w, http.StatusTooManyRequests, "budget_exceeded", "Tenant budget exceeded")
-			return
-		}
-	}
 
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 	if err != nil {
@@ -896,9 +872,6 @@ func handleForwardedEndpointExecution(
 		}
 		walletCharged = holdAmount
 		underfunded = true
-	}
-	if application.BudgetChecker != nil {
-		application.BudgetChecker.Accrue(r.Context(), tenantID, finalCost)
 	}
 	// Record spend against API key limits (best-effort, after settle).
 	if actualCosts != nil {

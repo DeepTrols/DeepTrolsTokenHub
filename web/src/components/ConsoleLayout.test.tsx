@@ -4,8 +4,6 @@ import { MemoryRouter } from "react-router-dom";
 import ConsoleLayout from "./ConsoleLayout";
 import { renderWithProviders } from "../test/test-utils";
 
-// A mutable auth stub so each test can exercise a different role combination
-// (system admin / personal user / enterprise admin / enterprise member).
 const auth = vi.hoisted(() => ({
   user: {
     id: "user-1",
@@ -13,12 +11,12 @@ const auth = vi.hoisted(() => ({
     name: "User",
     role: "user",
     status: "active",
-    user_type: "enterprise",
+    user_type: "personal",
     phone: "",
     avatar_url: "",
     tenant_id: "tenant-1",
     tenant_name: "Acme",
-    tenant_role: "member",
+    tenant_role: "owner",
     tenant_status: "active",
   },
   logout: vi.fn(),
@@ -41,63 +39,37 @@ function renderLayout() {
   );
 }
 
-describe("ConsoleLayout 四角色导航", () => {
+describe("ConsoleLayout 开发者导航", () => {
   beforeEach(() => {
     auth.user.role = "user";
-    auth.user.tenant_role = "member";
+    auth.user.tenant_role = "owner";
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("hides 充值 / 账单 / 管理控制台 for an enterprise member", () => {
+  it("shows the developer nav for a regular user", () => {
     renderLayout();
 
     expect(screen.getByText("用量信息")).toBeInTheDocument();
     expect(screen.getByText("用户中心")).toBeInTheDocument();
-    expect(screen.queryByText("充值")).not.toBeInTheDocument();
-    expect(screen.queryByText("账单")).not.toBeInTheDocument();
-    expect(screen.queryByText("团队管理")).not.toBeInTheDocument();
-    expect(screen.queryByText("管理控制台")).not.toBeInTheDocument();
-  });
-
-  it("shows 用户中心 / 充值 / 账单 for an enterprise admin (owner)", () => {
-    auth.user.tenant_role = "owner";
-    renderLayout();
-
-    expect(screen.getByText("用户中心")).toBeInTheDocument();
-    expect(screen.getByText("充值")).toBeInTheDocument();
-    expect(screen.getByText("账单")).toBeInTheDocument();
-    // 团队管理 is now a tab inside 用户中心, not a separate nav entry
-    expect(screen.queryByText("团队管理")).not.toBeInTheDocument();
-    expect(screen.queryByText("管理控制台")).not.toBeInTheDocument();
-  });
-
-  it("shows 用户中心 / 充值 / 账单 for a personal user", () => {
-    auth.user.tenant_role = "";
-    renderLayout();
-
-    expect(screen.getByText("用户中心")).toBeInTheDocument();
     expect(screen.getByText("充值")).toBeInTheDocument();
     expect(screen.getByText("账单")).toBeInTheDocument();
     expect(screen.queryByText("团队管理")).not.toBeInTheDocument();
+    expect(screen.queryByText("团队预算")).not.toBeInTheDocument();
     expect(screen.queryByText("管理控制台")).not.toBeInTheDocument();
   });
 
-  it("shows 用户中心 / 充值 / 账单 and 管理控制台 for a system admin", () => {
+  it("shows 管理控制台 only for admin", () => {
     auth.user.role = "admin";
-    auth.user.tenant_role = "owner";
     renderLayout();
 
-    expect(screen.getByText("用户中心")).toBeInTheDocument();
-    expect(screen.getByText("充值")).toBeInTheDocument();
-    expect(screen.getByText("账单")).toBeInTheDocument();
     expect(screen.getByText("管理控制台")).toBeInTheDocument();
+    expect(screen.getByText("充值")).toBeInTheDocument();
   });
 
-  it("links 充值 / 账单 to the two separate pages and 用户中心 to /account", () => {
-    auth.user.tenant_role = "owner";
+  it("links 充值 / 账单 / 用户中心 to their routes", () => {
     renderLayout();
 
     expect(screen.getByRole("link", { name: "充值" })).toHaveAttribute("href", "/recharge");

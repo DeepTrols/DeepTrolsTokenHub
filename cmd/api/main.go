@@ -93,7 +93,6 @@ func main() {
 	r.Route("/api/console", func(r chi.Router) {
 		r.Post("/auth/login", middleware.LoginRateLimit(application.RateLimiter, 5, 1*time.Minute)(console.HandleLogin(application)).ServeHTTP)
 		r.Post("/auth/register", middleware.LoginRateLimit(application.RateLimiter, 5, 1*time.Minute)(console.HandleRegister(application)).ServeHTTP)
-		r.Post("/auth/register/enterprise", middleware.LoginRateLimit(application.RateLimiter, 5, 1*time.Minute)(console.HandleRegisterEnterprise(application)).ServeHTTP)
 
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.ConsoleAuth(application))
@@ -102,21 +101,6 @@ func main() {
 			r.Put("/me/profile", console.HandleUpdateProfile(application))
 			r.Put("/me/password", console.HandleChangePassword(application))
 			r.Get("/profile", console.HandleGetProfile(application))
-
-			// Team management: rate-limited so an authenticated user cannot
-			// spam status toggles, role changes, member removal, sub-account
-			// creation, or quota allocation.
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.TeamRateLimit(application.RateLimiter, 30, 1*time.Minute))
-				r.Get("/team", console.HandleListTeamMembers(application))
-				r.Post("/team/members", console.HandleCreateSubAccount(application))
-				r.Delete("/team/{userId}", console.HandleRemoveMember(application))
-				r.Put("/team/{userId}/role", console.HandleChangeMemberRole(application))
-				r.Put("/team/{userId}/status", console.HandleSuspendMember(application))
-				r.Post("/team/balance/allocate", console.HandleAllocateBalance(application))
-				r.Get("/team/budget", console.HandleGetTeamBudget(application))
-				r.Post("/team/budget/requests", console.HandleCreateBudgetRequest(application))
-			})
 
 			r.Get("/api-keys", console.HandleListAPIKeys(application))
 			r.Post("/api-keys", console.HandleCreateAPIKey(application))
@@ -178,11 +162,6 @@ func main() {
 		r.Post("/users", console.HandleCreateUser(application))
 		r.Delete("/users/{id}", console.HandleDeleteUser(application))
 
-		// Budget governance (Phase 1): platform oversight + request approvals.
-		r.Get("/budgets", console.HandleListBudgets(application))
-		r.Get("/budgets/requests", console.HandleListBudgetRequests(application))
-		r.Post("/budgets/requests/{id}/approve", console.HandleApproveBudgetRequest(application))
-		r.Post("/budgets/requests/{id}/reject", console.HandleRejectBudgetRequest(application))
 		r.Get("/audit", console.HandleListAuditLogs(application))
 		r.Get("/gateway/health", console.HandleGatewayHealth(application))
 		r.Post("/routing/simulate", console.HandleSimulateRouting(application))

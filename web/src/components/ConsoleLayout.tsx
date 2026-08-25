@@ -2,28 +2,19 @@ import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { Key, Wallet, Receipt, Box, Play, LogOut, LayoutDashboard, Book, Settings, UserCircle } from "lucide-react";
 import { useAuth } from "../lib/auth";
-import { isAdmin, isEnterpriseAdmin, isEnterpriseMember, filterNavItems } from "../lib/domain/navigation";
+import { isAdmin, filterNavItems } from "../lib/domain/navigation";
 import RouteErrorBoundary from "./RouteErrorBoundary";
 import { PendingReviewBanner } from "./PendingReviewBanner";
 
 export default function ConsoleLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  // Enterprise members have no self-service wallet: their balance is handed out
-  // by the team admin, so the wallet menu is hidden for them (read-only spend).
 
   const navItems = [
     { to: "/dashboard", icon: LayoutDashboard, label: "用量信息", color: "text-[#4F6BED]" },
     { to: "/api-keys", icon: Key, label: "API keys", color: "text-[#0FA88B]" },
-  ...(isEnterpriseMember(user)
-    ? []
-      : [
-          { to: "/recharge", icon: Wallet, label: "充值", color: "text-[#0FA88B]" },
-          { to: "/bills", icon: Receipt, label: "账单", color: "text-[#0FA88B]" },
-    ]),
-    ...(isEnterpriseAdmin(user)
-      ? [{ to: "/budget", icon: Wallet, label: "团队预算", color: "text-[#12A5B0]" }]
-      : []),
+    { to: "/recharge", icon: Wallet, label: "充值", color: "text-[#0FA88B]" },
+    { to: "/bills", icon: Receipt, label: "账单", color: "text-[#0FA88B]" },
     { to: "/models", icon: Box, label: "模型广场", color: "text-[#D3A94E]" },
     { to: "/playground", icon: Play, label: "在线体验", color: "text-[#4F6BED]" },
     { to: "/docs", icon: Book, label: "开发文档", color: "text-[#0FA88B]" },
@@ -82,7 +73,7 @@ export default function ConsoleLayout() {
               <span className="grid w-9 h-9 shrink-0 place-items-center rounded-[10px] bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white text-[12px] font-bold shadow-[0_6px_18px_rgba(79,107,237,0.35)]">{avatarChar}</span>
               <span className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold truncate">{displayName}</div>
-                <div className="text-[11px] text-[#5C6472]">{(user?.tenant_name || "DeepTrols")} · {isAdmin(user) ? "管理员" : (isEnterpriseAdmin(user) ? "企业管理员" : "成员")}</div>
+                <div className="text-[11px] text-[#5C6472]">{user?.email || "DeepTrols"} · {isAdmin(user) ? "管理员" : "用户"}</div>
               </span>
               <button onClick={handleLogout} aria-label="退出登录" className="grid w-7 h-7 place-items-center rounded-lg text-[#5C6472] hover:text-[#E5484D] hover:bg-white/70 transition-colors shrink-0">
                 <LogOut size={14} />

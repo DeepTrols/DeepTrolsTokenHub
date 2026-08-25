@@ -86,12 +86,6 @@ func HandleVideoGenerations(application *app.App) http.HandlerFunc {
 		if requestID == "" {
 			requestID = uuid.New().String()
 		}
-		if application.BudgetChecker != nil {
-			if berr := application.BudgetChecker.Check(r.Context(), tenantID, holdAmount); berr != nil {
-				writeError(w, http.StatusTooManyRequests, "budget_exceeded", "Tenant budget exceeded")
-				return
-			}
-		}
 
 		wallet, werr := application.Wallets.FindByUser(r.Context(), userID, nil)
 		if werr != nil {
@@ -350,9 +344,6 @@ func settleVideoEstimate(
 		}
 		walletCharged = holdAmount
 		underfunded = true
-	}
-	if application.BudgetChecker != nil {
-		application.BudgetChecker.Accrue(r.Context(), tenantID, finalCost)
 	}
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
