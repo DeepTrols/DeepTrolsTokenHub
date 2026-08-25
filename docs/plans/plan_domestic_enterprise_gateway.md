@@ -256,3 +256,22 @@ Playwright E2E。
 - 全量验证：`go test ./... -count=1`（真实 PG）、`go vet`、`go build`、gofmt、前端
   `npm test` + `lint` + `build`；新增迁移验证 up/down 往返。
 - 更新 `docs/PROJECT_STATUS.md`。
+
+## 实施完成状态（2026-08-25）
+
+> 各批已按门禁收尾并推送到 `origin/main`；详细变更见 `docs/PROJECT_STATUS.md`
+> 第 46–60 节。
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| Phase 0 资源模型 | ✅ | 迁移 000017：策略/粘性/冷却/并发列 + 仓储读写 |
+| Phase 1 治理层 | ✅ | RPM/TPM 分钟桶（000018）、预算+审批（000019）、Guardrails（000016） |
+| Phase 2 强路由 | ✅ | 策略排序/粘性/哈希旋转/冷却跳过/并发租约 + 路由模拟器 |
+| Phase 3 适配器全 | ✅ | 10 家国内 Provider 模板 + OpenAI-compat 执行器 + 能力推断/探测 |
+| Phase 4 端点 | ✅ | `/v1/audio/transcriptions`、`/v1/images/edits`（multipart）、`/v1/videos/generations` 异步任务（000020） |
+| Phase 5 领域层 | ✅ | `lib/domain/`：apiKey/headers/navigation + format/money/auth 既有 |
+| Phase 5 治理页面 | ✅ | 审计/预算/Guardrails/Key 限流/路由模拟器/网关健康/账单同步 |
+| Phase 5 Provider 编辑器 | ✅ | 多 section 表单 + 真实连通性探测 + 自定义请求头透传 |
+| Phase 5 E2E | ✅ | Playwright 核心链路冒烟（本地 echo 闭环，不依赖外网） |
+| 接口文档页 / i18n / 暗色 | 可选 | 计划内标注"可选"，未实现 |
+| 视频上游轮询适配器 | 后续 | async_jobs 已建，各厂商私有任务 API 的轮询/回调适配器按需接入 |

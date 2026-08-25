@@ -1996,3 +1996,36 @@ cd web && npm run test:e2e
 
 - 前端 `npm test`（260/260，35 文件）、`lint`（0/0）、`build` 全绿；
 - Playwright 冒烟复跑通过（登录→建渠道→模型目录→网关调用→账单/审计）。
+
+## 六十、2026-08-25 国内企业网关实施计划完成总览
+
+> 蓝图 `docs/plans/plan_domestic_enterprise_gateway.md` 各批按门禁收尾，
+> 全部推送到 `origin/main`（HEAD 至本报告日）。
+
+### 60.1 完成清单
+
+- **Phase 0**：channels/channel_instances 策略、粘性、冷却、并发列（000017）。
+- **Phase 1**：RPM/TPM 分钟桶（000018 + Redis Lua/DB 降级）、租户预算+审批
+  （000019）、Guardrails 内容策略引擎（000016），网关全路径接线。
+- **Phase 2**：策略排序/粘性会话/哈希旋转/冷却跳过/并发租约 + 路由模拟器接口。
+- **Phase 3**：10 家国内 Provider 模板（仅国内）、OpenAI-compat 执行器迁移、
+  usage 归一化（cache/reasoning 等 9 维）、能力推断 + 真实连通性探测。
+- **Phase 4**：`/v1/audio/transcriptions`、`/v1/images/edits`（multipart
+  管线）、`/v1/videos/generations` 异步任务三件套（000020）。
+- **Phase 5**：领域层 `lib/domain/`（apiKey/headers/navigation）、治理页面
+  （审计/预算/Guardrails/Key 限流）、路由模拟器/网关健康、Provider 编辑器
+  （真实探测 + 自定义请求头）、Playwright 核心链路冒烟。
+
+### 60.2 质量门禁
+
+- Go：`build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
+- 前端：`npm test` 260/260、`lint` 0/0、`build` 全绿；
+- E2E：Playwright 冒烟通过（真实 DB + 本地 echo 闭环）；
+- 真实链路：DeepSeek 线上调用、guardrails 拦截 400、预算 403、
+  路由模拟、连通性探测、自定义头透传、multipart 转写/编辑、视频异步任务
+  均在真实进程验证。
+
+### 60.3 后续可选项
+
+- 视频上游私有任务 API 轮询/回调适配器（async_jobs 已就绪）；
+- 接口文档页（OpenAPI/swagger）与 i18n（计划标注可选）。
