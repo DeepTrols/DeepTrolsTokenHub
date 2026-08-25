@@ -1718,3 +1718,27 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG，复跑全绿）通过；
 - 前端 `npm test`（232/232）、`lint`（0/0）、`build` 全绿。
+
+## 五十一、2026-08-25 预算管理前端（平台审批 + 企业申请）
+
+> Phase 5 前端补齐第五批：预算治理的完整 UI 闭环。
+
+### 51.1 变更
+
+- 平台审批页 `web/src/pages/BudgetAdmin.tsx`（`/admin/budgets`）：
+  - 预算列表（企业/周期/限额/已用/状态）；
+  - 加额申请列表 + 通过/拒绝（POST approve/reject）。
+- 企业申请页 `web/src/pages/BudgetTeam.tsx`（`/budget`，租户管理员导航）：
+  - 团队月度预算卡片（限额/已用）；
+  - 申请加额表单（金额/原因 → POST /team/budget/requests）+ 申请历史。
+- 导航：AdminLayout「预算管理」（Coins）；ConsoleLayout 为企业管理员显示「团队预算」。
+
+### 51.2 测试
+
+- `BudgetAdmin.test.tsx`：预算+申请渲染、通过动作调用 approve；
+- `BudgetTeam.test.tsx`：预算展示、提交申请调用接口。
+
+### 51.3 验证
+
+- 前端 `npm test`（234/234）、`lint`（0/0）、`build` 全绿；
+- Go `go test ./... -count=1`（真实 PG）全绿。

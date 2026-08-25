@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   ReceiptText,
   ScrollText,
+  Coins,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
@@ -24,6 +25,7 @@ const manageItems = [
   { to: "/admin/guardrails", icon: ShieldAlert, label: "内容策略", color: "text-[#8B6FE8]" },
   { to: "/admin/billing", icon: ReceiptText, label: "账单同步", color: "text-[#0FA88B]" },
   { to: "/admin/audit", icon: ScrollText, label: "审计日志", color: "text-[#5C6472]" },
+  { to: "/admin/budgets", icon: Coins, label: "预算管理", color: "text-[#D3A94E]" },
 ];
 
 export default function AdminLayout() {

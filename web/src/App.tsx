@@ -23,6 +23,8 @@ import RoutingSimulator from "./pages/RoutingSimulator";
 import Guardrails from "./pages/Guardrails";
 import BillingSync from "./pages/BillingSync";
 import AuditLogs from "./pages/AuditLogs";
+import BudgetAdmin from "./pages/BudgetAdmin";
+import BudgetTeam from "./pages/BudgetTeam";
 import UserCenter from "./pages/UserCenter";
 import Docs from "./pages/Docs";
 
@@ -53,6 +55,7 @@ export default function App() {
         <Route path="models" element={<ModelMarket />} />
         <Route path="playground" element={<Playground />} />
         <Route path="account" element={<UserCenter />} />
+        <Route path="budget" element={<BudgetTeam />} />
         <Route path="profile" element={<Navigate to="/account" replace />} />
         <Route path="team" element={<Navigate to="/account?tab=team" replace />} />
         <Route path="docs" element={<Docs />} />
@@ -79,6 +82,7 @@ export default function App() {
         <Route path="guardrails" element={<Guardrails />} />
         <Route path="billing" element={<BillingSync />} />
         <Route path="audit" element={<AuditLogs />} />
+        <Route path="budgets" element={<BudgetAdmin />} />
       </Route>
     </Routes>
   );

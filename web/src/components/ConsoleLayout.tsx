@@ -19,12 +19,15 @@ export default function ConsoleLayout() {
     { to: "/api-keys", icon: Key, label: "API keys", color: "text-[#0FA88B]" },
     { to: "/logs", icon: History, label: "调用记录", color: "text-[#8B6FE8]" },
     { to: "/usage", icon: BarChart3, label: "用量统计", color: "text-[#D3A94E]" },
-    ...(isEnterpriseMember
-      ? []
+  ...(isEnterpriseMember
+    ? []
       : [
           { to: "/recharge", icon: Wallet, label: "充值", color: "text-[#0FA88B]" },
           { to: "/bills", icon: Receipt, label: "账单", color: "text-[#0FA88B]" },
-        ]),
+    ]),
+    ...(isEnterpriseAdmin
+      ? [{ to: "/budget", icon: Wallet, label: "团队预算", color: "text-[#12A5B0]" }]
+      : []),
     { to: "/models", icon: Box, label: "模型广场", color: "text-[#D3A94E]" },
     { to: "/playground", icon: Play, label: "在线体验", color: "text-[#4F6BED]" },
     { to: "/docs", icon: Book, label: "开发文档", color: "text-[#0FA88B]" },
