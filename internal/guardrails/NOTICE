@@ -1,0 +1,20 @@
+DeepTrolsTokenHub
+-----------------
+
+This directory (internal/guardrails) contains code ported from TokenHub
+(https://github.com/astaxie/TokenHub), which is licensed under the Apache
+License, Version 2.0.
+
+Copied on 2026-08-25 from TokenHub backend/internal/guardrails:
+  - engine.go (deterministic matchers + work budgets + decision merging)
+  - policy.go (policy/detection item/binding models + validation + normalization)
+  - qwen_detector.go (Qwen3Guard model detector)
+  - engine_test.go / policy_test.go / qwen_detector_test.go
+
+Adaptations:
+  - Removed GORM struct tags and TableName() methods (this repository persists
+    with pgx; schema lives in migrations/000016_guardrails).
+  - No functional changes to the copied logic.
+
+The Apache License 2.0 text is available at
+https://www.apache.org/licenses/LICENSE-2.0

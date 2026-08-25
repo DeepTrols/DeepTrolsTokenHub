@@ -169,6 +169,17 @@ func main() {
 		r.Put("/users/{id}/role", console.HandleUpdateUserRole(application))
 		r.Post("/users", console.HandleCreateUser(application))
 		r.Delete("/users/{id}", console.HandleDeleteUser(application))
+
+		// Billing connectors (OneAPI / NewAPI / Aliyun billing sync, Step 1a).
+		r.Get("/billing/connectors", console.HandleListBillingConnectors(application))
+		r.Post("/billing/connectors", console.HandleCreateBillingConnector(application))
+		r.Get("/billing/connectors/{id}", console.HandleGetBillingConnector(application))
+		r.Put("/billing/connectors/{id}", console.HandleUpdateBillingConnector(application))
+		r.Delete("/billing/connectors/{id}", console.HandleDeleteBillingConnector(application))
+		r.Post("/billing/connectors/{id}/test", console.HandleTestBillingConnector(application))
+		r.Post("/billing/connectors/{id}/sync", console.HandleSyncBillingConnector(application))
+		r.Get("/billing/connectors/{id}/records", console.HandleListBillingRecords(application))
+		r.Get("/billing/connectors/{id}/runs", console.HandleListBillingSyncRuns(application))
 	})
 
 	srv := &http.Server{

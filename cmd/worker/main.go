@@ -40,6 +40,7 @@ func main() {
 
 	go runHealthChecker(ctx, checker, application.Redis)
 	go runReconciler(ctx, reconciler, application.Redis)
+	go runBillingSync(ctx, application, application.Redis)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -111,6 +112,31 @@ func runReconciler(ctx context.Context, r *reconciliation.Reconciler, redis *gor
 			runSafely("reconciler", func() error {
 				return withLease(ctx, "reconciler", redis, "worker:lease:reconciler", 5*time.Minute, func() error {
 					return r.Run(ctx)
+				})
+			})
+		}
+	}
+}
+
+// runBillingSync periodically pulls due external billing connectors
+// (OneAPI / NewAPI / Aliyun) into billing_records. Distributed leader election
+// via the same Redis lease used by the other workers.
+func runBillingSync(ctx context.Context, application *app.App, redis *goredis.Client) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runSafely("billing_sync", func() error {
+				return withLease(ctx, "billing_sync", redis, "worker:lease:billing_sync", 50*time.Second, func() error {
+					if application.BillingSync == nil {
+						return nil
+					}
+					runs := application.BillingSync.RunDue(ctx, time.Now().UTC())
+					log.Printf("billing_sync: ran %d due connectors", len(runs))
+					return nil
 				})
 			})
 		}

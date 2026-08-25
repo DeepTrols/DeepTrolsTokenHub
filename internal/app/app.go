@@ -12,6 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/deeptrols/api/internal/billing_sync"
+	billingadapters "github.com/deeptrols/api/internal/billing_sync/adapters"
+	billingpersistence "github.com/deeptrols/api/internal/billing_sync/persistence"
 	"github.com/deeptrols/api/internal/config"
 	"github.com/deeptrols/api/internal/pkg/db"
 	"github.com/deeptrols/api/internal/pkg/ratelimit"
@@ -59,6 +62,10 @@ type App struct {
 	Logger  *billing.Logger
 	Pricer  *billing.Pricer
 	Router  *gateway.Router
+	// BillingSync synchronizes external provider billing (OneAPI/NewAPI/Aliyun)
+	// into billing_records for reconciliation L3.
+	BillingSync     *billingsync.Service
+	BillingSyncRepo billingsync.Repository
 	// LoadTracker tracks per-instance in-flight counts in Redis. It is always
 	// non-nil; when Redis is unavailable it is a no-op tracker and routing
 	// falls back to the DB current_load column.
@@ -100,6 +107,10 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.Wallets = wallet.NewPostgresRepository(pool)
 	a.Channels = channel.NewPostgresRepository(pool)
 	a.Memberships = membership.NewPostgresRepository(pool)
+	billingSyncRepo := billingpersistence.NewPostgresRepository(pool, []byte(cfg.Encryption.Key))
+	a.BillingSyncRepo = billingSyncRepo
+	a.BillingSync = billingsync.NewService(billingSyncRepo,
+		billingadapters.NewRegistry(&http.Client{Timeout: 30 * time.Second}))
 
 	// Wire services.
 	a.Charger = billing.NewCharger(a.Wallets)

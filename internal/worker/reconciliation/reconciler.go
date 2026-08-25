@@ -76,7 +76,28 @@ func (r *Reconciler) Run(ctx context.Context) error {
 		log.Printf("reconciler: findErrorMislabel: %v", err)
 	}
 
-	totalDiffs := len(orphaned) + len(missingEvidence) + len(mismatches) + len(mislabels)
+	// L3: external billing records (billing_records, synced from OneAPI /
+	// NewAPI / Aliyun) vs internal usage evidence.
+	billingCount, err := r.countBillingRecords(ctx, periodStart, periodEnd)
+	if err != nil {
+		log.Printf("reconciler: countBillingRecords: %v", err)
+		billingCount = -1
+	}
+	billingWithoutUsage, err := r.findBillingWithoutUsage(ctx, periodStart, periodEnd)
+	if err != nil {
+		log.Printf("reconciler: findBillingWithoutUsage: %v", err)
+	}
+	usageWithoutBilling, err := r.findUsageWithoutBilling(ctx, periodStart, periodEnd)
+	if err != nil {
+		log.Printf("reconciler: findUsageWithoutBilling: %v", err)
+	}
+	amountMismatches, err := r.findBillingAmountMismatch(ctx, periodStart, periodEnd)
+	if err != nil {
+		log.Printf("reconciler: findBillingAmountMismatch: %v", err)
+	}
+
+	totalDiffs := len(orphaned) + len(missingEvidence) + len(mismatches) + len(mislabels) +
+		len(billingWithoutUsage) + len(usageWithoutBilling) + len(amountMismatches)
 
 	report := map[string]interface{}{
 		"level":        "L1",
@@ -92,6 +113,12 @@ func (r *Reconciler) Run(ctx context.Context) error {
 			"missing_evidence": len(missingEvidence),
 			"usage_mismatch":   len(mismatches),
 			"error_mislabel":   len(mislabels),
+		},
+		"L3": map[string]interface{}{
+			"billing_records":       billingCount,
+			"billing_without_usage": len(billingWithoutUsage),
+			"usage_without_billing": len(usageWithoutBilling),
+			"amount_mismatch":       len(amountMismatches),
 		},
 	}
 	reportJSON, err := json.Marshal(report)
@@ -131,14 +158,182 @@ func (r *Reconciler) Run(ctx context.Context) error {
 			m.StatusCode)
 		writeDiff(m.UsageLogID, "error_mislabel", "critical", detail)
 	}
+	writeBillingDiff := func(diffType, severity, detail string) {
+		if err := r.createBillingDiff(ctx, runID, diffType, severity, detail); err != nil {
+			log.Printf("reconciler: createBillingDiff for %s: %v", diffType, err)
+			diffErrs++
+		}
+	}
+	for _, b := range billingWithoutUsage {
+		writeBillingDiff("billing_without_usage", "warning",
+			fmt.Sprintf(`{"external_request_id": %q, "net_amount": %q, "connector_id": %q}`,
+				b.ExternalRequestID, b.NetAmount, b.ConnectorID))
+	}
+	for _, u := range usageWithoutBilling {
+		writeDiff(u.UsageLogID, "usage_without_billing", "warning",
+			fmt.Sprintf(`{"provider_request_id": %q}`, u.ProviderRequestID))
+	}
+	for _, m := range amountMismatches {
+		detail := fmt.Sprintf(`{"external_request_id": %q, "billing_net_amount": %q, "usage_upstream_cost": %q}`,
+			m.ExternalRequestID, m.BillingNetAmount, m.UpstreamCost)
+		writeDiff(m.UsageLogID, "billing_amount_mismatch", "warning", detail)
+	}
 
 	if diffErrs > 0 {
 		return fmt.Errorf("reconciler: %d of %d diffs failed to persist", diffErrs, totalDiffs)
 	}
 
-	log.Printf("reconciler: L1 run %s: %d diffs (%d orphaned, %d missing evidence, %d usage mismatch, %d error mislabel)",
-		runID, totalDiffs, len(orphaned), len(missingEvidence), len(mismatches), len(mislabels))
+	log.Printf("reconciler: run %s: %d diffs (L0 orphaned=%d, L1 missing=%d mismatch=%d mislabel=%d, L3 no_usage=%d no_billing=%d amount=%d)",
+		runID, totalDiffs, len(orphaned), len(missingEvidence), len(mismatches), len(mislabels),
+		len(billingWithoutUsage), len(usageWithoutBilling), len(amountMismatches))
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// L3: internal usage evidence vs external billing records.
+// ---------------------------------------------------------------------------
+
+func (r *Reconciler) countBillingRecords(ctx context.Context, start, end time.Time) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM billing_records WHERE usage_start_at >= $1 AND usage_start_at < $2`,
+		start, end).Scan(&count)
+	return count, err
+}
+
+type billingWithoutUsage struct {
+	ConnectorID       string
+	ExternalRequestID string
+	NetAmount         string
+}
+
+// findBillingWithoutUsage finds billing_records whose external_request_id does
+// not match any usage_log in the period (provider paid for a call we never
+// recorded, or the billing connector picked up a foreign request).
+func (r *Reconciler) findBillingWithoutUsage(ctx context.Context, start, end time.Time) ([]billingWithoutUsage, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT br.connector_id::text, br.external_request_id, br.net_amount
+		 FROM billing_records br
+		 WHERE br.usage_start_at >= $1 AND br.usage_start_at < $2
+		   AND NOT EXISTS (
+		     SELECT 1 FROM usage_logs ul
+		     WHERE (ul.provider_request_id = br.external_request_id OR ul.request_id = br.external_request_id)
+		       AND ul.created_at >= $1 AND ul.created_at < $2
+		   )
+		 LIMIT 100`, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []billingWithoutUsage
+	for rows.Next() {
+		var it billingWithoutUsage
+		if err := rows.Scan(&it.ConnectorID, &it.ExternalRequestID, &it.NetAmount); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	return items, rows.Err()
+}
+
+type usageWithoutBilling struct {
+	UsageLogID        string
+	ProviderRequestID string
+}
+
+// findUsageWithoutBilling finds charged usage_logs with a provider_request_id
+// that no billing_record references (we billed the customer but the provider
+// bill has no matching line).
+func (r *Reconciler) findUsageWithoutBilling(ctx context.Context, start, end time.Time) ([]usageWithoutBilling, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT ul.id::text, COALESCE(ul.provider_request_id, '')
+		 FROM usage_logs ul
+		 WHERE ul.created_at >= $1 AND ul.created_at < $2
+		   AND COALESCE(ul.upstream_cost, 0) > 0
+		   AND COALESCE(ul.provider_request_id, '') <> ''
+		   AND NOT EXISTS (
+		     SELECT 1 FROM billing_records br
+		     WHERE br.external_request_id = ul.provider_request_id
+		   )
+		 LIMIT 100`, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []usageWithoutBilling
+	for rows.Next() {
+		var it usageWithoutBilling
+		if err := rows.Scan(&it.UsageLogID, &it.ProviderRequestID); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	return items, rows.Err()
+}
+
+type billingAmountMismatch struct {
+	UsageLogID        string
+	ExternalRequestID string
+	BillingNetAmount  string
+	UpstreamCost      string
+}
+
+// findBillingAmountMismatch finds matched billing_records whose net amount
+// differs from the internal upstream_cost by more than one cent (CNY).
+func (r *Reconciler) findBillingAmountMismatch(ctx context.Context, start, end time.Time) ([]billingAmountMismatch, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT ul.id::text, br.external_request_id, br.net_amount, ul.upstream_cost::text
+		 FROM billing_records br
+		 JOIN usage_logs ul
+		   ON (ul.provider_request_id = br.external_request_id OR ul.request_id = br.external_request_id)
+		  AND ul.created_at >= $1 AND ul.created_at < $2
+		 WHERE br.usage_start_at >= $1 AND br.usage_start_at < $2
+		   AND ABS(COALESCE(NULLIF(br.net_amount, '')::decimal, 0) - COALESCE(ul.upstream_cost, 0)) > 0.01
+		 LIMIT 100`, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []billingAmountMismatch
+	for rows.Next() {
+		var it billingAmountMismatch
+		if err := rows.Scan(&it.UsageLogID, &it.ExternalRequestID, &it.BillingNetAmount, &it.UpstreamCost); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	return items, rows.Err()
+}
+
+// createBillingDiff records a diff without a usage_log reference (e.g. an
+// upstream billing line with no matching internal call).
+func (r *Reconciler) createBillingDiff(ctx context.Context, runID uuid.UUID, diffType, severity, detail string) error {
+	detailJSON, err := diffDetailJSON(detail)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx,
+		`INSERT INTO reconciliation_diffs (id, run_id, usage_log_id, diff_type, severity, diff_detail, resolution_status)
+		 VALUES ($1, $2, NULL, $3, $4, $5, 'open')`,
+		uuid.New(), runID, diffType, severity, detailJSON)
+	return err
+}
+
+// diffDetailJSON normalizes a diff detail into a JSONB-safe value. Details
+// that are already JSON objects are passed through; plain-text details are
+// encoded as JSON strings so they never violate the JSONB column.
+func diffDetailJSON(detail string) (json.RawMessage, error) {
+	if json.Valid([]byte(detail)) {
+		return json.RawMessage(detail), nil
+	}
+	encoded, err := json.Marshal(detail)
+	if err != nil {
+		return nil, fmt.Errorf("diffDetailJSON: %w", err)
+	}
+	return encoded, nil
 }
 
 func (r *Reconciler) createRun(ctx context.Context, id uuid.UUID, start, end time.Time) error {
@@ -299,10 +494,14 @@ func (r *Reconciler) createDiff(ctx context.Context, runID uuid.UUID, usageLogID
 	if err != nil {
 		return fmt.Errorf("createDiff invalid usage_log_id %q: %w", usageLogID, err)
 	}
+	detailJSON, err := diffDetailJSON(detail)
+	if err != nil {
+		return err
+	}
 	_, err = r.pool.Exec(ctx,
 		`INSERT INTO reconciliation_diffs (id, run_id, usage_log_id, diff_type, severity, diff_detail, resolution_status)
 		 VALUES ($1, $2, $3, $4, $5, $6, 'open')`,
-		uuid.New(), runID, uid, diffType, severity, detail)
+		uuid.New(), runID, uid, diffType, severity, detailJSON)
 	return err
 }
 

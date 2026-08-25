@@ -1,0 +1,18 @@
+DeepTrolsTokenHub
+-----------------
+
+This directory (internal/billing_sync) contains code ported from TokenHub
+(https://github.com/astaxie/TokenHub), which is licensed under the Apache
+License, Version 2.0.
+
+Copied on 2026-08-25 from:
+  - TokenHub backend/internal/billing        (core: types/service/validation)
+  - TokenHub backend/internal/billing/adapters (oneapi/newapi/aliyun/common)
+
+Adaptations:
+  - Package renamed from "billing" to "billingsync".
+  - Import paths rewritten to this repository's module (github.com/deeptrols/api).
+  - No functional changes to the copied logic.
+
+The Apache License 2.0 text is available at
+https://www.apache.org/licenses/LICENSE-2.0

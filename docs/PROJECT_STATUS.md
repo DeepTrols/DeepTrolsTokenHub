@@ -1183,3 +1183,139 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - 本次仅文档变更，不涉及代码/迁移；`go build/vet/test` 与前端测试不受影响（无需重跑全量，
   但文档口径已与代码一致）。
+
+## 三十三、2026-08-25 蓝图 Step 1a：移植 TokenHub 账单同步（billing_sync）
+
+> 依据 `docs/plans/plan_domestic_enterprise_gateway.md` 执行路线图 Step 0 + Step 1a。
+> 许可策略已确认：**直接拷贝**（Apache-2.0，保留头部与 NOTICE）。
+
+### 33.1 移植内容
+
+- 从 TokenHub（https://github.com/astaxie/TokenHub，Apache-2.0）整包移植
+  `backend/internal/billing` 核心（types/service/validation）与
+  `backend/internal/billing/adapters`（OneAPI / NewAPI / 阿里云）到
+  `internal/billing_sync/`：
+  - 包名 `billing` → `billingsync`；导入路径改为本仓库模块；
+  - 拷贝代码带 Apache-2.0 头注释 + `NOTICE` + 包 README；
+  - 原测试全部迁移并通过（service 20+ 用例、validation、3 个 adapter）。
+- 新增迁移 `000015_billing_sync.up/down.sql`：`billing_connectors` /
+  `billing_sync_runs` / `billing_records` / `billing_raw_snapshots`。
+- 新写 `internal/billing_sync/persistence/pgx.go`：用 pgx 实现
+  `billingsync.Repository`（TokenHub 原实现基于 GORM，不搬运）：
+  - 连接器 CRUD、凭据 AES 加密（复用 `internal/pkg/encrypt`，永不在摘要中返回）；
+  - 同步运行生命周期（Start → SaveBillingPage upsert → Finish，成功清 checkpoint、
+    记 last_synced_through、计算 next_sync_at）；
+  - 到期连接器拉取、调度审计写入 audit_logs。
+- 接线：`internal/app/app.go`（App.BillingSync + Repo + 3 个 adapter）、
+  `cmd/worker/main.go`（`runBillingSync`，Redis lease 选主，60s 周期）。
+
+### 33.2 顺手修复的真实迁移问题
+
+- 测试库 `deeptrols_test` 的 `public` schema 残留早期未隔离测试遗留的
+  route_policies / quota 三表 / outbox_events（及 usage_logs.route_policy_id 列），
+  导致按新迁移集建全新 schema 时 `000014` 的未限定 `DROP TABLE` 解析到 public 旧表并
+  因依赖失败。已用一次性脚本清理 public 遗留物（仅测试库），迁移链恢复全绿。
+
+### 33.3 验证
+
+- `go build ./...`、`go vet ./...`、gofmt 全绿。
+- `go test ./... -count=1`（TEST_DATABASE_URL 真实 PG，含新 persistence 集成测试
+  连接器生命周期 / 凭据加解密 / 同步运行 upsert / 审计）全绿。
+- 前端未改动，无需重跑。
+
+### 33.4 下一步（Step 1a 收尾，不在本次）
+
+- Console/Admin API：连接器 CRUD、测试连接、同步记录/账单查询。
+- 对账 L3 接线：`billing_records` ↔ `usage_logs`/`provider_evidence` 对账任务。
+- Guardrails 引擎与 perfbench 移植（Step 1b/1c）。
+
+## 三十四、2026-08-25 Step 1a 收尾：账单同步 Admin API + 对账 L3
+
+> 承接三十三节；继续执行蓝图 Step 1a 剩余部分。
+
+### 34.1 Admin API（`/api/admin/billing/connectors`）
+
+- 新增 `internal/handler/console/billing.go`，9 个端点：
+  - `GET/POST /billing/connectors`：列表 / 创建（`billingsync.NormalizeConnector` 校验）；
+  - `GET/PUT/DELETE /billing/connectors/{id}`：详情（**永不返回凭据**，只给
+    credentials_configured / credential_fields）、更新（`NormalizeConnectorPatch`）、删除；
+  - `POST /billing/connectors/{id}/test`：连通性探测（`Service.Test`）；
+  - `POST /billing/connectors/{id}/sync`：手动触发同步（`Service.Sync`）；
+  - `GET /billing/connectors/{id}/records`、`GET .../runs`：账单记录与同步记录。
+- 错误映射：invalid_input→400 / not_found→404 / conflict→409 / rate_limited→429 /
+  upstream→502（`billingsync.ErrorInfo`）。
+- 删除连接器改为事务内级联清理同步数据（raw snapshots / records / runs），避免 FK 500。
+
+### 34.2 对账 L3（Reconciler 扩展）
+
+- `internal/worker/reconciliation/reconciler.go` 在 L0/L1 之后增加 L3 通道：
+  - `billing_without_usage`：上游账单行找不到对应内部调用（diff 无 usage_log 引用）；
+  - `usage_without_billing`：内部已计费且 upstream_cost>0，但上游账单无对应行；
+  - `billing_amount_mismatch`：net_amount 与 upstream_cost 差 > 0.01 元。
+- 报告增加 `L3` 块；reconciliation_runs.level 沿用既有 L3 枚举。
+- **顺手修复潜在 bug**：`createDiff` 对 plain-text detail 直接插入 JSONB 列必失败
+  （此前仅 mock 测试未暴露），新增 `diffDetailJSON` 统一 JSON 编码。
+
+### 34.3 测试与验证
+
+- `reconciler_test.go` 新增真实 PG 集成测试 `TestRun_L3_BillingDiffs`（三类 diff 各 1）；
+- `billing_test.go` 新增 Admin API 测试：CRUD、凭据不泄露、非 admin 403、非法类型 400；
+- 全量 `go build/vet/gofmt` + `go test ./... -count=1`（TEST_DATABASE_URL 真实 PG）全绿；
+- 前端未改动。
+
+### 34.4 后续
+
+- Step 1b（Guardrails 引擎移植）、Step 1c（perfbench）、前端账单同步页面。
+
+## 三十五、2026-08-25 Step 1b：移植 TokenHub Guardrails 内容策略引擎
+
+> 继续蓝图执行路线图 Step 1b。许可策略：直接拷贝（Apache-2.0，见 `internal/guardrails/NOTICE`）。
+
+### 35.1 移植内容
+
+- 整包移植 TokenHub `backend/internal/guardrails` 到 `internal/guardrails/`：
+  - `engine.go`：确定性匹配器（关键词/正则/敏感数据）+ ReDoS 工作量预算 +
+    判定合并（严格优先、block 短路）+ 可选模型检测；
+  - `policy.go`：Policy / DetectionItem / Binding 模型 + NormalizePolicy 校验规范化；
+  - `qwen_detector.go`：Qwen3Guard 模型检测器（HTTP）；
+  - 原测试（engine/policy/qwen_detector）全部迁移并通过。
+- 适配：移除 GORM struct tag 与 TableName()（本仓库用 pgx），无功能改动。
+- 迁移 `000016_guardrails`：guardrail_policies / detection_items / policy_bindings。
+- 新写 `internal/guardrails/persistence/pgx.go`：LoadPolicies（含 items/bindings）、
+  SavePolicy（事务 upsert）、DeletePolicy；集成测试验证"加载策略 → 引擎拦截关键词"。
+
+### 35.2 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿。
+- 前端未改动。
+
+### 35.3 后续
+
+- 网关接线（chat 路由前评估、block 返回 400、落审计）与 Admin 策略编辑器属于
+  蓝图 Phase 1（Step 4），未在本批实现。
+- Step 1c（perfbench）为下一项。
+
+## 三十六、2026-08-25 Step 1c：移植 perfbench 网关压测工具
+
+> 继续蓝图执行路线图 Step 1c。许可策略：直接拷贝（Apache-2.0，见
+> `tools/perfbench/NOTICE`）。
+
+### 36.1 移植内容
+
+- 整包移植 TokenHub `backend/internal/perfbench` 到 `tools/perfbench/`：
+  runner（并发/固定速率负载）、mocker（确定性 OpenAI 兼容上游 + 故障注入）、
+  analyze（延迟/吞吐/上游开销）、budget（回归检查）、report（JSON/Markdown）、
+  go_benchmark（Go 基准解析）；原测试全部迁移并通过。
+- 适配：导入路径改本仓库模块；`t.Context()`（Go 1.24）改为 `context.Background()`
+  （本仓库 Go 1.22）。
+- 新写 `cmd/perfbench/main.go`：`mocker` / `run` 子命令。
+
+### 36.2 对现实验证
+
+- 启动 `perfbench mocker`（127.0.0.1:18081）→ `perfbench run -duration 2s -concurrency 5`
+  实测：645 请求、100% 成功、320.3 rps、P50 15.6ms，Markdown 报告正常输出。
+
+### 36.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿。
+- 前端未改动。

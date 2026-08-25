@@ -1,0 +1,18 @@
+DeepTrolsTokenHub
+-----------------
+
+This directory (tools/perfbench) contains code ported from TokenHub
+(https://github.com/astaxie/TokenHub), which is licensed under the Apache
+License, Version 2.0.
+
+Copied on 2026-08-25 from TokenHub backend/internal/perfbench (runner, mocker,
+analyze, budget, go_benchmark, report + tests).
+
+Adaptations:
+  - Import paths rewritten to this repository's module.
+  - Replaced Go 1.24-only testing.T.Context() with context.Background()
+    (this repository targets Go 1.22).
+  - No functional changes to the copied logic.
+
+The Apache License 2.0 text is available at
+https://www.apache.org/licenses/LICENSE-2.0

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -463,6 +465,94 @@ func TestRun_CombinedL0L1Diffs(t *testing.T) {
 	if diffInserts != 4 {
 		t.Errorf("expected 4 diff inserts, got %d", diffInserts)
 	}
+}
+
+// TestRun_L3_BillingDiffs verifies the L3 pass against a real database: seeded
+// billing_records and usage_logs must produce billing_amount_mismatch,
+// billing_without_usage, and usage_without_billing diffs.
+func TestRun_L3_BillingDiffs(t *testing.T) {
+	pool := testutil.SetupPool(t)
+	testutil.TruncateAll(t, pool)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+	connectorID := uuid.New()
+	now := time.Now().UTC()
+	periodStart := now.Add(-30 * time.Minute)
+	periodEnd := now.Add(-5 * time.Minute)
+
+	mustExec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed %s: %v", sql[:40], err)
+		}
+	}
+	mustExec(`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'x')`,
+		userID, "l3@test.local")
+	mustExec(`INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key) VALUES ($1, $2, 'sk-', 'hash-l3', 'sk-***')`,
+		keyID, userID)
+	mustExec(`INSERT INTO billing_connectors (id, name, type, base_url) VALUES ($1, 'aliyun-test', 'aliyun', 'https://billing.aliyuncs.com')`,
+		connectorID)
+
+	seedUsage := func(id uuid.UUID, requestID, providerReqID string, upstreamCost string, at time.Time) {
+		mustExec(`INSERT INTO usage_logs (
+			id, user_id, api_key_id, request_id, request_type, public_model_code,
+			provider_request_id, usage_source, list_cost, final_cost, upstream_cost,
+			currency, status, created_at
+		) VALUES ($1,$2,$3,$4,'chat','deepseek-chat',$5,'upstream',0,0,$6,'CNY','completed',$7)`,
+			id, userID, keyID, requestID, providerReqID, upstreamCost, at)
+	}
+	seedBilling := func(id uuid.UUID, externalID, netAmount, externalReqID string, at time.Time) {
+		mustExec(`INSERT INTO billing_records (
+			id, connector_id, external_id, net_amount, usage_quantity, usage_start_at,
+			usage_end_at, external_request_id, created_at
+		) VALUES ($1,$2,$3,$4,100,$5,$5,$6,$5)`,
+			id, connectorID, externalID, netAmount, at, externalReqID)
+	}
+
+	usage1 := uuid.New()
+	seedUsage(usage1, "req-1", "req-1", "0.010", periodStart)
+	seedBilling(uuid.New(), "billing-1", "0.030", "req-1", periodStart) // mismatch 0.02 > 0.01
+	seedBilling(uuid.New(), "billing-2", "0.030", "req-9", periodStart) // no usage
+	seedUsage(uuid.New(), "req-2", "req-2", "0.005", periodStart)       // no billing
+
+	r := New(pool)
+	if err := r.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	diffCounts := map[string]int{}
+	rows, err := pool.Query(ctx,
+		`SELECT diff_type, COUNT(*) FROM reconciliation_diffs
+		 WHERE run_id = (SELECT id FROM reconciliation_runs ORDER BY created_at DESC LIMIT 1)
+		 GROUP BY diff_type`)
+	if err != nil {
+		t.Fatalf("query diffs: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var diffType string
+		var n int
+		if err := rows.Scan(&diffType, &n); err != nil {
+			t.Fatalf("scan diff: %v", err)
+		}
+		diffCounts[diffType] = n
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows err: %v", err)
+	}
+
+	if diffCounts["billing_amount_mismatch"] != 1 {
+		t.Errorf("billing_amount_mismatch = %d, want 1", diffCounts["billing_amount_mismatch"])
+	}
+	if diffCounts["billing_without_usage"] != 1 {
+		t.Errorf("billing_without_usage = %d, want 1", diffCounts["billing_without_usage"])
+	}
+	if diffCounts["usage_without_billing"] != 1 {
+		t.Errorf("usage_without_billing = %d, want 1", diffCounts["usage_without_billing"])
+	}
+	_ = periodEnd
 }
 
 // Compile-time interface conformance checks for test mocks.
