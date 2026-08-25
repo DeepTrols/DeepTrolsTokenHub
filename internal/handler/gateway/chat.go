@@ -238,7 +238,15 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	// Route through the router to get an ordered list of candidates; on
 	// upstream failure we fail over to the next candidate instead of failing
 	// the whole request.
-	candidates, err := application.Router.RouteCandidates(r.Context(), resolveAuthIdentity(r), modelName, 3)
+	// Cache affinity (Phase 2): when the response cache is enabled for this
+	// model, pin the routing key to the cache scope (tenant:user) so repeated
+	// requests from the same caller prefer the same channel, maximizing
+	// provider-side context-cache hits.
+	identity := resolveAuthIdentity(r)
+	if k := chatRoutingKey(r, application.ResponseCache, modelName); k != "" && identity != nil {
+		identity.RequestID = k
+	}
+	candidates, err := application.Router.RouteCandidates(r.Context(), identity, modelName, 3)
 	if err != nil {
 		log.Printf("gateway: route error: %v", err)
 		writeRouteError(w, err)
@@ -247,7 +255,6 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	primary := candidates[0]
 
 	// Resolve tenant ID for pricing.
-	identity := resolveAuthIdentity(r)
 	var tenantID *uuid.UUID
 	if identity != nil {
 		tenantID = identity.TenantID
@@ -380,6 +387,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		if lastErr != nil {
 			msg = lastErr.Error()
 		}
+		settleMinuteBucket(r, application, 0)
 		log.Printf("gateway: all upstream attempts failed: %v", lastErr)
 		// An upstream failure that already consumed tokens (the response
 		// carries a usage object, e.g. context_length_exceeded) is real spend
@@ -432,6 +440,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		resp.Usage = estimateUsageFromBody(body)
 		resp.UsageSource = usageparser.SourceEstimated
 	}
+	settleMinuteBucket(r, application, resp.Usage.TotalTokens)
 	actualCosts := calculateActualCosts(r.Context(), application, routeResult, resp, tenantID)
 
 	// Settle reserved funds against the ACTUAL tokens consumed.
@@ -598,6 +607,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 
 	reqBytes, err := json.Marshal(body)
 	if err != nil {
+		settleMinuteBucket(r, application, 0)
 		releaseIfReserved(r.Context(), application, reserveResult)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to encode request")
 		return
@@ -606,6 +616,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	url := strings.TrimSuffix(baseURL, "/v1") + "/v1/chat/completions"
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), "POST", url, bytes.NewReader(reqBytes))
 	if err != nil {
+		settleMinuteBucket(r, application, 0)
 		releaseIfReserved(r.Context(), application, reserveResult)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create upstream request")
 		return
@@ -629,6 +640,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	resp, err := client.Do(upstreamReq)
 	if err != nil {
 		log.Printf("gateway: stream upstream error: %v", err)
+		settleMinuteBucket(r, application, 0)
 		releaseIfReserved(r.Context(), application, reserveResult)
 		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
 			routeResult, body, requestID, "", 0, domain.UsageLogStatusFailed,
@@ -640,6 +652,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 
 	if resp.StatusCode >= 400 {
 		respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxUpstreamErrorBody))
+		settleMinuteBucket(r, application, 0)
 		releaseIfReserved(r.Context(), application, reserveResult)
 		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
 			routeResult, body, requestID, "", 0, domain.UsageLogStatusFailed,
@@ -653,6 +666,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	// ---- Forward SSE stream while buffering last data chunk ----
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		settleMinuteBucket(r, application, 0)
 		releaseIfReserved(r.Context(), application, reserveResult)
 		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
 			routeResult, body, requestID, "", 0, domain.UsageLogStatusFailed,
@@ -707,6 +721,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		// The client may have disconnected (r.Context() cancelled): release
 		// with a detached context so the wallet hold is always compensated.
 		relCtx, relCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		settleMinuteBucket(r, application, 0)
 		releaseIfReserved(relCtx, application, reserveResult)
 		relCancel()
 		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
@@ -797,6 +812,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		if application.BudgetChecker != nil {
 			application.BudgetChecker.Accrue(commitCtx, tenantID, finalCost)
 		}
+		settleMinuteBucket(r, application, normUsage.TotalTokens)
 	}
 
 	// Determine usage source tag.
@@ -975,6 +991,21 @@ func cacheScope(r *http.Request) string {
 		scope += identity.UserID.String()
 	}
 	return scope
+}
+
+// cacheChecker is the response-cache surface the routing key needs.
+type cacheChecker interface {
+	IsEnabled() bool
+	IsModelAccepted(model string) bool
+}
+
+// chatRoutingKey returns the cache scope as the routing key when the response
+// cache is enabled for the model; otherwise an empty key (default routing).
+func chatRoutingKey(r *http.Request, cacheSvc cacheChecker, modelName string) string {
+	if cacheSvc != nil && cacheSvc.IsEnabled() && cacheSvc.IsModelAccepted(modelName) {
+		return cacheScope(r)
+	}
+	return ""
 }
 
 // resolveIdentity extracts the authenticated user and API key from the request context.

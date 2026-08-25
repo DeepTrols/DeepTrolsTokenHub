@@ -60,3 +60,26 @@ func (s *RedisStore) Reserve(ctx context.Context, keyID string, tokens int64, rp
 	}
 	return Result{Allowed: allowed == 1, Requests: requests, Tokens: used}, nil
 }
+
+// settleScript adjusts the token counter by (actual - reserved), clamping at
+// zero so a refund never pushes the bucket negative.
+var settleScript = goredis.NewScript(`
+local tokens = redis.call('HINCRBY', KEYS[1], 'tokens', tonumber(ARGV[1]))
+if tokens < 0 then
+  redis.call('HSET', KEYS[1], 'tokens', 0)
+end
+redis.call('EXPIRE', KEYS[1], 120)
+return 1
+`)
+
+func (s *RedisStore) Settle(ctx context.Context, keyID string, reserved, actual int64, now time.Time) error {
+	delta := actual - reserved
+	if delta == 0 {
+		return nil
+	}
+	key := bucketKey(keyID, bucketMinute(now))
+	if err := settleScript.Run(ctx, s.client, []string{key}, delta).Err(); err != nil {
+		return fmt.Errorf("minute bucket settle: %w", err)
+	}
+	return nil
+}

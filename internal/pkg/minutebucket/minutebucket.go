@@ -22,6 +22,10 @@ type Result struct {
 // Limits <= 0 mean unlimited for that dimension.
 type Store interface {
 	Reserve(ctx context.Context, keyID string, tokens int64, rpmLimit int, tpmLimit int64, now time.Time) (Result, error)
+	// Settle adjusts the current minute bucket's token counter from the
+	// reserved estimate to the actual usage (delta = actual - reserved).
+	// Requests are not adjusted; only the token dimension is reconciled.
+	Settle(ctx context.Context, keyID string, reserved, actual int64, now time.Time) error
 }
 
 // NewStore returns a Redis-backed store when redis is available, otherwise a

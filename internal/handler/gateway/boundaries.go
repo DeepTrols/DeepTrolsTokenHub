@@ -65,6 +65,10 @@ func enforceAPIKeyBoundaries(w http.ResponseWriter, r *http.Request, application
 				return &boundaryError{http.StatusTooManyRequests, "rate_limit_exceeded",
 					"API key rate limit exceeded (RPM/TPM)"}
 			}
+			// Carry the reservation forward so the logging path can settle the
+			// estimated tokens against actual usage.
+			*r = *r.WithContext(context.WithValue(r.Context(), minuteBucketReservationKey{},
+				minuteBucketReservation{keyID: key.ID.String(), tokens: estimatedTokens}))
 		}
 	}
 
@@ -124,6 +128,30 @@ func enforceAPIKeyBoundaries(w http.ResponseWriter, r *http.Request, application
 	}
 
 	return nil
+}
+
+// minuteBucketReservation records the tokens reserved at admission for a
+// request so the logging path can reconcile estimate vs actual.
+type minuteBucketReservation struct {
+	keyID  string
+	tokens int64
+}
+
+type minuteBucketReservationKey struct{}
+
+// settleMinuteBucket adjusts the reserved token count to the actual usage
+// (delta = actual - reserved). Best-effort: failures are logged, not fatal.
+func settleMinuteBucket(r *http.Request, application *app.App, actualTokens int64) {
+	if application.MinuteBuckets == nil {
+		return
+	}
+	res, ok := r.Context().Value(minuteBucketReservationKey{}).(minuteBucketReservation)
+	if !ok {
+		return
+	}
+	if err := application.MinuteBuckets.Settle(r.Context(), res.keyID, res.tokens, actualTokens, time.Now().UTC()); err != nil {
+		log.Printf("gateway: minute bucket settle degraded for key %s: %v", res.keyID, err)
+	}
 }
 
 // writeRateLimitHeaders mirrors TokenHub's X-RateLimit-* header contract so

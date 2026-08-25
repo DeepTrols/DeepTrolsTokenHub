@@ -1574,3 +1574,58 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 缓存亲和（响应缓存命中时优先同缓存域渠道）；
 - cost 策略排序（接 pricer 单价）与路由策略模拟器；
 - 分钟桶精确 settle；Guardrails Admin 编辑器（前端）。
+
+## 四十五、2026-08-25 分钟桶精确 settle（估算 → 实际差额回填）
+
+> 收尾 41.4 遗留：RPM/TPM 从"按估算预留"升级为"预留 + 实际用量差额回填"。
+
+### 45.1 变更
+
+- `internal/pkg/minutebucket`：`Store` 增加 `Settle(ctx, keyID, reserved, actual, now)`：
+  - Redis：Lua 按 delta=actual-reserved 调整 tokens，负值钳 0；
+  - PG：`GREATEST(tokens + delta, 0)`（去掉不存在的 updated_at 列）。
+- `internal/handler/gateway/boundaries.go`：成功预留后把
+  `{keyID, reservedTokens}` 放进请求上下文；新增 `settleMinuteBucket` helper。
+- 网关接线（chat 流式/非流式 + embeddings/images/audio）：
+  - 成功：按实际 usage 结算（多退少补）；
+  - 失败：按 0 回补（整笔退还预留）。
+
+### 45.2 测试
+
+- Redis/PG：预留 100 → 结算 60（退 40）→ 结算 200（补 100）→ 超额退钳 0。
+
+### 45.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。
+
+## 四十六、2026-08-25 Phase 2（完成）：缓存亲和 + 路由模拟器接口
+
+> Phase 2 强路由收尾（cost 策略因数据模型按模型计价、非按渠道计价，暂为等价于
+> 评分排序，待引入按渠道成本后再启用）。
+
+### 46.1 变更
+
+- **缓存亲和**（`internal/handler/gateway/chat.go`）：非流式请求在响应缓存对该模型
+  启用时，用缓存作用域 `tenant:user` 作为路由 key（`chatRoutingKey`），同一调用方
+  稳定路由到同一渠道，提升上游上下文缓存命中率。
+- **路由模拟器接口**（`internal/handler/console/routing.go`）：
+  `POST /api/admin/routing/simulate`——管理员选模型（+可选租户）预览路由候选
+  （渠道/健康/策略/粘性/实例/base_url/上游模型/负载），错误映射
+  model_not_found→404 / tenant→403 / no_route→422。
+- **防御修复**：`cache.Service.IsEnabled/IsModelAccepted` 增加 nil 保护
+  （typed-nil 接口转换曾导致 chat 测试 panic）。
+
+### 46.2 测试
+
+- `TestChatRoutingKey_CacheAffinity`（启用/未启用/未接受模型/nil 缓存）；
+- `TestHandleSimulateRouting`（真实 PG：种子模型+渠道+实例 → 返回 1 条候选；
+  未知模型 404）。
+
+### 46.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。
+
+### 46.4 后续
+
+- 前端路由模拟器页面（调 `/api/admin/routing/simulate`）；
+- Guardrails Admin 策略编辑器；Phase 5 前端补齐。

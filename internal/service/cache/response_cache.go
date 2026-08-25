@@ -32,11 +32,15 @@ func New(client *redis.Client, cfg ServiceConfig) *Service {
 	return &Service{client: client, cfg: cfg}
 }
 
-// IsEnabled returns true when ready to cache.
-func (s *Service) IsEnabled() bool { return s.client != nil }
+// IsEnabled returns true when ready to cache. A nil receiver is treated as
+// disabled (defensive against typed-nil interface conversions).
+func (s *Service) IsEnabled() bool { return s != nil && s.client != nil }
 
 // IsModelAccepted returns true when the model may be cached.
 func (s *Service) IsModelAccepted(model string) bool {
+	if s == nil {
+		return false
+	}
 	if len(s.cfg.AcceptedModels) == 0 {
 		return true
 	}

@@ -293,6 +293,7 @@ func handleForwardedRawExecution(
 		if lastErr != nil {
 			msg = lastErr.Error()
 		}
+		settleMinuteBucket(r, application, 0)
 		log.Printf("gateway: all %s attempts failed: %v", endpoint, lastErr)
 		go logNonStreamFailure(application, requestType, userID, apiKeyID, tenantID, modelName, upstreamModelName,
 			lastRouteResult, body, requestID, lastErr, synthetic, attemptCount, int(time.Since(startTime).Milliseconds()))
@@ -304,6 +305,7 @@ func handleForwardedRawExecution(
 	// Actual usage: upstream rarely reports usage for raw endpoints, so bill
 	// the request-derived estimate (TTS characters).
 	actualUsage := estimate(body)
+	settleMinuteBucket(r, application, actualUsage.TotalTokens)
 
 	synthetic := &gw.ExecuteResponse{
 		StatusCode:    raw.StatusCode,
@@ -514,6 +516,7 @@ func handleForwardedEndpointExecution(
 		if lastErr != nil {
 			msg = lastErr.Error()
 		}
+		settleMinuteBucket(r, application, 0)
 		log.Printf("gateway: all %s attempts failed: %v", endpoint, lastErr)
 		go logNonStreamFailure(application, requestType, userID, apiKeyID, tenantID, modelName, upstreamModelName,
 			lastRouteResult, body, requestID, lastErr, lastResp, attemptCount, int(time.Since(startTime).Milliseconds()))
@@ -529,6 +532,7 @@ func handleForwardedEndpointExecution(
 		actualUsage = estimate(body)
 		resp.Usage = actualUsage
 	}
+	settleMinuteBucket(r, application, actualUsage.TotalTokens)
 
 	// Settle reserved funds against the REAL final cost.
 	actualCosts := calculateActualCosts(r.Context(), application, routeResult, resp, tenantID)

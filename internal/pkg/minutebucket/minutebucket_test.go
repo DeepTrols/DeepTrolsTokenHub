@@ -103,3 +103,79 @@ func TestPostgresStore_ReserveLimits(t *testing.T) {
 		t.Fatalf("over TPM should be rejected: %+v", r3)
 	}
 }
+
+func TestRedisStore_SettleAdjustsTokens(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	store := &RedisStore{client: client}
+	ctx := context.Background()
+	keyID := "key-settle"
+
+	if _, err := store.Reserve(ctx, keyID, 100, 0, 1000, testNow()); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	// Actual usage below estimate → refund.
+	if err := store.Settle(ctx, keyID, 100, 60, testNow()); err != nil {
+		t.Fatalf("settle refund: %v", err)
+	}
+	r, _ := store.Reserve(ctx, keyID, 0, 0, 1000, testNow())
+	if r.Tokens != 60 {
+		t.Errorf("tokens after refund = %d, want 60", r.Tokens)
+	}
+	// Actual usage above estimate → additional consume.
+	if err := store.Settle(ctx, keyID, 60, 200, testNow()); err != nil {
+		t.Fatalf("settle consume: %v", err)
+	}
+	r, _ = store.Reserve(ctx, keyID, 0, 0, 1000, testNow())
+	if r.Tokens != 200 {
+		t.Errorf("tokens after consume = %d, want 200", r.Tokens)
+	}
+	// Oversized refund clamps at zero.
+	if err := store.Settle(ctx, keyID, 200, 0, testNow()); err != nil {
+		t.Fatalf("settle clamp: %v", err)
+	}
+	r, _ = store.Reserve(ctx, keyID, 0, 0, 1000, testNow())
+	if r.Tokens != 0 {
+		t.Errorf("tokens after clamp = %d, want 0", r.Tokens)
+	}
+}
+
+func TestPostgresStore_SettleAdjustsTokens(t *testing.T) {
+	pool := testutil.SetupPool(t)
+	testutil.TruncateAll(t, pool)
+	ctx := context.Background()
+	userID := uuid.New()
+	keyID := uuid.New()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO users (id, email, password_hash) VALUES ($1, 'settle@test.local', 'x')`,
+		userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key) VALUES ($1, $2, 'sk-', 'hash-settle', 'sk-***')`,
+		keyID, userID); err != nil {
+		t.Fatalf("seed api key: %v", err)
+	}
+	store := NewPostgresStore(pool)
+
+	if _, err := store.Reserve(ctx, keyID.String(), 100, 0, 1000, testNow()); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	if err := store.Settle(ctx, keyID.String(), 100, 70, testNow()); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+	r, err := store.Reserve(ctx, keyID.String(), 0, 0, 1000, testNow())
+	if err != nil {
+		t.Fatalf("re-reserve: %v", err)
+	}
+	if r.Tokens != 70 {
+		t.Errorf("tokens after settle = %d, want 70", r.Tokens)
+	}
+	if err := store.Settle(ctx, keyID.String(), 70, 0, testNow()); err != nil {
+		t.Fatalf("settle clamp: %v", err)
+	}
+	r, _ = store.Reserve(ctx, keyID.String(), 0, 0, 1000, testNow())
+	if r.Tokens != 0 {
+		t.Errorf("tokens after clamp = %d, want 0", r.Tokens)
+	}
+}

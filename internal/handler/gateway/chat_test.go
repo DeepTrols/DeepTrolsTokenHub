@@ -1864,6 +1864,38 @@ func TestChatFragments_ExtractsText(t *testing.T) {
 	}
 }
 
+type stubCacheChecker struct {
+	enabled  bool
+	accepted bool
+}
+
+func (s stubCacheChecker) IsEnabled() bool             { return s.enabled }
+func (s stubCacheChecker) IsModelAccepted(string) bool { return s.accepted }
+
+func TestChatRoutingKey_CacheAffinity(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req = setAuthContext(req, uuid.New(), uuid.New())
+
+	// Cache enabled + model accepted → routing key is the cache scope.
+	key := chatRoutingKey(req, stubCacheChecker{enabled: true, accepted: true}, "gpt-4o")
+	expected := cacheScope(req)
+	if key != expected {
+		t.Errorf("routing key = %q, want %q", key, expected)
+	}
+	// Cache disabled → default routing.
+	if got := chatRoutingKey(req, stubCacheChecker{enabled: false, accepted: true}, "gpt-4o"); got != "" {
+		t.Errorf("disabled cache key = %q, want empty", got)
+	}
+	// Model not accepted → default routing.
+	if got := chatRoutingKey(req, stubCacheChecker{enabled: true, accepted: false}, "gpt-4o"); got != "" {
+		t.Errorf("unaccepted model key = %q, want empty", got)
+	}
+	// Nil cache → default routing.
+	if got := chatRoutingKey(req, nil, "gpt-4o"); got != "" {
+		t.Errorf("nil cache key = %q, want empty", got)
+	}
+}
+
 type fakeChatBudgetRepo struct {
 	budget *domain.Budget
 }

@@ -69,3 +69,15 @@ func (s *PostgresStore) Reserve(ctx context.Context, keyID string, tokens int64,
 	}
 	return Result{Allowed: true, Requests: requests, Tokens: used}, nil
 }
+
+func (s *PostgresStore) Settle(ctx context.Context, keyID string, reserved, actual int64, now time.Time) error {
+	delta := actual - reserved
+	if delta == 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx,
+		`UPDATE api_key_quota_buckets SET tokens = GREATEST(tokens + $3, 0)
+		 WHERE key_id = $1 AND bucket = $2`,
+		keyID, bucketMinute(now), delta)
+	return err
+}

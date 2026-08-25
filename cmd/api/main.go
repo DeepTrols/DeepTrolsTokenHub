@@ -177,6 +177,7 @@ func main() {
 		r.Get("/budgets/requests", console.HandleListBudgetRequests(application))
 		r.Post("/budgets/requests/{id}/approve", console.HandleApproveBudgetRequest(application))
 		r.Post("/budgets/requests/{id}/reject", console.HandleRejectBudgetRequest(application))
+		r.Post("/routing/simulate", console.HandleSimulateRouting(application))
 
 		// Billing connectors (OneAPI / NewAPI / Aliyun billing sync, Step 1a).
 		r.Get("/billing/connectors", console.HandleListBillingConnectors(application))
