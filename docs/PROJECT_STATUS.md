@@ -1345,3 +1345,61 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 ### 37.3 验证
 
 - `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。
+
+## 三十八、2026-08-25 Phase 3（第一部分）：国内 Provider 注册表与模板
+
+> 蓝图 Step 3 Phase 3 的第一部分：适配器层的目录与能力声明；网关执行器迁移与
+> 能力探测接线留待下一批（核心路径）。
+
+### 38.1 变更
+
+- 新包 `internal/provider/`：
+  - `registry.go`：`Template`（类型/名称/默认 base_url/鉴权方案/能力声明）+ 注册表
+    （Lookup / ValidType / TemplateBaseURLs / Supports）；设计参照 TokenHub
+    AdapterRegistry（Apache-2.0，代码为本仓库新写）。
+  - `templates.go`：10 家国内模板（DeepSeek、Qwen、智谱、Kimi、豆包、文心、讯飞、
+    混元、零一、SiliconFlow），**不含任何国外 Provider**。
+- `internal/handler/console/providers.go`：`defaultBaseURLs` 改用
+  `provider.TemplateBaseURLs()`（移除 openai / anthropic / google / openrouter）。
+- 前端 `web/src/pages/Channels.tsx`：`PROVIDER_OPTIONS` 移除国外项，仅剩国内 + other。
+- usageparser 补 `completion_tokens_details.reasoning_tokens` 嵌套变体测试
+  （cache/reasoning 解析此前已实现并有 DeepSeek 用例）。
+
+### 38.2 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；
+  前端 `npm test`（227/227）、`lint`（0/0）、`build` 全绿。
+
+### 38.3 后续（Phase 3 剩余）
+
+- OpenAI 兼容核心适配器迁移（`internal/service/gateway/executor.go` →
+  `internal/provider/openai_compat.go`）与网关接线；
+- Provider Sync 能力探测（chat/embedding/image/audio → models.category）；
+- 前端渠道页按能力矩阵展示（后续批次）。
+
+## 三十九、2026-08-25 Phase 3（完成）：执行器迁移 + 能力推断
+
+> 承接三十八节，完成 Phase 3 剩余部分。
+
+### 39.1 变更
+
+- `internal/provider/openai_compat.go`：`OpenAICompatAdapter` 实现 `gateway.Executor`
+  （Execute / ExecuteEndpoint / ExecuteEndpointRaw），逻辑自原 `LiteLLMExecutor`
+  迁移（本仓库自有代码，无署名要求）；`internal/service/gateway/executor.go` 精简为
+  仅保留 Executor 接口与响应类型，移除 `LiteLLMExecutor` 遗留命名。
+- 接线：`app.go` 与 chat/endpoints 的默认执行器全部改用
+  `provider.NewOpenAICompatAdapter()`。
+- 能力推断：`provider.InferCategory(modelID, template)`——按模型 ID 特征
+  （embedding/bge、tts/speech/audio/voice、video/seedance/cogvideo、
+  image/wanx/cogview/flux）推断 category，其余回落 chat；`HandleCreateProvider`
+  建模型时写入（替代硬编码 'chat'）。
+
+### 39.2 测试
+
+- `internal/provider/openai_compat_test.go`：Execute 解析 usage（含 DeepSeek cache）、
+  ExecuteEndpointRaw 原样转发、buildUpstreamRequest URL/体、InferCategory 表驱动。
+- 顺手修复 HandleCreateProvider 模型 upsert 的 SQL 参数错位（`updated_at=$5` → `$6`）。
+
+### 39.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。

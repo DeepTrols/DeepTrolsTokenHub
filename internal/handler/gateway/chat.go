@@ -17,6 +17,7 @@ import (
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
+	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/service/billing"
 	"github.com/deeptrols/api/internal/service/cache"
 	gw "github.com/deeptrols/api/internal/service/gateway"
@@ -168,7 +169,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	// distinct idempotency key so wallet holds do not collide on retry.
 	executor := application.Executor
 	if executor == nil {
-		executor = gw.NewLiteLLMExecutor()
+		executor = provider.NewOpenAICompatAdapter()
 	}
 
 	var (

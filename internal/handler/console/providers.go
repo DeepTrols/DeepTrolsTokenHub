@@ -12,6 +12,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
+	"github.com/deeptrols/api/internal/provider"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -47,22 +48,7 @@ type updateProviderRequest struct {
 }
 
 // defaultBaseURLs maps provider names to their default API base URLs (no trailing version path).
-var defaultBaseURLs = map[string]string{
-	"openai":      "https://api.openai.com",
-	"anthropic":   "https://api.anthropic.com",
-	"google":      "https://generativelanguage.googleapis.com",
-	"deepseek":    "https://api.deepseek.com",
-	"qwen":        "https://dashscope.aliyuncs.com/compatible-mode",
-	"zhipu":       "https://open.bigmodel.cn/api/paas/v4",
-	"moonshot":    "https://api.moonshot.cn",
-	"bytedance":   "https://ark.cn-beijing.volces.com/api/v3",
-	"baidu":       "https://qianfan.baidubce.com/v2",
-	"xfyun":       "https://spark-api-open.xf-yun.com/v1",
-	"tencent":     "https://api.hunyuan.cloud.tencent.com/v1",
-	"lingyi":      "https://api.lingyiwanwu.com/v1",
-	"openrouter":  "https://openrouter.ai/api",
-	"siliconflow": "https://api.siliconflow.cn",
-}
+var defaultBaseURLs = provider.TemplateBaseURLs()
 
 // requireAdmin checks that the request context contains a valid user ID and admin role.
 // Returns 0 on success, or an HTTP status code (401/403) on failure.
@@ -230,6 +216,7 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 		created := 0
 
 		if len(discovered) > 0 {
+			tmpl, hasTemplate := provider.Lookup(req.Provider)
 			for _, mdl := range discovered {
 				// Skip models that don't match this provider
 				if !matchesProvider(req.Provider, strings.ToLower(mdl.ID)) {
@@ -243,6 +230,10 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 				// Determine model code and display name
 				code := mdl.ID
 				displayName := mdl.ID
+				category := "chat"
+				if hasTemplate {
+					category = provider.InferCategory(mdl.ID, tmpl)
+				}
 				if strings.Contains(code, "/") {
 					parts := strings.SplitN(code, "/", 2)
 					if len(parts) == 2 {
@@ -257,10 +248,10 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 				var resolvedModelID uuid.UUID
 				err := a.Pool.QueryRow(dbCtx,
 					`INSERT INTO models (id, code, provider, category, display_name, status, release_stage, created_at, updated_at)
-				 VALUES ($1,$2,$3,'chat',$4,'active','GA',$5,$5)
-				 ON CONFLICT (code) DO UPDATE SET display_name=EXCLUDED.display_name, provider=EXCLUDED.provider, status='active', updated_at=$5
+				 VALUES ($1,$2,$3,$4,$5,'active','GA',$6,$6)
+				 ON CONFLICT (code) DO UPDATE SET display_name=EXCLUDED.display_name, provider=EXCLUDED.provider, status='active', updated_at=$6
 				 RETURNING id`,
-					modelID, code, req.Provider, displayName, now,
+					modelID, code, req.Provider, category, displayName, now,
 				).Scan(&resolvedModelID)
 				if err != nil {
 					log.Printf("provider: upsert model %s: %v", code, err)

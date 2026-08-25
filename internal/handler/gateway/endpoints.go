@@ -12,6 +12,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
+	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/service/billing"
 	gw "github.com/deeptrols/api/internal/service/gateway"
 	"github.com/google/uuid"
@@ -195,7 +196,7 @@ func handleForwardedRawExecution(
 
 	executor := application.Executor
 	if executor == nil {
-		executor = gw.NewLiteLLMExecutor()
+		executor = provider.NewOpenAICompatAdapter()
 	}
 
 	startTime := time.Now()
@@ -416,7 +417,7 @@ func handleForwardedEndpointExecution(
 
 	executor := application.Executor
 	if executor == nil {
-		executor = gw.NewLiteLLMExecutor()
+		executor = provider.NewOpenAICompatAdapter()
 	}
 
 	startTime := time.Now()

@@ -160,6 +160,28 @@ func TestParseOpenAIUsage_DeepSeekCacheHitTokens(t *testing.T) {
 	}
 }
 
+// TestParseOpenAIUsage_NestedReasoningTokens covers the OpenAI-compatible
+// gateway shape used by Qwen / DeepSeek relays where reasoning tokens are
+// reported inside completion_tokens_details.
+func TestParseOpenAIUsage_NestedReasoningTokens(t *testing.T) {
+	nu, err := ParseOpenAIUsage(map[string]any{
+		"usage": map[string]any{
+			"prompt_tokens":     float64(100),
+			"completion_tokens": float64(50),
+			"total_tokens":      float64(150),
+			"completion_tokens_details": map[string]any{
+				"reasoning_tokens": float64(20),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if nu.ReasoningTokens != 20 {
+		t.Errorf("ReasoningTokens = %d, want 20", nu.ReasoningTokens)
+	}
+}
+
 func TestParseOpenAIUsage_CacheWriteTokens(t *testing.T) {
 	raw := map[string]any{
 		"usage": map[string]any{

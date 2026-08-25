@@ -27,10 +27,6 @@ const PROVIDER_OPTIONS = [
   { value: "bytedance", label: "字节豆包" },
   { value: "tencent", label: "腾讯混元" },
   { value: "lingyi", label: "零一万物 Yi" },
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "google", label: "Google Gemini" },
-  { value: "openrouter", label: "OpenRouter" },
   { value: "siliconflow", label: "SiliconFlow 硅基流动" },
   { value: "other", label: "Other (OpenAI 兼容)" },
 ];

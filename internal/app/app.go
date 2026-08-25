@@ -19,6 +19,7 @@ import (
 	"github.com/deeptrols/api/internal/pkg/db"
 	"github.com/deeptrols/api/internal/pkg/ratelimit"
 	"github.com/deeptrols/api/internal/pkg/redis"
+	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/repository/apikey"
 	"github.com/deeptrols/api/internal/repository/channel"
 	"github.com/deeptrols/api/internal/repository/membership"
@@ -117,7 +118,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.Logger = billing.NewLoggerWithPool(a.Usage, a.Pool)
 	a.Pricer = billing.NewPricer(a.Models.(model.PricingRepository))
 	a.Router = gateway.NewRouter(a.Models, a.Channels)
-	a.Executor = gateway.NewLiteLLMExecutor()
+	a.Executor = provider.NewOpenAICompatAdapter()
 	a.HttpClient = &http.Client{Timeout: 120 * time.Second}
 
 	// Wire rate limiter: Redis-backed with in-memory fallback when Redis is
