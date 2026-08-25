@@ -58,7 +58,7 @@
 |---|---|---|---|
 | F1 | 剩余网关端点 | /v1/responses、messages、images/edits、videos/generations、audio/transcriptions、Gemini | ⬜ |
 | F2 | 聊天 UI | 体验增强（Playground 已有雏形） | ⬜ |
-| F3 | OEM/白标 | 基础已实现：子账号客户管理（CRUD/封禁/角色）、同租户代充值、brand/runtime/settlement 配置、tenant_models 选品、租户级定价数据层（tenant_id 覆盖 + 平台回退）；剩余：租户级定价管理入口、PAYG 强制、客户等级/AI 折扣、Owner 直接发额度、可见性裁剪。产品决定按需启用，不阻塞 | 🟡 |
+| F3 | OEM/白标 | 基础已实现：子账号客户管理（CRUD/封禁/角色）、同租户代充值、brand/runtime/settlement 配置、tenant_models 选品、租户级定价数据层（tenant_id 覆盖 + 平台回退）、PAYG 门禁；OEM 进阶（租户级定价管理入口、客户等级/AI 折扣、Owner 直接发额度、可见性裁剪、API Key 代管）已于 2026-08-25 明确不做 | ✅ |
 | F4 | 阶梯折扣/多币种 | 收入策略与国际化，按需 | ⬜ |
 | F5 | 质量债 | 覆盖率门禁未强制；-race 依赖 CI（本地无 gcc） | 🟡 |
 

@@ -164,7 +164,6 @@ func main() {
 		r.Get("/reconciliation", console.HandleListReconciliationRuns(application))
 
 		r.Get("/users", console.HandleListUsers(application))
-		r.Get("/costs", console.HandleCostSummary(application))
 		r.Get("/ledger", console.HandleUserLedger(application))
 		r.Put("/users/{id}/status", console.HandleUpdateUserStatus(application))
 		r.Put("/users/{id}/role", console.HandleUpdateUserRole(application))

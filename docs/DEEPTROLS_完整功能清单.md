@@ -10,6 +10,8 @@
 > 实现率 2/16 → 5/16；详见 PROJECT_STATUS.md 二十七节）
 > 本次：2026-08-25（配额管理 / 策略管理整体移除：页面、API、网关强制、route_policies 与 quota 三表随迁移 000014 删除；
 > 详见 PROJECT_STATUS.md 三十节）
+> 本次：2026-08-25（OEM 进阶取消：租户级定价管理入口、客户等级/AI 折扣、Owner 发额度、可见性裁剪、
+> API Key 代管不再计划实施；详见 PROJECT_STATUS.md 三十二节）
 
 ---
 
@@ -30,8 +32,7 @@
 | 路由策略 CRUD | RoutePolicy + fallback 配置 | ❌ 已移除（2026-08-25） |
 | 租户生命周期 | 状态机（5 状态） | ✅ 已实现 |
 | 配额管理 | pool / allocation / ledger 三层 + 网关 Check→429 拦截 | ❌ 已移除（2026-08-25） |
-| 用户等级折扣 | 基于 user_level 的阶梯折扣 | ❌ 未实现 |
-| OEM 模型定价 | 租户级独立定价 | 🟡 数据层已支持（model_pricing.tenant_id 覆盖 + 平台回退），OEM 自助管理端点/前端未提供 |
+| OEM 模型定价 | 租户级独立定价 | ✅ 数据层支持（model_pricing.tenant_id 覆盖 + 平台回退）；OEM 自助管理入口不做（2026-08-25 明确取消） |
 | MFA/TOTP | 注册 + 验证 | ❌ 已移除（2026-08-11 与兑换码/邀请奖励一并删除） |
 | 登录历史 | 记录 + 查询 | ✅ 已实现 |
 
@@ -75,7 +76,7 @@
 | Durable Outbox | 异步计费事件 + Committer | ❌ 已移除（计费已同步化；Committer 已删，outbox_events 表随迁移 000013 正式删除） |
 | 多维定价 | model_pricing 表 + conditions JSONB | 🟡 表就绪，conditions 未评估 |
 | 配额消费 | 网关 Check→429 + Deduct→ledger + Restore（best-effort） | ❌ 已移除（2026-08-25） |
-| 租户级定价 | tenant_id 覆盖平台价格 | 🟡 数据层已支持（tenant_id 优先、NULL 回退平台价），管理入口未提供 |
+| 租户级定价 | tenant_id 覆盖平台价格 | ✅ 数据层支持（tenant_id 优先、NULL 回退平台价）；管理入口不做（2026-08-25 明确取消） |
 | 阶梯折扣 | volume-based discount + 月度计数器 | ❌ 未实现 |
 | 支付/充值 | 真实支付集成 | ❌ mock 数据 |
 | 月度账单 | 汇总账单 | ❌ 未实现 |
@@ -89,7 +90,7 @@
 | charge_line 记录 | 按维度分行 | ✅ 已实现 |
 | provider_evidence 记录 | 上游原始响应 | ✅ 已实现 |
 | usage 来源标记 | upstream / final_chunk / estimated | ✅ 已实现 |
-| 路由证据链 | channel_id + instance_id + route_policy_id | ✅ 已实现 |
+| 路由证据链 | channel_id + instance_id | ✅ 已实现 |
 | 审计日志 | audit_logs 表 | ✅ 已实现（AuditAdminWrite 中间件） |
 | 对账 L0 | usage_logs vs charge_lines 计数 | ✅ 已实现 |
 | 对账 L1 | provider_evidence 匹配 | ✅ 已实现（缺口 / token 不匹配 / error 误标） |
@@ -145,8 +146,6 @@
 | 定价 | 条件定价（conditions JSONB） | ❌ |
 | 定价 | 租户级覆盖定价 | 🟡 数据层已支持（model_pricing.tenant_id），管理入口未提供 |
 | 定价 | 上游成本独立记录 | ✅ |
-| 折扣 | 用户等级折扣 | ❌ |
-| 折扣 | OEM 独立折扣 | ❌ |
 | 折扣 | 阶梯用量折扣 | ❌ |
 | 配额 | quota_pools/allocations/ledger 三层 + 网关强制 | ❌ 已移除（2026-08-25） |
 | 钱包 | balance + frozen + 乐观锁 | ✅ |
@@ -171,15 +170,10 @@
 | 数据隔离（显式 tenant scope） | ✅ |
 | Admin RBAC | ✅ |
 | 模型选品（平台目录 × 租户配置） | ✅ tenant_models |
-| 模型定价（租户级独立价格） | 🟡 数据层已支持（tenant_id 覆盖 + 平台回退），OEM 自助管理端点/前端未提供 |
+| 模型定价（租户级独立价格） | ✅ 数据层已支持（tenant_id 覆盖 + 平台回退）；OEM 自助管理入口不做 |
 | PAYG 门禁（价格不完整拒绝） | ✅ 网关估算阶段 422 pricing_incomplete；结算阶段按预留额计费并留 evidence（pricing_incomplete） |
-| 客户管理（CRUD + 封禁 + 等级） | 🟡 子账号 CRUD / 封禁 / 角色已实现（/team/*）；等级未实现 |
-| AI 折扣（独立于商品折扣） | ❌ |
+| 客户管理（CRUD + 封禁 + 角色） | ✅ 子账号 CRUD / 封禁 / 角色已实现（/team/*）；等级不做 |
 | 代充值（同租户钱包转账） | ✅ 已实现（team_balance.go：企业主/管理员同租户转账，幂等） |
-| Owner 钱包（Admin 发放额度） | ❌ |
-| AI 配额池（三层账 + 幂等） | ❌ 已移除（2026-08-25） |
-| API Key 代管 | ❌ 故意隐藏 |
-| 可见性裁剪（OEM 经营 vs 平台成本） | ❌ |
 
 ---
 
@@ -280,8 +274,8 @@
 | 鉴权方式 | 4 | 2 | 0 | 2 |
 | 计费能力 | 16 | 14 | 0 | 2 |
 | 对账级别 | 4 | 2 | 0 | 2 |
-| OEM 能力 | 16 | 10 | 2 | 4 |
-| Console 页面 | 14 | 14 | 0 | 0 |
+| OEM 能力 | 12 | 12 | 0 | 0 |
+| Console 页面 | 13 | 13 | 0 | 0 |
 | Worker 能力 | 5 | 4 | 1 | 0 |
 | Adapter 类型 | 4 | 1 | 0 | 3 |
 
@@ -296,4 +290,3 @@
 
 **长期**:
 - Messages/Audio/Video 端点、Gemini Adapter、BYOK、HA、支付充值
-- OEM 体系（租户级定价管理入口、PAYG 强制、客户等级/AI 折扣、Owner 发额度、可见性裁剪）：产品决定按需启用，非主平台必需

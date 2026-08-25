@@ -129,7 +129,7 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 |------|------|------|
 | 管理员 | `deeptrols@admin.com` | `deeptrols@2026` |
 
-首次登录后建议立即修改密码。管理员拥有模型管理、Provider 凭证、Channel、租户、对账、用户管理、成本分析等全部后台权限。
+首次登录后建议立即修改密码。管理员拥有模型管理、Provider 凭证、Channel、租户、对账、用户管理等全部后台权限。
 
 ## API 端点
 
@@ -170,7 +170,6 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 | `CRUD /api/admin/channels` | Channel 管理（模型绑定 + 实例增删） |
 | `CRUD /api/admin/tenants` | 租户管理（5 状态状态机 + 域名） |
 | `GET /api/admin/reconciliation` | 对账结果查看 |
-| `GET /api/admin/costs` | 成本分析（按模型汇总 + 加价率） |
 | `GET/POST/PUT/DELETE /api/admin/users` | 用户管理（CRUD + 角色/状态） |
 | `GET /api/admin/ledger` | 账号账簿（账务管理） |
 
@@ -193,14 +192,13 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 | 用户中心 | `/account` | 账户资料 + 团队管理 + 登录历史 |
 | 开发文档 | `/docs` | API 使用指南 |
 
-### 管理端（7 页面）
+### 管理端（6 页面）
 
 | 页面 | 路由 | 说明 |
 |------|------|------|
 | 模型管理 | `/admin/models` | 模型 CRUD + 多维定价 |
 | 渠道管理 | `/admin/channels` | Provider 凭证 CRUD（创建时自动发现模型并建渠道） |
 | 对账管理 | `/admin/reconciliation` | 对账运行记录 |
-| 成本核算 | `/admin/costs` | 按模型成本汇总 |
 | 企业管理 | `/admin/tenants` | 租户 CRUD + 审核/状态 |
 | 个人管理 | `/admin/users` | 用户 CRUD + 角色/状态 |
 | 账务管理 | `/admin/finance` | 账号账簿 |
@@ -273,7 +271,7 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 |---|--------|---------|
 | 1 | `request_id` 不是全局唯一账务身份 | 复合身份 `tenant+user+key+type+request_id` |
 | 2 | 预算预留必须发生在上游调用前 | Reserve → Execute → Commit/Release |
-| 3 | 路由结果必须进入证据链 | `channel_id` + `instance_id` + `route_policy_id` |
+| 3 | 路由结果必须进入证据链 | `channel_id` + `instance_id` |
 | 4 | `usage` 来源必须显式标记 | `upstream` / `final_chunk` / `estimated` / `cached` |
 | 5 | 流式错误不能伪装成正常成功 | 流中断/上游报错落 `failed`/`partial` 日志 + evidence，错误不伪装成功 |
 

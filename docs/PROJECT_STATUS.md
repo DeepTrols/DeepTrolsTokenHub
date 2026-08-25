@@ -66,7 +66,6 @@
 | 渠道管理 | CRUD + 实例管理（添加/删除）+ 健康/权重 |
 | 租户管理 | CRUD + 域名管理 + 5 状态状态机 |
 | 用户管理 | 列表 + 创建 + 角色/状态编辑 + 删除 |
-| 成本分析 | 按模型成本汇总 + 加价率设置 |
 | 对账管理 | 查看对账运行记录与差异 |
 | 审计日志 | 全量 Admin 操作记录 |
 
@@ -89,7 +88,7 @@
 | 页面结构 | SectionPageLayout 统一组件 |
 | 状态组件 | LoadingState / ErrorState / EmptyState |
 | 用户端页面 | 用量信息、API keys、调用记录、用量统计、充值、账单、模型广场、在线体验、用户中心、开发文档 |
-| 管理端页面 | 模型管理、渠道管理、配额管理、对账管理、策略管理、成本核算、企业管理、个人管理、账务管理 |
+| 管理端页面 | 模型管理、渠道管理、对账管理、企业管理、个人管理、账务管理 |
 
 ### 2.9 部署与运维
 
@@ -124,12 +123,10 @@
 
 ### 3.3 OEM 体系缺失
 
-| # | 功能 |
-|---|------|
-| 11 | 租户客户管理（封禁/调级/代充值） |
-| 12 | 租户创建时初始化 brand_config / runtime_config |
-| 13 | OEM 自助模型定价管理 |
-| 14 | 代充值（同租户钱包转账） |
+> OEM 进阶能力（租户级定价管理入口、客户等级/AI 折扣、Owner 发额度、可见性裁剪、
+> API Key 代管）已于 2026-08-25 明确不做，不再计划实施（见三十二节）。基础能力
+> （租户创建/审核/状态/入口/隔离、子账号客户管理、同租户代充值、brand/runtime/settlement
+> 配置、tenant_models 选品、租户级定价数据层、PAYG 门禁）均已实现。
 
 ### 3.4 MVP 范围外
 
@@ -162,7 +159,7 @@
 |------|------|------|
 | 本周 | 2天 | 流式错误修复 + 租户DB故障 + 无钱包拦截 |
 | 两周内 | 6天 | HMAC 认证 + Worker选主 + 健康评分 + 路由Redis |
-| 一月内 | 3-4周 | 折扣引擎 + OEM客户管理 |
+| 一月内 | 3-4周 | 折扣引擎 |
 | 后续 | 按需 | 支付网关 → 网关扩展端点 → 多币种 |
 
 ---
@@ -954,7 +951,6 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 ### 26.7 后续（不在本次范围）
 
-- 租户/user_level 倍率、模型级售价倍率列、OEM 自助定价管理端点。
 - 其他厂商成本行（当前只有 DeepSeek 官方价；其余模型沿用既有售价行 + upstream_cost）。
 
 ## 二十七、2026-08-24 工程改善批次：CI lint/前端测试门禁 + 死代码清理 + 测试补齐 + 配额页入口恢复
@@ -1139,3 +1135,51 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 前端：`npm test`（227/227，退出码 0）、`npm run lint`（0/0）、`npm run build`
   （tsc -b + vite build）全绿。
 - 文档同步：功能清单、README、PROJECT_STATUS 二节/三十节已按现状更新。
+
+## 三十一、2026-08-25 成本核算移除
+
+> 用户确认删除成本核算（/admin/costs）页面与 /api/admin/costs 接口：与账务管理
+> （/admin/finance）同源 usage_logs 聚合、存在冗余，保留账务管理作为账号资金视角。
+
+### 31.1 删除范围
+
+- 前端：删除 `web/src/pages/Costs.tsx`；AdminLayout 移除「成本核算」导航；App.tsx 移除
+  `/admin/costs` 路由。
+- 后端：删除 `internal/handler/console/costs.go`（HandleCostSummary + formatProfit /
+  formatMargin）与 `/api/admin/costs` 路由。
+- 说明：计费引擎的 cost/sell 定价、usage_logs 的 final_cost / upstream_cost 证据列
+  不受影响（那是证据面，不是管理页）。
+
+### 31.2 验证
+
+- Go：`go build ./...`、`go vet ./...`、`go test ./... -count=1` 全绿。
+- 前端：`npm test`、`npm run lint`、`npm run build`（tsc -b + vite build）全绿。
+- 文档同步：功能清单汇总（Console 页面 14 → 13）、README（管理端 6 页面、端点表）、
+  PROJECT_STATUS 二节/三十一节。
+
+## 三十二、2026-08-25 OEM 进阶取消（从计划与文档移除）
+
+> 用户确认不需要 OEM 进阶能力，将其从实施计划与功能清单中整体移除。OEM 基础能力保留
+> （已实现部分不受影响）。
+
+### 32.1 取消范围
+
+- **不再计划实施**：租户级定价管理入口、客户等级 / AI 折扣、Owner 直接发额度、可见性裁剪、
+  API Key 代管、用户等级折扣 / OEM 独立折扣（user_level 维度已随策略移除）。
+- **保留**：租户创建/审核/状态/入口/上下文/隔离、Admin RBAC、模型选品、租户级定价数据层
+  （model_pricing.tenant_id，数据层能力不动）、PAYG 门禁、子账号客户管理（CRUD/封禁/角色）、
+  同租户代充值、brand/runtime/settlement 配置。
+
+### 32.2 文档同步
+
+- `docs/DEEPTROLS_完整功能清单.md`：删除用户等级折扣 / OEM 独立折扣 / AI 折扣 / Owner 钱包 /
+  API Key 代管 / 可见性裁剪行；租户级定价与模型定价标注"数据层支持、管理入口不做"；客户管理
+  去掉等级；建议实施顺序删除 OEM 体系项；汇总 OEM 能力 16|10|2|4 → 12|12|0|0。
+- `docs/PRODUCTION_READINESS.md`：F3 OEM/白标 由 🟡 转 ✅（进阶项明确不做）。
+- `docs/PROJECT_STATUS.md`：三.3 改为取消说明；五节建议计划去掉 OEM 客户管理；26.7 后续
+  删除租户/user_level 倍率与 OEM 自助定价端点。
+
+### 32.3 说明
+
+- 本次仅文档变更，不涉及代码/迁移；`go build/vet/test` 与前端测试不受影响（无需重跑全量，
+  但文档口径已与代码一致）。
