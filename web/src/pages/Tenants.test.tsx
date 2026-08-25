@@ -47,7 +47,7 @@ describe("Tenants（企业管理）", () => {
 
     renderWithProviders(<Tenants />);
 
-    expect(screen.getByText("企业管理")).toBeInTheDocument();
+    expect(screen.getByText("租户管理")).toBeInTheDocument();
     expect(await screen.findByText("创建企业")).toBeInTheDocument();
   });
 

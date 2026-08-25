@@ -164,21 +164,6 @@ func main() {
 
 		r.Get("/audit", console.HandleListAuditLogs(application))
 		r.Get("/gateway/health", console.HandleGatewayHealth(application))
-		r.Post("/routing/simulate", console.HandleSimulateRouting(application))
-		r.Get("/guardrails", console.HandleListGuardrailPolicies(application))
-		r.Post("/guardrails", console.HandleSaveGuardrailPolicy(application))
-		r.Delete("/guardrails/{id}", console.HandleDeleteGuardrailPolicy(application))
-
-		// Billing connectors (OneAPI / NewAPI / Aliyun billing sync, Step 1a).
-		r.Get("/billing/connectors", console.HandleListBillingConnectors(application))
-		r.Post("/billing/connectors", console.HandleCreateBillingConnector(application))
-		r.Get("/billing/connectors/{id}", console.HandleGetBillingConnector(application))
-		r.Put("/billing/connectors/{id}", console.HandleUpdateBillingConnector(application))
-		r.Delete("/billing/connectors/{id}", console.HandleDeleteBillingConnector(application))
-		r.Post("/billing/connectors/{id}/test", console.HandleTestBillingConnector(application))
-		r.Post("/billing/connectors/{id}/sync", console.HandleSyncBillingConnector(application))
-		r.Get("/billing/connectors/{id}/records", console.HandleListBillingRecords(application))
-		r.Get("/billing/connectors/{id}/runs", console.HandleListBillingSyncRuns(application))
 	})
 
 	srv := &http.Server{

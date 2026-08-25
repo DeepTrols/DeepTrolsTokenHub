@@ -2108,3 +2108,32 @@ cd web && npm run test:e2e
 
 - 前端 `npm test`（207/207，27 文件）、`lint`（0/0）、`build` 全绿；
 - 既有 Go 全量测试保持全绿；Playwright 冒烟不受影响（未涉及被删路由）。
+
+## 六十四、2026-08-25 清除后端死代码 + 后台导航命名收敛
+
+> 把上一轮"仅移除入口但保留不可达代码"的项也一并清干净，并统一后台措辞。
+
+### 64.1 变更
+
+- **后端死代码清除**：
+  - `auth.go`：删除 `HandleRegisterEnterprise`、`enterpriseRegisterRequest`、
+    `deriveTenantCode`、`slugify`（及不再使用的导入）与 `auth_test.go` 企业
+    注册测试块；
+  - 删除 `console/routing.go`（`/routing/simulate`）、`console/guardrails.go`
+    （`/guardrails*`）、`console/billing.go`（`/billing/connectors*`）及其测试；
+  - `main.go` 移除上述全部路由。
+  - Guardrails 引擎与网关接线保留（无策略时为空转），billing_sync 服务与
+    Worker 保留。
+- **后台导航/标题**：
+  - `AdminLayout` 底部快捷导航：移除「企业管理」「账务管理」，把「个人管理」
+    改为「用户管理」（`/admin/users`）；
+  - `Users.tsx` 标题「个人管理」→「用户管理」，`Tenants.tsx` 标题「企业管理」
+    →「租户管理」（租户页保留为运营项，不再挂「企业」措辞入口）。
+- **登录页**：移除「个人/企业」账号切换，统一为开发者账号（文案、占位符、
+  注册链接 `/register`），`Login.test.tsx` 同步。
+
+### 64.2 验证
+
+- Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
+- 前端 `npm test`（205/205，27 文件）、`lint`（0/0）、`build` 全绿；
+- 已将最新后端构建重启到 8080。

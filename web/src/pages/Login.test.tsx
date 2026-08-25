@@ -41,35 +41,7 @@ describe("Login", () => {
     renderLogin();
     expect(screen.getByText("AI 模型聚合平台 · 管理控制台")).toBeInTheDocument();
     const registerLink = screen.getByRole("link", { name: /立即注册/ });
-    expect(registerLink).toHaveAttribute("href", "/register?type=personal");
-  });
-
-  it("switches to enterprise mode: changes copy and register link target", async () => {
-    const user = userEvent.setup();
-    renderLogin();
-
-    await user.click(screen.getByRole("button", { name: "企业" }));
-
-    expect(screen.getByText("企业 AI 模型聚合平台 · 管理控制台")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("请输入企业管理员账号")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("请输入密码")).toBeInTheDocument();
-    const registerLink = screen.getByRole("link", { name: /立即注册/ });
-    expect(registerLink).toHaveAttribute("href", "/register?type=enterprise");
-  });
-
-  it("switches back to personal mode and restores personal copy", async () => {
-    const user = userEvent.setup();
-    renderLogin();
-
-    await user.click(screen.getByRole("button", { name: "企业" }));
-    await user.click(screen.getByRole("button", { name: "个人" }));
-
-    expect(screen.getByText("AI 模型聚合平台 · 管理控制台")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("请输入管理员账号")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /立即注册/ })).toHaveAttribute(
-      "href",
-      "/register?type=personal",
-    );
+    expect(registerLink).toHaveAttribute("href", "/register");
   });
 
   it("submits and navigates to dashboard on success", async () => {

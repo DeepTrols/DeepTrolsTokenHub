@@ -48,7 +48,7 @@ describe("Users（个人管理）", () => {
 
     renderWithProviders(<Users />);
 
-    expect(screen.getByText("个人管理")).toBeInTheDocument();
+    expect(screen.getByText("用户管理")).toBeInTheDocument();
     expect(await screen.findByText("创建个人用户")).toBeInTheDocument();
   });
 

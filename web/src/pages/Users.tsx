@@ -108,7 +108,7 @@ export default function Users() {
       <SectionPageLayout>
         <SectionPageLayout.Header>
           <SectionPageLayout.HeaderBlock>
-            <SectionPageLayout.Title>个人管理</SectionPageLayout.Title>
+            <SectionPageLayout.Title>用户管理</SectionPageLayout.Title>
           </SectionPageLayout.HeaderBlock>
         </SectionPageLayout.Header>
         <SectionPageLayout.Content>
@@ -122,7 +122,7 @@ export default function Users() {
     <SectionPageLayout>
       <SectionPageLayout.Header>
         <SectionPageLayout.HeaderBlock>
-          <SectionPageLayout.Title>个人管理</SectionPageLayout.Title>
+          <SectionPageLayout.Title>用户管理</SectionPageLayout.Title>
           <SectionPageLayout.Description>共 {total} 个个人账号</SectionPageLayout.Description>
         </SectionPageLayout.HeaderBlock>
         <SectionPageLayout.Actions>

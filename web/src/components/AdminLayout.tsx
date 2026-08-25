@@ -6,8 +6,6 @@ import {
   LogOut,
   Shield,
   UserCog,
-  DollarSign,
-  Building2,
   ScrollText,
   Activity,
 } from "lucide-react";
@@ -71,20 +69,6 @@ export default function AdminLayout() {
             ))}
 
             <NavLink
-              to="/admin/tenants"
-              className={({ isActive }) => linkClass(isActive)}
-            >
-              {({ isActive }) => (
-                <>
-                  <span className={`nav-ic !w-[30px] !h-[30px] !rounded-[9px] ${isActive ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]" : "text-[#0FA88B]"}`}>
-                    <Building2 size={15} />
-                  </span>
-                  企业管理
-                </>
-              )}
-            </NavLink>
-
-            <NavLink
               to="/admin/users"
               className={({ isActive }) => linkClass(isActive)}
             >
@@ -93,21 +77,7 @@ export default function AdminLayout() {
                   <span className={`nav-ic !w-[30px] !h-[30px] !rounded-[9px] ${isActive ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]" : "text-[#4F6BED]"}`}>
                     <UserCog size={15} />
                   </span>
-                  个人管理
-                </>
-              )}
-            </NavLink>
-
-            <NavLink
-              to="/admin/finance"
-              className={({ isActive }) => linkClass(isActive)}
-            >
-              {({ isActive }) => (
-                <>
-                  <span className={`nav-ic !w-[30px] !h-[30px] !rounded-[9px] ${isActive ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]" : "text-[#C9A96A]"}`}>
-                    <DollarSign size={15} />
-                  </span>
-                  账务管理
+                  用户管理
                 </>
               )}
             </NavLink>

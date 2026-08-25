@@ -172,7 +172,7 @@ export default function Tenants() {
       <SectionPageLayout>
         <SectionPageLayout.Header>
           <SectionPageLayout.HeaderBlock>
-            <SectionPageLayout.Title>企业管理</SectionPageLayout.Title>
+            <SectionPageLayout.Title>租户管理</SectionPageLayout.Title>
           </SectionPageLayout.HeaderBlock>
         </SectionPageLayout.Header>
         <SectionPageLayout.Content>
@@ -186,7 +186,7 @@ export default function Tenants() {
     <SectionPageLayout>
       <SectionPageLayout.Header>
         <SectionPageLayout.HeaderBlock>
-          <SectionPageLayout.Title>企业管理</SectionPageLayout.Title>
+          <SectionPageLayout.Title>租户管理</SectionPageLayout.Title>
           <SectionPageLayout.Description>共 {total} 家企业</SectionPageLayout.Description>
         </SectionPageLayout.HeaderBlock>
         <SectionPageLayout.Actions>

@@ -6,22 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type AccountType = "personal" | "enterprise";
-
-/** Copy + register-link target differ per account type; the login form is shared. */
-const ACCOUNT_COPY: Record<AccountType, { description: string; accountPlaceholder: string; registerText: string; registerTarget: string }> = {
-  personal: {
-    description: "AI 模型聚合平台 · 管理控制台",
-    accountPlaceholder: "请输入管理员账号",
-    registerText: "还没有账号？",
-    registerTarget: "/register?type=personal",
-  },
-  enterprise: {
-    description: "企业 AI 模型聚合平台 · 管理控制台",
-    accountPlaceholder: "请输入企业管理员账号",
-    registerText: "还没有企业账号？",
-    registerTarget: "/register?type=enterprise",
-  },
+/** Login copy + register-link target (developer/个人 account). */
+const COPY = {
+  description: "AI 模型聚合平台 · 管理控制台",
+  accountPlaceholder: "请输入管理员账号",
+  registerText: "还没有账号？",
+  registerTarget: "/register",
 };
 
 /** 一把密钥即可调用的模型（登录页展示，非模型目录数据源）。以国产模型为主。 */
@@ -44,7 +34,6 @@ const FEATURES = [
 export default function Login() {
   const navigate = useNavigate();
   const auth = useAuth();
-  const [accountType, setAccountType] = useState<AccountType>("personal");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -70,7 +59,7 @@ export default function Login() {
     };
   }, []);
 
-  const copy = ACCOUNT_COPY[accountType];
+  const copy = COPY;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,24 +197,6 @@ export default function Login() {
           </div>
           <h3 className="font-display text-[25px] font-bold mt-3">登录控制台</h3>
           <p className="text-[13px] text-[#5C6472] mt-1.5 mb-7">{copy.description}</p>
-
-          <div className="inline-flex rounded-xl glass-soft p-1 mb-7" role="group" aria-label="账号类型">
-            {(["personal", "enterprise"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setAccountType(t)}
-                aria-pressed={accountType === t}
-                className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-all ${
-                  accountType === t
-                    ? "bg-white/85 text-foreground shadow-[0_4px_14px_rgba(63,76,128,0.12)]"
-                    : "text-[#5C6472] hover:text-foreground"
-                }`}
-              >
-                {t === "personal" ? "个人" : "企业"}
-              </button>
-            ))}
-          </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
