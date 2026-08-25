@@ -50,6 +50,10 @@ backups/
 web/.impeccable/hook.cache.json
 web/tsconfig.tsbuildinfo
 
+# Local Claude artifacts (never commit)
+.claude/settings.local.json
+.claude/shots/
+
 # Vite temp
 web/vite.config.ts.timestamp-*
 
