@@ -11,6 +11,7 @@ import {
   Route,
   ShieldAlert,
   ReceiptText,
+  ScrollText,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
@@ -22,6 +23,7 @@ const manageItems = [
   { to: "/admin/routing-simulator", icon: Route, label: "路由模拟器", color: "text-[#12A5B0]" },
   { to: "/admin/guardrails", icon: ShieldAlert, label: "内容策略", color: "text-[#8B6FE8]" },
   { to: "/admin/billing", icon: ReceiptText, label: "账单同步", color: "text-[#0FA88B]" },
+  { to: "/admin/audit", icon: ScrollText, label: "审计日志", color: "text-[#5C6472]" },
 ];
 
 export default function AdminLayout() {

@@ -1697,3 +1697,24 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 ### 49.2 验证
 
 - 前端 `npm test`（231/231）、`lint`（0/0）、`build` 全绿；Go 无改动。
+
+## 五十、2026-08-25 审计日志页（后端接口 + 前端页面）
+
+> Phase 5 前端补齐第四批：把已落库的 audit_logs 变成可视化管理页面。
+
+### 50.1 变更
+
+- 后端 `internal/handler/console/audit.go`：`GET /api/admin/audit`——最近 200 条
+  audit_logs（LEFT JOIN users 取操作者邮箱，new_value 透传 JSON）。
+- 前端 `web/src/pages/AuditLogs.tsx`：时间/操作者/动作/资源/详情（截断）/IP 表格，
+  空态与错误重试；路由 `/admin/audit` + 管理端「审计日志」导航。
+
+### 50.2 测试
+
+- `console/audit_test.go`：真实 PG 种子审计行 + 用户 → 列表返回操作者邮箱与动作；
+- `AuditLogs.test.tsx`：渲染审计条目。
+
+### 50.3 验证
+
+- Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG，复跑全绿）通过；
+- 前端 `npm test`（232/232）、`lint`（0/0）、`build` 全绿。

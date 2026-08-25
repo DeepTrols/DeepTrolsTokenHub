@@ -22,6 +22,7 @@ import Users from "./pages/Users";
 import RoutingSimulator from "./pages/RoutingSimulator";
 import Guardrails from "./pages/Guardrails";
 import BillingSync from "./pages/BillingSync";
+import AuditLogs from "./pages/AuditLogs";
 import UserCenter from "./pages/UserCenter";
 import Docs from "./pages/Docs";
 
@@ -77,6 +78,7 @@ export default function App() {
         <Route path="routing-simulator" element={<RoutingSimulator />} />
         <Route path="guardrails" element={<Guardrails />} />
         <Route path="billing" element={<BillingSync />} />
+        <Route path="audit" element={<AuditLogs />} />
       </Route>
     </Routes>
   );
