@@ -37,10 +37,10 @@ func (r *PostgresRepository) Create(ctx context.Context, key *domain.APIKey) err
 			id, user_id, tenant_id, key_prefix, key_hash, encrypted_key, masked_key,
 			name, status, allowed_models, source_whitelist,
 			cumulative_limit, weekly_limit, monthly_limit,
-			over_limit_action, created_at, updated_at
+			over_limit_action, rate_limit_rpm, rate_limit_tpm, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-			$12, $13, $14, $15, $16, $17
+			$12, $13, $14, $15, $16, $17, $18, $19
 		)
 	`
 
@@ -48,7 +48,8 @@ func (r *PostgresRepository) Create(ctx context.Context, key *domain.APIKey) err
 		key.ID, key.UserID, key.TenantID, key.KeyPrefix, key.KeyHash, key.EncryptedKey, key.MaskedKey,
 		key.Name, key.Status, allowedModels, sourceWhitelist,
 		key.CumulativeLimit, key.WeeklyLimit, key.MonthlyLimit,
-		key.OverLimitAction, key.CreatedAt, key.UpdatedAt,
+		key.OverLimitAction, key.RateLimitRPM, key.RateLimitTPM,
+		key.CreatedAt, key.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("apikey create: %w", err)
@@ -87,6 +88,7 @@ func scanKey(row pgx.Row) (*domain.APIKey, error) {
 		&k.ID, &k.UserID, &k.TenantID,
 		&k.KeyPrefix, &k.KeyHash, &k.EncryptedKey, &k.MaskedKey,
 		&k.Name, &k.Status,
+		&k.RateLimitRPM, &k.RateLimitTPM,
 		&allowedJSON, &whitelistJSON,
 		&cumulativeLimitStr, &weeklyLimitStr, &monthlyLimitStr,
 		&k.OverLimitAction, &k.LastUsedAt, &k.Last7dActive,
@@ -125,6 +127,7 @@ const apiKeySelectClause = `
 		id, user_id, tenant_id, key_prefix, key_hash,
 		COALESCE(encrypted_key, ''), masked_key,
 		COALESCE(name, ''), status,
+		rate_limit_rpm, rate_limit_tpm,
 		COALESCE(array_to_json(allowed_models)::text, '[]'),
 		COALESCE(array_to_json(source_whitelist)::text, '[]'),
 		COALESCE(cumulative_limit::text, ''), COALESCE(weekly_limit::text, ''), COALESCE(monthly_limit::text, ''),

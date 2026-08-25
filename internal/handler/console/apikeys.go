@@ -33,6 +33,8 @@ type apiKeyResponse struct {
 	WeeklyLimit     string   `json:"weekly_limit,omitempty"`
 	MonthlyLimit    string   `json:"monthly_limit,omitempty"`
 	OverLimitAction string   `json:"over_limit_action,omitempty"`
+	RateLimitRPM    int      `json:"rate_limit_rpm,omitempty"`
+	RateLimitTPM    int64    `json:"rate_limit_tpm,omitempty"`
 	LastUsedAt      string   `json:"last_used_at,omitempty"`
 	Last7dActive    bool     `json:"last_7d_active"`
 	CreatedAt       string   `json:"created_at"`
@@ -46,6 +48,8 @@ type createAPIKeyRequest struct {
 	WeeklyLimit     string   `json:"weekly_limit,omitempty"`
 	CumulativeLimit string   `json:"cumulative_limit,omitempty"`
 	OverLimitAction string   `json:"over_limit_action,omitempty"`
+	RateLimitRPM    int      `json:"rate_limit_rpm,omitempty"`
+	RateLimitTPM    int64    `json:"rate_limit_tpm,omitempty"`
 }
 
 type createAPIKeyResponse struct {
@@ -85,6 +89,8 @@ func HandleListAPIKeys(a *app.App) http.HandlerFunc {
 				Status:          string(k.Status),
 				AllowedModels:   k.AllowedModels,
 				OverLimitAction: string(k.OverLimitAction),
+				RateLimitRPM:    k.RateLimitRPM,
+				RateLimitTPM:    k.RateLimitTPM,
 				Last7dActive:    k.Last7dActive,
 				CreatedAt:       k.CreatedAt.Format(time.RFC3339),
 			}
@@ -192,6 +198,12 @@ func HandleCreateAPIKey(a *app.App) http.HandlerFunc {
 			}
 			key.OverLimitAction = action
 		}
+		if req.RateLimitRPM < 0 || req.RateLimitTPM < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "rate_limit_rpm/tpm cannot be negative"})
+			return
+		}
+		key.RateLimitRPM = req.RateLimitRPM
+		key.RateLimitTPM = req.RateLimitTPM
 
 		if err := a.APIKeys.Create(r.Context(), &key); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create API key"})
@@ -243,6 +255,8 @@ func HandleUpdateAPIKey(a *app.App) http.HandlerFunc {
 			WeeklyLimit     *string  `json:"weekly_limit,omitempty"`
 			CumulativeLimit *string  `json:"cumulative_limit,omitempty"`
 			OverLimitAction *string  `json:"over_limit_action,omitempty"`
+			RateLimitRPM    *int     `json:"rate_limit_rpm,omitempty"`
+			RateLimitTPM    *int64   `json:"rate_limit_tpm,omitempty"`
 			Status          *string  `json:"status,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -306,6 +320,20 @@ func HandleUpdateAPIKey(a *app.App) http.HandlerFunc {
 				}
 				key.OverLimitAction = action
 			}
+		}
+		if req.RateLimitRPM != nil {
+			if *req.RateLimitRPM < 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "rate_limit_rpm cannot be negative"})
+				return
+			}
+			key.RateLimitRPM = *req.RateLimitRPM
+		}
+		if req.RateLimitTPM != nil {
+			if *req.RateLimitTPM < 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "rate_limit_tpm cannot be negative"})
+				return
+			}
+			key.RateLimitTPM = *req.RateLimitTPM
 		}
 		if req.Status != nil {
 			status := domain.APIKeyStatus(*req.Status)

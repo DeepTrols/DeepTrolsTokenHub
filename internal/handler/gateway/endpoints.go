@@ -59,7 +59,7 @@ func handleForwardedEndpoint(
 	validate func(body map[string]any) error,
 	estimate func(body map[string]any) *usageparser.NormalizedUsage,
 ) {
-	body, modelName, ok := decodeForwardedRequest(w, r, application, validate)
+	body, modelName, ok := decodeForwardedRequest(w, r, application, validate, estimate)
 	if !ok {
 		return
 	}
@@ -79,7 +79,7 @@ func handleForwardedRawEndpoint(
 	validate func(body map[string]any) error,
 	estimate func(body map[string]any) *usageparser.NormalizedUsage,
 ) {
-	body, modelName, ok := decodeForwardedRequest(w, r, application, validate)
+	body, modelName, ok := decodeForwardedRequest(w, r, application, validate, estimate)
 	if !ok {
 		return
 	}
@@ -88,7 +88,7 @@ func handleForwardedRawEndpoint(
 
 // decodeForwardedRequest performs the shared method/body/model validation and
 // strips client fields that could override upstream routing or credentials.
-func decodeForwardedRequest(w http.ResponseWriter, r *http.Request, application *app.App, validate func(body map[string]any) error) (map[string]any, string, bool) {
+func decodeForwardedRequest(w http.ResponseWriter, r *http.Request, application *app.App, validate func(body map[string]any) error, estimate func(body map[string]any) *usageparser.NormalizedUsage) (map[string]any, string, bool) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Only POST is allowed")
 		return nil, "", false
@@ -115,7 +115,7 @@ func decodeForwardedRequest(w http.ResponseWriter, r *http.Request, application 
 
 	// Enforce API key governance boundaries before routing/billing so the
 	// model allowlist, IP whitelist, and spend limits apply to every endpoint.
-	if err := enforceAPIKeyBoundaries(r, application, modelName); err != nil {
+	if err := enforceAPIKeyBoundaries(w, r, application, modelName, estimate(body).TotalTokens); err != nil {
 		var be *boundaryError
 		if errors.As(err, &be) {
 			writeError(w, be.status, be.errType, be.message)

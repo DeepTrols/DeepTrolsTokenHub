@@ -1403,3 +1403,71 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 ### 39.3 验证
 
 - `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。
+
+## 四十、2026-08-25 Phase 1（第一部分）：Guardrails 网关接线
+
+> 蓝图 Step 4 Phase 1 治理的第一部分：出站内容策略进入 chat 请求主链路。
+
+### 40.1 变更
+
+- `internal/guardrails/source.go`：新增 `PolicySource` 接口（LoadPolicies）；
+  persistence 仓储实现并加编译期断言。
+- `internal/app/app.go`：装配 `Guardrails`（引擎，模型检测器暂为 nil）与
+  `GuardrailsPolicies`（pgx 仓储）。
+- `internal/handler/gateway/chat.go`：
+  - `evaluateOutboundGuardrails`：边界检查后、路由/计费前加载策略并评估
+    （Checkpoint=before_provider，作用域=租户/用户，fragments=消息文本）；
+  - block → 400 `guardrail_blocked`（含原因码）并写 audit_logs
+    （action=guardrail_blocked）；
+  - `chatFragments`：提取字符串与多模态 text 片段；
+  - 引擎/策略源未装配时跳过（兼容旧测试与未配置部署）。
+
+### 40.2 测试
+
+- `chat_test.go`：`TestHandleChatCompletions_GuardrailBlocked`（真实 PG：关键词命中 →
+  400 + 审计落库）、`TestChatFragments_ExtractsText`（字符串/多模态/空内容）。
+
+### 40.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。
+
+### 40.4 后续（Phase 1 剩余）
+
+- RPM/TPM 分钟桶（Redis + DB 降级）、项目/团队预算 + 审批流；
+- Guardrails Admin 策略编辑器 + 前端页面。
+
+## 四十一、2026-08-25 Phase 1（第二部分）：RPM/TPM 分钟桶
+
+> 蓝图 Step 4 Phase 1 治理的第二部分：Key 级请求/Token 分钟限流。
+
+### 41.1 变更
+
+- 迁移 `000018_minute_buckets`：`api_keys` 增加 `rate_limit_rpm`（INT，0=不限）与
+  `rate_limit_tpm`（BIGINT，0=不限）；新增 `api_key_quota_buckets`（key_id+bucket
+  主键，requests/tokens 计数）。
+- 新包 `internal/pkg/minutebucket/`：
+  - `RedisStore`：Lua 原子自增 + 超限回滚（单 key 双字段，120s 过期）；
+  - `PostgresStore`：DB 降级实现（事务 upsert + 超限回滚）；
+  - `NewStore`：Redis 优先、PG 兜底。
+- `internal/domain/apikey.go` + `internal/repository/apikey`：rpm/tpm 字段读写。
+- 网关准入 `internal/handler/gateway/boundaries.go`：`enforceAPIKeyBoundaries` 增加
+  `w` 与 `estimatedTokens` 参数；Key 配置限流时按估算 token 预留分钟桶，超限
+  **429 `rate_limit_exceeded`**，并写 `X-RateLimit-*` 头（TokenHub 契约）；桶存储
+  故障 fail-open 记日志（不阻断调用）。
+- Console API：API Key 创建/更新/列表支持 `rate_limit_rpm/tpm`。
+
+### 41.2 测试
+
+- minutebucket：miniredis（RPM/TPM/跨分钟桶独立/超限回滚）+ 真实 PG（同上）；
+- boundaries：`TestEnforceAPIKeyBoundaries_MinuteBucketRPM`（rpm=1 → 首请求放行 +
+  Remaining=0 头，第二请求 429）。
+
+### 41.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。
+
+### 41.4 说明与后续
+
+- 当前按估算 token 预留、不做结算回填（实际用量与估算的差额会在下一分钟桶体现）；
+  精确 settle 列入 Phase 2 收尾。
+- 下一步：项目/团队预算 + 审批流，Guardrails Admin 策略编辑器。

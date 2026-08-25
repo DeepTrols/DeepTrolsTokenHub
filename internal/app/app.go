@@ -16,7 +16,10 @@ import (
 	billingadapters "github.com/deeptrols/api/internal/billing_sync/adapters"
 	billingpersistence "github.com/deeptrols/api/internal/billing_sync/persistence"
 	"github.com/deeptrols/api/internal/config"
+	"github.com/deeptrols/api/internal/guardrails"
+	guardrailpersistence "github.com/deeptrols/api/internal/guardrails/persistence"
 	"github.com/deeptrols/api/internal/pkg/db"
+	"github.com/deeptrols/api/internal/pkg/minutebucket"
 	"github.com/deeptrols/api/internal/pkg/ratelimit"
 	"github.com/deeptrols/api/internal/pkg/redis"
 	"github.com/deeptrols/api/internal/provider"
@@ -67,6 +70,9 @@ type App struct {
 	// into billing_records for reconciliation L3.
 	BillingSync     *billingsync.Service
 	BillingSyncRepo billingsync.Repository
+	// Guardrails evaluates outbound content policies before upstream calls.
+	Guardrails         *guardrails.Engine
+	GuardrailsPolicies guardrails.PolicySource
 	// LoadTracker tracks per-instance in-flight counts in Redis. It is always
 	// non-nil; when Redis is unavailable it is a no-op tracker and routing
 	// falls back to the DB current_load column.
@@ -79,6 +85,9 @@ type App struct {
 
 	// ResponseCache caches identical upstream responses to skip billing.
 	ResponseCache *cache.Service
+	// MinuteBuckets enforces per-API-key RPM/TPM limits (Redis primary,
+	// PostgreSQL fallback). Nil disables the check.
+	MinuteBuckets minutebucket.Store
 }
 
 // NewApp creates a new App instance with a database connection pool
@@ -112,6 +121,9 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.BillingSyncRepo = billingSyncRepo
 	a.BillingSync = billingsync.NewService(billingSyncRepo,
 		billingadapters.NewRegistry(&http.Client{Timeout: 30 * time.Second}))
+	guardrailRepo := guardrailpersistence.NewPostgresRepository(pool)
+	a.GuardrailsPolicies = guardrailRepo
+	a.Guardrails = guardrails.NewEngine(nil)
 
 	// Wire services.
 	a.Charger = billing.NewCharger(a.Wallets)
@@ -128,6 +140,9 @@ func NewApp(cfg *config.Config) (*App, error) {
 	// Wire response cache — MUST run after initRateLimiter so a.Redis is set.
 	// If Redis is unavailable, caching is silently disabled (no-op).
 	a.ResponseCache = cache.New(a.Redis, cfg.ResponseCache.ToServiceConfig())
+
+	// Wire per-key minute quota buckets after Redis is known.
+	a.MinuteBuckets = minutebucket.NewStore(a.Redis, minutebucket.NewPostgresStore(pool))
 
 	// Wire real-time load tracking — MUST run after initRateLimiter so
 	// a.Redis is set. Without Redis the tracker is a no-op and routing falls

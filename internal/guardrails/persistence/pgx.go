@@ -23,6 +23,8 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
 }
 
+var _ guardrails.PolicySource = (*PostgresRepository)(nil)
+
 func (r *PostgresRepository) LoadPolicies(ctx context.Context) ([]guardrails.Policy, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, name, description, status, config_version, created_at, updated_at

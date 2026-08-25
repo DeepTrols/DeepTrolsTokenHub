@@ -16,9 +16,11 @@ import (
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/config"
 	"github.com/deeptrols/api/internal/domain"
+	"github.com/deeptrols/api/internal/guardrails"
 	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/deeptrols/api/internal/repository/model"
+	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/usage"
 	"github.com/deeptrols/api/internal/service/billing"
 	gw "github.com/deeptrols/api/internal/service/gateway"
@@ -1766,6 +1768,95 @@ func TestHandleChatCompletions_NonStream_DispatchesCorrectly(t *testing.T) {
 	}
 	if executor.executeCalled == 0 {
 		t.Error("non-streaming executor should have been called")
+	}
+}
+
+type fakeGuardrailPolicySource struct {
+	policies []guardrails.Policy
+}
+
+func (f *fakeGuardrailPolicySource) LoadPolicies(context.Context) ([]guardrails.Policy, error) {
+	return f.policies, nil
+}
+
+// TestHandleChatCompletions_GuardrailBlocked verifies the Phase 1 outbound
+// guardrail wiring: a blocking keyword yields 400 guardrail_blocked before any
+// routing or upstream execution.
+func TestHandleChatCompletions_GuardrailBlocked(t *testing.T) {
+	pool := testutil.SetupPool(t)
+	testutil.TruncateAll(t, pool)
+
+	policy, err := guardrails.NormalizePolicy(guardrails.Policy{
+		ID:            "p-block",
+		Name:          "敏感拦截",
+		Status:        guardrails.StatusActive,
+		ConfigVersion: guardrails.CurrentConfigVersion,
+		DetectionItems: []guardrails.DetectionItem{
+			{
+				ID: "i1", PolicyID: "p-block", Name: "keyword", DetectorType: guardrails.DetectorPattern,
+				Action: guardrails.ActionBlock, ConfigVersion: guardrails.CurrentConfigVersion,
+				Config: map[string]any{"keywords": []any{"机密"}},
+			},
+		},
+		Bindings: []guardrails.Binding{
+			{
+				ID: "b1", PolicyID: "p-block", ScopeType: guardrails.ScopeAllProjects,
+				Checkpoint: guardrails.CheckpointBeforeProvider, Protocol: guardrails.ProtocolAll,
+				ConfigVersion: guardrails.CurrentConfigVersion,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize policy: %v", err)
+	}
+
+	application := &app.App{
+		Pool:               pool,
+		Config:             &config.Config{},
+		Guardrails:         guardrails.NewEngine(nil),
+		GuardrailsPolicies: &fakeGuardrailPolicySource{policies: []guardrails.Policy{policy}},
+	}
+
+	body := bytes.NewBufferString(`{"model":"deepseek-chat","messages":[{"role":"user","content":"这是机密内容"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+	req = setAuthContext(req, uuid.New(), uuid.New())
+	w := httptest.NewRecorder()
+
+	HandleChatCompletions(application).ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "guardrail_blocked") {
+		t.Errorf("body = %s, want guardrail_blocked", w.Body.String())
+	}
+
+	var auditCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM audit_logs WHERE action = 'guardrail_blocked'`).Scan(&auditCount); err != nil {
+		t.Fatalf("audit query: %v", err)
+	}
+	if auditCount != 1 {
+		t.Errorf("guardrail_blocked audits = %d, want 1", auditCount)
+	}
+}
+
+func TestChatFragments_ExtractsText(t *testing.T) {
+	fragments := chatFragments(map[string]any{
+		"messages": []any{
+			map[string]any{"role": "user", "content": "hello"},
+			map[string]any{"role": "user", "content": []any{
+				map[string]any{"type": "text", "text": "part one"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "x"}},
+			}},
+			map[string]any{"role": "user", "content": ""},
+		},
+	})
+	if len(fragments) != 2 {
+		t.Fatalf("fragments = %d, want 2", len(fragments))
+	}
+	if fragments[0].Text != "hello" || fragments[1].Text != "part one" {
+		t.Errorf("fragments = %+v", fragments)
 	}
 }
 

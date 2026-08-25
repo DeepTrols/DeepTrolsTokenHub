@@ -15,6 +15,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
+	"github.com/deeptrols/api/internal/guardrails"
 	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/deeptrols/api/internal/provider"
@@ -63,7 +64,7 @@ func HandleChatCompletions(application *app.App) http.HandlerFunc {
 		// Enforce API key governance boundaries (model allowlist / IP / spend
 		// limits) before routing, billing, or cache so every request — cache
 		// hits included — is subject to the same policy.
-		if err := enforceAPIKeyBoundaries(r, application, modelName); err != nil {
+		if err := enforceAPIKeyBoundaries(w, r, application, modelName, estimateUsageFromBody(body).TotalTokens); err != nil {
 			var be *boundaryError
 			if errors.As(err, &be) {
 				writeError(w, be.status, be.errType, be.message)
@@ -71,6 +72,19 @@ func HandleChatCompletions(application *app.App) http.HandlerFunc {
 			}
 			log.Printf("gateway: boundary check error: %v", err)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Unable to verify API key policy")
+			return
+		}
+
+		// Outbound content guardrails (Phase 1): evaluate persisted policies
+		// before routing/billing. A block is a hard 400 and is audited.
+		if err := evaluateOutboundGuardrails(r, application, body); err != nil {
+			var gbe *guardrailBlockedError
+			if errors.As(err, &gbe) {
+				writeError(w, http.StatusBadRequest, "guardrail_blocked", gbe.message)
+				return
+			}
+			log.Printf("gateway: guardrail evaluation error: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal_error", "Guardrail evaluation failed")
 			return
 		}
 
@@ -82,6 +96,115 @@ func HandleChatCompletions(application *app.App) http.HandlerFunc {
 		}
 
 		HandleNonStreamingChat(w, r, application, modelName, body)
+	}
+}
+
+// guardrailBlockedError carries a content-policy block back to the handler.
+type guardrailBlockedError struct {
+	message string
+}
+
+func (e *guardrailBlockedError) Error() string { return e.message }
+
+// evaluateOutboundGuardrails loads persisted policies and evaluates the chat
+// message content before the request reaches routing or billing. Disabled
+// when the engine or policy source is not wired.
+func evaluateOutboundGuardrails(r *http.Request, application *app.App, body map[string]any) error {
+	if application.Guardrails == nil || application.GuardrailsPolicies == nil {
+		return nil
+	}
+	policies, err := application.GuardrailsPolicies.LoadPolicies(r.Context())
+	if err != nil {
+		return err
+	}
+	if len(policies) == 0 {
+		return nil
+	}
+
+	identity := resolveAuthIdentity(r)
+	scopeID := ""
+	if identity != nil && identity.TenantID != nil {
+		scopeID = identity.TenantID.String()
+	} else if identity != nil {
+		scopeID = identity.UserID.String()
+	}
+	decision, err := application.Guardrails.Evaluate(r.Context(), guardrails.EvaluationRequest{
+		ProjectID:  scopeID,
+		Checkpoint: guardrails.CheckpointBeforeProvider,
+		Protocol:   guardrails.ProtocolAll,
+		Fragments:  chatFragments(body),
+		Policies:   policies,
+	})
+	if err != nil {
+		return err
+	}
+	if decision.Action != guardrails.ActionBlock {
+		return nil
+	}
+	recordGuardrailBlock(r, application, decision, scopeID)
+	message := "Request blocked by content policy"
+	if len(decision.Findings) > 0 {
+		message = decision.Findings[0].ReasonCode
+		if message == "" {
+			message = decision.Findings[0].Category
+		}
+	}
+	return &guardrailBlockedError{message: "guardrail: " + message}
+}
+
+// chatFragments extracts user/assistant message text from the chat body for
+// deterministic guardrail matching. Content arrays (multimodal parts) are
+// flattened to their text parts.
+func chatFragments(body map[string]any) []guardrails.Fragment {
+	messages, _ := body["messages"].([]any)
+	fragments := make([]guardrails.Fragment, 0, len(messages))
+	for i, m := range messages {
+		msg, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch content := msg["content"].(type) {
+		case string:
+			if content != "" {
+				fragments = append(fragments, guardrails.Fragment{ID: fmt.Sprintf("m%d", i), Text: content})
+			}
+		case []any:
+			for _, part := range content {
+				p, ok := part.(map[string]any)
+				if !ok {
+					continue
+				}
+				if text, ok := p["text"].(string); ok && text != "" {
+					fragments = append(fragments, guardrails.Fragment{ID: fmt.Sprintf("m%d", i), Text: text})
+				}
+			}
+		}
+	}
+	return fragments
+}
+
+// recordGuardrailBlock writes an audit entry so content-policy blocks are
+// explainable. Best-effort: a failed audit write is logged, not fatal.
+func recordGuardrailBlock(r *http.Request, application *app.App, decision guardrails.Decision, scopeID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	summary := map[string]any{
+		"action":      decision.Action,
+		"findings":    len(decision.Findings),
+		"scope_id":    scopeID,
+		"duration_ms": decision.DurationMS,
+	}
+	if len(decision.Findings) > 0 {
+		f := decision.Findings[0]
+		summary["policy_id"] = f.PolicyID
+		summary["reason_code"] = f.ReasonCode
+		summary["category"] = f.Category
+	}
+	payload, _ := json.Marshal(summary)
+	if _, err := application.Pool.Exec(ctx,
+		`INSERT INTO audit_logs (actor_type, action, resource_type, new_value, created_at)
+		 VALUES ('api_key', 'guardrail_blocked', 'guardrail', $1, NOW())`, payload); err != nil {
+		log.Printf("gateway: guardrail audit: %v", err)
 	}
 }
 

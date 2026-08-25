@@ -11,6 +11,7 @@ import (
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/handler/middleware"
+	"github.com/deeptrols/api/internal/pkg/minutebucket"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
@@ -32,7 +33,7 @@ func (e *boundaryError) Error() string { return e.message }
 //
 // Called before routing / billing / caching so every request (including cache
 // hits) is subject to the same policy.
-func enforceAPIKeyBoundaries(r *http.Request, application *app.App, modelName string) error {
+func enforceAPIKeyBoundaries(w http.ResponseWriter, r *http.Request, application *app.App, modelName string, estimatedTokens int64) error {
 	if application.APIKeys == nil {
 		return nil // policy repository unavailable (should not happen in prod)
 	}
@@ -49,6 +50,22 @@ func enforceAPIKeyBoundaries(r *http.Request, application *app.App, modelName st
 	key, err := application.APIKeys.FindByID(r.Context(), keyID)
 	if err != nil || key == nil {
 		return fmt.Errorf("apikey lookup for boundary check: %w", err)
+	}
+
+	// 0. RPM/TPM minute bucket (Phase 1). Degrades fail-open with a log when
+	// the bucket store errors; over-limit is a hard 429 with rate-limit headers.
+	if application.MinuteBuckets != nil && (key.RateLimitRPM > 0 || key.RateLimitTPM > 0) {
+		result, berr := application.MinuteBuckets.Reserve(r.Context(), key.ID.String(),
+			estimatedTokens, key.RateLimitRPM, key.RateLimitTPM, time.Now().UTC())
+		if berr != nil {
+			log.Printf("gateway: minute bucket degraded for key %s: %v", keyID, berr)
+		} else {
+			writeRateLimitHeaders(w, key.RateLimitRPM, key.RateLimitTPM, result, time.Now().UTC())
+			if !result.Allowed {
+				return &boundaryError{http.StatusTooManyRequests, "rate_limit_exceeded",
+					"API key rate limit exceeded (RPM/TPM)"}
+			}
+		}
 	}
 
 	// 1. Model allowlist.
@@ -107,6 +124,31 @@ func enforceAPIKeyBoundaries(r *http.Request, application *app.App, modelName st
 	}
 
 	return nil
+}
+
+// writeRateLimitHeaders mirrors TokenHub's X-RateLimit-* header contract so
+// clients can back off deterministically.
+func writeRateLimitHeaders(w http.ResponseWriter, rpmLimit int, tpmLimit int64, result minutebucket.Result, now time.Time) {
+	reset := int64(60 - now.UTC().Second())
+	if reset < 1 {
+		reset = 1
+	}
+	if rpmLimit > 0 {
+		w.Header().Set("X-RateLimit-Limit-Requests", fmt.Sprintf("%d", rpmLimit))
+		w.Header().Set("X-RateLimit-Remaining-Requests", fmt.Sprintf("%d", max64(int64(rpmLimit)-result.Requests, 0)))
+	}
+	if tpmLimit > 0 {
+		w.Header().Set("X-RateLimit-Limit-Tokens", fmt.Sprintf("%d", tpmLimit))
+		w.Header().Set("X-RateLimit-Remaining-Tokens", fmt.Sprintf("%d", max64(tpmLimit-result.Tokens, 0)))
+	}
+	w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", reset))
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // recordAPIKeySpend accumulates the final cost against the key's

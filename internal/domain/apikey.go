@@ -11,6 +11,8 @@ type APIKey struct {
 	ID              uuid.UUID
 	UserID          uuid.UUID
 	TenantID        *uuid.UUID
+	RateLimitRPM    int
+	RateLimitTPM    int64
 	KeyPrefix       string
 	KeyHash         string
 	EncryptedKey    string

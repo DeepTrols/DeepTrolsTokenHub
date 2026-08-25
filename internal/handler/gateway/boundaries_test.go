@@ -5,10 +5,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/handler/middleware"
+	"github.com/deeptrols/api/internal/pkg/minutebucket"
 	"github.com/google/uuid"
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 )
 
@@ -57,10 +60,10 @@ func TestEnforceAPIKeyBoundaries_ModelAllowlist(t *testing.T) {
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxAPIKeyID, key.ID.String()))
 
-	if err := enforceAPIKeyBoundaries(req, appl, "gpt-4o"); err != nil {
+	if err := enforceAPIKeyBoundaries(httptest.NewRecorder(), req, appl, "gpt-4o", 0); err != nil {
 		t.Fatalf("allowed model should pass: %v", err)
 	}
-	err := enforceAPIKeyBoundaries(req, appl, "gpt-4o-mini")
+	err := enforceAPIKeyBoundaries(httptest.NewRecorder(), req, appl, "gpt-4o-mini", 0)
 	if err == nil {
 		t.Fatal("disallowed model should be rejected")
 	}
@@ -77,14 +80,14 @@ func TestEnforceAPIKeyBoundaries_IPWhitelist(t *testing.T) {
 	req.RemoteAddr = "203.0.113.10:12345"
 	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxAPIKeyID, key.ID.String()))
 
-	if err := enforceAPIKeyBoundaries(req, appl, "gpt-4o"); err != nil {
+	if err := enforceAPIKeyBoundaries(httptest.NewRecorder(), req, appl, "gpt-4o", 0); err != nil {
 		t.Fatalf("whitelisted IP should pass: %v", err)
 	}
 
 	req2 := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	req2.RemoteAddr = "198.51.100.7:12345"
 	req2 = req2.WithContext(context.WithValue(req2.Context(), middleware.CtxAPIKeyID, key.ID.String()))
-	err := enforceAPIKeyBoundaries(req2, appl, "gpt-4o")
+	err := enforceAPIKeyBoundaries(httptest.NewRecorder(), req2, appl, "gpt-4o", 0)
 	if err == nil {
 		t.Fatal("non-whitelisted IP should be rejected")
 	}
@@ -107,7 +110,7 @@ func TestEnforceAPIKeyBoundaries_SpendLimit(t *testing.T) {
 	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxAPIKeyID, key.ID.String()))
 
-	err := enforceAPIKeyBoundaries(req, appl, "gpt-4o")
+	err := enforceAPIKeyBoundaries(httptest.NewRecorder(), req, appl, "gpt-4o", 0)
 	if err == nil {
 		t.Fatal("over-limit key with block action should be rejected")
 	}
@@ -119,8 +122,38 @@ func TestEnforceAPIKeyBoundaries_SpendLimit(t *testing.T) {
 	// warn action: request allowed
 	warnKey := &domain.APIKey{ID: uuid.New(), CumulativeLimit: decimal.NewFromInt(100), OverLimitAction: domain.OverLimitWarn}
 	repo.key = warnKey
-	if err := enforceAPIKeyBoundaries(req, appl, "gpt-4o"); err != nil {
+	if err := enforceAPIKeyBoundaries(httptest.NewRecorder(), req, appl, "gpt-4o", 0); err != nil {
 		t.Fatalf("warn action should allow request: %v", err)
+	}
+}
+
+func TestEnforceAPIKeyBoundaries_MinuteBucketRPM(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	key := &domain.APIKey{ID: uuid.New(), RateLimitRPM: 1, RateLimitTPM: 100}
+	appl := &app.App{
+		APIKeys:       &mockAPIKeyRepoForBoundaries{key: key},
+		MinuteBuckets: minutebucket.NewRedisStore(client),
+	}
+	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.CtxAPIKeyID, key.ID.String()))
+
+	w1 := httptest.NewRecorder()
+	if err := enforceAPIKeyBoundaries(w1, req, appl, "gpt-4o", 40); err != nil {
+		t.Fatalf("first request should pass: %v", err)
+	}
+	if got := w1.Header().Get("X-RateLimit-Remaining-Requests"); got != "0" {
+		t.Errorf("remaining requests = %q, want 0", got)
+	}
+
+	w2 := httptest.NewRecorder()
+	err := enforceAPIKeyBoundaries(w2, req, appl, "gpt-4o", 40)
+	if err == nil {
+		t.Fatal("second request should be rate limited")
+	}
+	be, ok := err.(*boundaryError)
+	if !ok || be.status != 429 || be.errType != "rate_limit_exceeded" {
+		t.Fatalf("expected rate_limit_exceeded 429, got %v", err)
 	}
 }
 
