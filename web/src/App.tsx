@@ -21,6 +21,7 @@ import Reconciliation from "./pages/Reconciliation";
 import Users from "./pages/Users";
 import RoutingSimulator from "./pages/RoutingSimulator";
 import Guardrails from "./pages/Guardrails";
+import BillingSync from "./pages/BillingSync";
 import UserCenter from "./pages/UserCenter";
 import Docs from "./pages/Docs";
 
@@ -75,6 +76,7 @@ export default function App() {
         <Route path="users" element={<Users />} />
         <Route path="routing-simulator" element={<RoutingSimulator />} />
         <Route path="guardrails" element={<Guardrails />} />
+        <Route path="billing" element={<BillingSync />} />
       </Route>
     </Routes>
   );

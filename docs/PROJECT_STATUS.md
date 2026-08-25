@@ -1679,3 +1679,21 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - 前端 `npm test`（231/231）、`lint`（0/0）、`build` 全绿；
 - Go 后端无改动（复用 47 节 Guardrails API），`go test ./...` 维持全绿。
+
+## 四十九、2026-08-25 前端账单同步页面
+
+> Phase 5 前端补齐第三批：账单连接器管理（Step 1a 的 UI）。
+
+### 49.1 变更
+
+- `web/src/pages/BillingSync.tsx`：
+  - 连接器列表（名称/类型/状态/凭据已配置/上次同步/周期）；
+  - 新建/编辑弹窗（类型 aliyun/newapi/oneapi、base_url、周期、config JSON、
+    凭据 JSON——仅存服务端加密）；
+  - 行操作：测试（POST test，显示样例记录数）、同步（POST sync，显示插入/更新）、
+    记录（GET records 弹窗表）、历史（GET runs 弹窗表）、编辑、删除；
+- 路由 `/admin/billing` + AdminLayout「账单同步」导航（ReceiptText）。
+
+### 49.2 验证
+
+- 前端 `npm test`（231/231）、`lint`（0/0）、`build` 全绿；Go 无改动。
