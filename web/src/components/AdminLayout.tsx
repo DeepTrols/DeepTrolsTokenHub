@@ -8,11 +8,7 @@ import {
   UserCog,
   DollarSign,
   Building2,
-  Route,
-  ShieldAlert,
-  ReceiptText,
   ScrollText,
-  Coins,
   Activity,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
@@ -23,11 +19,7 @@ const manageItems = [
   { to: "/admin/models", icon: Box, label: "模型管理", color: "text-[#4F6BED]" },
   { to: "/admin/channels", icon: Shield, label: "渠道管理", color: "text-[#0FA88B]" },
   { to: "/admin/reconciliation", icon: BarChart3, label: "对账管理", color: "text-[#8B6FE8]" },
-  { to: "/admin/routing-simulator", icon: Route, label: "路由模拟器", color: "text-[#12A5B0]" },
-  { to: "/admin/guardrails", icon: ShieldAlert, label: "内容策略", color: "text-[#8B6FE8]" },
-  { to: "/admin/billing", icon: ReceiptText, label: "账单同步", color: "text-[#0FA88B]" },
   { to: "/admin/audit", icon: ScrollText, label: "审计日志", color: "text-[#5C6472]" },
-  { to: "/admin/budgets", icon: Coins, label: "预算管理", color: "text-[#D3A94E]" },
   { to: "/admin/gateway-health", icon: Activity, label: "网关健康", color: "text-[#0FA88B]" },
 ];
 

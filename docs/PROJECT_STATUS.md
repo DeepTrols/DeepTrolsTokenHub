@@ -2082,3 +2082,29 @@ cd web && npm run test:e2e
 - Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
 - Playwright 冒烟复跑通过（登录→建渠道→模型目录→网关调用→账单/用量/审计，
   用量改为在「用量信息」Dashboard 断言）。
+
+## 六十三、2026-08-25 收敛运营后台（管理控制台）
+
+> 延续"少做重复造轮子"的方向，把管理控制台裁到运营真正要用的核心，
+> 拿掉此前被质疑为可选的工具。
+
+### 63.1 变更
+
+- 删除前端页面：RoutingSimulator（路由模拟器）、Guardrails（内容策略）、
+  BillingSync（账单同步）、Finance（财务）及对应测试；
+- `App.tsx` 移除 `/admin/routing-simulator`、`/admin/guardrails`、
+  `/admin/billing`、`/admin/finance` 路由与 import；
+- `AdminLayout` 移除上述四项目的导航项及 `Route/ShieldAlert/ReceiptText/Coins`
+  图标（含此前残留的「预算管理」导航）；
+- 运营后台保留：模型管理、渠道管理、对账管理、审计日志、网关健康。
+
+### 63.2 说明
+
+- 被移除项在平台运营看板不再可见；后端对应接口（/routing/simulate、
+  /guardrails、/billing/connectors）仍在但已无入口，属不可达死代码，
+  可视需要后续连同 `HandleRegisterEnterprise` 一并清除。
+
+### 63.3 验证
+
+- 前端 `npm test`（207/207，27 文件）、`lint`（0/0）、`build` 全绿；
+- 既有 Go 全量测试保持全绿；Playwright 冒烟不受影响（未涉及被删路由）。
