@@ -57,5 +57,9 @@ web/tsconfig.tsbuildinfo
 # Vite temp
 web/vite.config.ts.timestamp-*
 
+# Playwright artifacts
+web/playwright-report/
+web/test-results/
+
 # Vite temp
 web/vite.config.ts.timestamp-*

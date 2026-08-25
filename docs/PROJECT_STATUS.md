@@ -1858,3 +1858,43 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
   `/v1/chat/completions` 经路由打到 echo，上游实际收到
   `X-Custom-Header: e2e-abc` 与 `X-Gateway-Id: gw-test`；
   列表接口回显 custom_headers，探测端点对 echo 正常。
+
+## 五十六、2026-08-25 Playwright E2E 核心链路冒烟（Phase 5 收尾）
+
+> Phase 5 前端补齐第十批：按计划落地「登录 → 建渠道 → 模型目录 → 网关调用
+> → 账单/审计可见」的核心链路 E2E 冒烟，全部指向本地 echo 上游，不依赖外网。
+
+### 56.1 变更
+
+- `web/playwright.config.ts`：testDir `./e2e`、单 worker、失败保留 trace/截图。
+- `web/e2e/smoke.spec.ts`：串行冒烟用例——
+  1. 登录控制台（admin）；
+  2. 渠道管理页创建 Provider（指向 `scripts/echo_upstream.go`，127.0.0.1:8090）；
+  3. 模型目录出现 echo 发现的 `deepseek-chat`；
+  4. 创建 API key → 真实调用 `/v1/chat/completions`，断言 echo 返回；
+  5. `/bills`（充值记录页可渲染）、`/usage`（deepseek-chat 用量可见）、
+     `/admin/audit`（建渠道审计可见）；
+  6. 幂等清理：开头/结尾删除 E2E 残留 key 与渠道。
+- `scripts/echo_upstream.go`：OpenAI 兼容 echo 上游（GET /models + POST
+  chat/completions），作为 E2E 的可复现依赖。
+- `web/package.json`：`test:e2e` = `playwright test`；安装 `@playwright/test`；
+  `.gitignore` 忽略 `playwright-report/` 与 `test-results/`。
+
+### 56.2 运行方式
+
+```bash
+# 1) echo 上游
+go run ./scripts/echo_upstream.go        # 127.0.0.1:8090
+# 2) API（本地 PG/Redis + 000001-000019 迁移）
+API_PORT=8082 CORS_ORIGIN=http://localhost:3000 go run ./cmd/api
+# 3) 前端（代理到 8082）
+cd web && PROXY_TARGET=http://127.0.0.1:8082 npm run dev
+# 4) 冒烟
+cd web && npm run test:e2e
+```
+
+### 56.3 验证
+
+- `npx playwright test` 通过（登录→建渠道→模型目录→网关调用→账单/审计
+  全链路 3s 完成，真实 DB + 真实 HTTP）；
+- 前端 `lint`（0/0）、`build` 全绿；此前 Go 全量与前端 254/254 单测保持不变。
