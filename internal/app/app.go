@@ -75,7 +75,7 @@ type App struct {
 	BillingSyncRepo billingsync.Repository
 	// Guardrails evaluates outbound content policies before upstream calls.
 	Guardrails         *guardrails.Engine
-	GuardrailsPolicies guardrails.PolicySource
+	GuardrailsPolicies guardrails.PolicyManager
 	// LoadTracker tracks per-instance in-flight counts in Redis. It is always
 	// non-nil; when Redis is unavailable it is a no-op tracker and routing
 	// falls back to the DB current_load column.

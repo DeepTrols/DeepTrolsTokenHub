@@ -1629,3 +1629,30 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - 前端路由模拟器页面（调 `/api/admin/routing/simulate`）；
 - Guardrails Admin 策略编辑器；Phase 5 前端补齐。
+
+## 四十七、2026-08-25 Guardrails 管理 API + 前端路由模拟器
+
+> Phase 5 前端补齐的第一批：内容策略可管理 + 路由可视化。
+
+### 47.1 变更
+
+- Guardrails 管理 API（`internal/handler/console/guardrails.go`）：
+  - `GET /api/admin/guardrails`：策略列表（含检测项与绑定）；
+  - `POST /api/admin/guardrails`：保存/更新（NormalizePolicy 校验，自动补 UUID 与
+    ConfigVersion）；
+  - `DELETE /api/admin/guardrails/{id}`。
+  - `guardrails.PolicyManager` 接口（Load + Save + Delete）；App 装配类型升级。
+- 前端：
+  - `web/src/pages/RoutingSimulator.tsx`：模型（+可选租户）→ 调
+    `/api/admin/routing/simulate` → 有序候选表（健康/策略/粘性/上游/负载）；
+  - 路由 `/admin/routing-simulator` + AdminLayout「路由模拟器」导航。
+
+### 47.2 测试
+
+- `console/guardrails_test.go`：真实 PG 保存→列表→删除闭环；
+- `RoutingSimulator.test.tsx`：模拟成功渲染候选表、失败显示错误。
+
+### 47.3 验证
+
+- Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
+- 前端 `npm test`（229/229）、`lint`（0/0）、`build` 全绿。

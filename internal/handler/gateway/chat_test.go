@@ -1783,6 +1783,14 @@ func (f *fakeGuardrailPolicySource) LoadPolicies(context.Context) ([]guardrails.
 	return f.policies, nil
 }
 
+func (f *fakeGuardrailPolicySource) SavePolicy(context.Context, guardrails.Policy) error {
+	return nil
+}
+
+func (f *fakeGuardrailPolicySource) DeletePolicy(context.Context, string) error {
+	return nil
+}
+
 // TestHandleChatCompletions_GuardrailBlocked verifies the Phase 1 outbound
 // guardrail wiring: a blocking keyword yields 400 guardrail_blocked before any
 // routing or upstream execution.
