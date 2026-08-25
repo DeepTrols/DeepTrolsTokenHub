@@ -3,6 +3,7 @@ import { APIKeyData } from "../lib/api";
 import { api } from "../lib/api";
 import { useConsoleMutation, useConsoleQuery } from "../lib/hooks/use-api";
 import { setKeySecret } from "../lib/keyMemory";
+import { buildKeyLimitsBody, formatRateLimit } from "../lib/domain/apiKey";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +27,8 @@ interface KeyFormState {
   monthlyLimit: string;
   weeklyLimit: string;
   cumulativeLimit: string;
+  rateLimitRpm: string;
+  rateLimitTpm: string;
   overLimitAction: string;
   status: string;
 }
@@ -37,6 +40,8 @@ const emptyForm = (): KeyFormState => ({
   monthlyLimit: "",
   weeklyLimit: "",
   cumulativeLimit: "",
+  rateLimitRpm: "",
+  rateLimitTpm: "",
   overLimitAction: "block",
   status: "active",
 });
@@ -48,6 +53,8 @@ const formFromKey = (k: APIKeyData): KeyFormState => ({
   monthlyLimit: k.monthly_limit || "",
   weeklyLimit: k.weekly_limit || "",
   cumulativeLimit: k.cumulative_limit || "",
+  rateLimitRpm: k.rate_limit_rpm ? String(k.rate_limit_rpm) : "",
+  rateLimitTpm: k.rate_limit_tpm ? String(k.rate_limit_tpm) : "",
   overLimitAction: k.over_limit_action || "block",
   status: k.status || "active",
 });
@@ -148,6 +155,37 @@ function KeyFields({
           />
         </div>
       </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor="key-rpm" className="text-xs font-medium text-[#5C6472] mb-1 block">
+            RPM 限流 (请求/分钟)
+          </Label>
+          <Input
+            id="key-rpm"
+            type="number"
+            min="0"
+            step="1"
+            value={form.rateLimitRpm}
+            onChange={(e) => set({ rateLimitRpm: e.target.value })}
+            placeholder="每分钟请求上限，0 或留空=不限"
+          />
+        </div>
+        <div>
+          <Label htmlFor="key-tpm" className="text-xs font-medium text-[#5C6472] mb-1 block">
+            TPM 限流 (Token/分钟)
+          </Label>
+          <Input
+            id="key-tpm"
+            type="number"
+            min="0"
+            step="1"
+            value={form.rateLimitTpm}
+            onChange={(e) => set({ rateLimitTpm: e.target.value })}
+            placeholder="每分钟 Token 上限，0 或留空=不限"
+          />
+        </div>
+      </div>
+      <p className="text-xs text-[#5C6472]/80">RPM/TPM 按分钟桶执行，超限返回 429 并附带 X-RateLimit-* 响应头</p>
       <div>
         <span className="block text-sm font-medium text-[#161A23] mb-2">超限动作</span>
         <div className="flex gap-4">
@@ -232,9 +270,12 @@ export default function APIKeys() {
     const ips = createForm.sourceWhitelist.split(",").map((s) => s.trim()).filter(Boolean);
     if (models.length) body.allowed_models = models;
     if (ips.length) body.source_whitelist = ips;
-    if (createForm.monthlyLimit.trim()) body.monthly_limit = createForm.monthlyLimit.trim();
-    if (createForm.weeklyLimit.trim()) body.weekly_limit = createForm.weeklyLimit.trim();
-    if (createForm.cumulativeLimit.trim()) body.cumulative_limit = createForm.cumulativeLimit.trim();
+    const { body: limits, errors } = buildKeyLimitsBody(createForm);
+    if (errors.length) {
+      window.alert(errors.join("\n"));
+      return;
+    }
+    Object.assign(body, limits);
     body.over_limit_action = createForm.overLimitAction;
 
     const res = await createMutation.mutateAsync(body);
@@ -251,13 +292,16 @@ export default function APIKeys() {
 
   const handleSaveEdit = async () => {
     if (!editKey || !editForm.name.trim()) return;
+    const { body: limits, errors } = buildKeyLimitsBody(editForm);
+    if (errors.length) {
+      window.alert(errors.join("\n"));
+      return;
+    }
     const body: Record<string, unknown> = {
       name: editForm.name.trim(),
       allowed_models: editForm.allowedModels.split(",").map((s) => s.trim()).filter(Boolean),
       source_whitelist: editForm.sourceWhitelist.split(",").map((s) => s.trim()).filter(Boolean),
-      monthly_limit: editForm.monthlyLimit.trim(),
-      weekly_limit: editForm.weeklyLimit.trim(),
-      cumulative_limit: editForm.cumulativeLimit.trim(),
+      ...limits,
       over_limit_action: editForm.overLimitAction,
       status: editForm.status,
     };
@@ -341,6 +385,7 @@ export default function APIKeys() {
                 <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">key</th>
                 <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">创建日期</th>
                 <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">最新使用日期</th>
+                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">限流</th>
                 <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">操作</th>
               </tr>
             </thead>
@@ -351,6 +396,7 @@ export default function APIKeys() {
                   <td className="px-4 py-3 font-mono text-[13px] text-[#161A23]">{k.masked_key}</td>
                   <td className="px-4 py-3 text-[#161A23]">{gmt8DateTime(k.created_at)}</td>
                   <td className="px-4 py-3 text-[#161A23]">{k.last_used_at ? gmt8DateTime(k.last_used_at) : "从未使用"}</td>
+                  <td className="px-4 py-3 text-[13px] text-[#161A23]">{formatRateLimit(k.rate_limit_rpm, k.rate_limit_tpm)}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-[13px]">
                     <button className="text-[#4F6BED] hover:underline" onClick={() => openView(k)}>
                       查看key

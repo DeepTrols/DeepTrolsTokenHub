@@ -38,6 +38,8 @@ function createMockKey(overrides: Record<string, unknown> = {}) {
     weekly_limit: "",
     cumulative_limit: "",
     over_limit_action: "block",
+    rate_limit_rpm: 0,
+    rate_limit_tpm: 0,
     last_used_at: "2026-08-20T03:55:13Z",
     last_7d_active: true,
     created_at: "2026-08-20T03:55:13Z",
@@ -88,9 +90,27 @@ describe("APIKeys（API keys）", () => {
       expect(mockApiGet).toHaveBeenCalledWith("/api-keys");
     });
     await screen.findByText("sso_default");
-    for (const header of ["名称", "key", "创建日期", "最新使用日期", "操作"]) {
+    for (const header of ["名称", "key", "创建日期", "最新使用日期", "限流", "操作"]) {
       expect(screen.getByText(header)).toBeInTheDocument();
     }
+  });
+
+  it("renders RPM/TPM limits for keys that have them", async () => {
+    mockListKeys([createMockKey({ rate_limit_rpm: 120, rate_limit_tpm: 64000 })]);
+
+    renderWithProviders(<APIKeys />);
+
+    expect(await screen.findByText("sso_default")).toBeInTheDocument();
+    expect(screen.getByText("120 RPM · 64000 TPM")).toBeInTheDocument();
+  });
+
+  it("shows 不限 when no rate limits are configured", async () => {
+    mockListKeys([createMockKey()]);
+
+    renderWithProviders(<APIKeys />);
+
+    expect(await screen.findByText("sso_default")).toBeInTheDocument();
+    expect(screen.getByText("不限")).toBeInTheDocument();
   });
 
   it("renders one row with masked key, dates and link actions", async () => {
@@ -145,6 +165,29 @@ describe("APIKeys（API keys）", () => {
     expect(await screen.findByText("dt-sk-new-secret")).toBeInTheDocument();
   });
 
+  it("sends RPM/TPM when creating a key", async () => {
+    const user = userEvent.setup();
+    mockListKeys([]);
+    mockApiPost.mockResolvedValueOnce({ id: "new-2", plaintext: "dt-sk-rpm-secret", warning: "只显示一次" });
+
+    renderWithProviders(<APIKeys />);
+
+    await user.click(screen.getByRole("button", { name: /创建密钥/ }));
+    await user.type(screen.getByPlaceholderText("例如：生产环境、测试环境"), "Rate Limited Key");
+    await user.type(screen.getByPlaceholderText(/每分钟请求上限/), "60");
+    await user.type(screen.getByPlaceholderText(/每分钟 Token 上限/), "32000");
+    await user.click(screen.getByRole("button", { name: /确认创建/ }));
+
+    await waitFor(() => {
+      expect(mockApiPost).toHaveBeenCalledWith("/api-keys", {
+        name: "Rate Limited Key",
+        over_limit_action: "block",
+        rate_limit_rpm: 60,
+        rate_limit_tpm: 32000,
+      });
+    });
+  });
+
   it("reveals the plaintext when 查看key is clicked", async () => {
     const user = userEvent.setup();
     mockListKeys([createMockKey()]);
@@ -166,6 +209,8 @@ describe("APIKeys（API keys）", () => {
         weekly_limit: "200",
         cumulative_limit: "5000",
         over_limit_action: "warn",
+        rate_limit_rpm: 30,
+        rate_limit_tpm: 8000,
       }),
     ]);
     mockApiPut.mockResolvedValue({ status: "updated", id: "key-001" });
@@ -188,6 +233,8 @@ describe("APIKeys（API keys）", () => {
         weekly_limit: "200",
         cumulative_limit: "5000",
         over_limit_action: "warn",
+        rate_limit_rpm: 30,
+        rate_limit_tpm: 8000,
         status: "active",
       });
     });

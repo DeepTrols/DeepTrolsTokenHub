@@ -72,6 +72,8 @@ export interface APIKeyData {
   weekly_limit?: string;
   cumulative_limit?: string;
   over_limit_action?: string;
+  rate_limit_rpm?: number;
+  rate_limit_tpm?: number;
   last_used_at?: string;
   last_7d_active?: boolean;
   created_at: string;

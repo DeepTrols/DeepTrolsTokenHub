@@ -1763,3 +1763,32 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
 - 前端 `npm test`（235/235）、`lint`（0/0）、`build` 全绿。
+
+## 五十三、2026-08-25 Key 限流配置 UI + 前端领域层起步
+
+> Phase 5 前端补齐第七批：补上 Phase 1 后端已有但前端缺失的 Key 级 RPM/TPM
+> 配置，并建立 `web/src/lib/domain/` 纯函数层。
+
+### 53.1 变更
+
+- 领域层 `web/src/lib/domain/apiKey.ts`（纯函数，无 DOM 依赖）：
+  - `parseRateLimit`：非负整数解析（空串=未设置，非法=NaN）；
+  - `buildKeyLimitsBody`：表单字符串 → wire 格式 body（金额仍传字符串、RPM/TPM 传数字），
+    非法输入返回错误而非静默丢弃；
+  - `formatRateLimit`：列表页"120 RPM · 64000 TPM / 不限"展示。
+- `web/src/pages/APIKeys.tsx`：
+  - 创建/编辑表单新增 RPM（请求/分钟）与 TPM（Token/分钟）输入，附分钟桶说明；
+  - 提交时经 `buildKeyLimitsBody` 构造请求，非法值 alert 阻止提交；
+  - 列表新增「限流」列（复用 `formatRateLimit`）。
+- `web/src/lib/api.ts`：`APIKeyData` 增加 `rate_limit_rpm / rate_limit_tpm`。
+
+### 53.2 测试
+
+- `web/src/lib/domain/apiKey.test.ts`：解析/构造/展示三组表驱动单测；
+- `APIKeys.test.tsx`：限流列渲染（有值与"不限"）、创建携带 RPM/TPM、编辑回显并提交。
+
+### 53.3 验证
+
+- 前端 `npm test`（246/246，含新增 11 例）、`lint`（0/0）、`build` 全绿；
+- 说明：纯前端变更，后端接口（`rate_limit_rpm/tpm`）已有 Go 集成测试覆盖，
+  未改动 Go 代码。
