@@ -1971,3 +1971,28 @@ cd web && npm run test:e2e
 - 真实环境（API 8082 + echo + dev DB 升到 000020）：POST → 202
   `processing` + `task_id=upstream-video-1`；GET → 200 状态查询；
   DELETE → 200 `cancelled`；再 GET 状态持久化为 cancelled。
+
+## 五十九、2026-08-25 前端领域层补全：角色导航纯函数
+
+> Phase 5 领域层收尾：把布局内联的角色判断抽成可单测的纯函数
+> （对齐 TokenHub `core/navigation` 的 canAccessView / defaultViewForRole）。
+
+### 59.1 变更
+
+- `web/src/lib/domain/navigation.ts`：`isAdmin` / `isEnterpriseAdmin` /
+  `isEnterpriseMember` / `canAccessView`（`/admin*` 仅 admin）/
+  `defaultViewForRole`（admin → `/admin/models`，其余 → `/dashboard`）/
+  `filterNavItems`。
+- `AdminLayout.tsx` / `ConsoleLayout.tsx`：导航项经 `filterNavItems` /
+  纯函数角色判断渲染，移除内联条件（行为不变）。
+- `vitest.config.ts`：`exclude: ["e2e/**", ...]`，防止 vitest 误跑
+  Playwright spec。
+
+### 59.2 测试
+
+- `navigation.test.ts`：角色判断、视图可达、默认落地页、导航过滤 4 组表驱动。
+
+### 59.3 验证
+
+- 前端 `npm test`（260/260，35 文件）、`lint`（0/0）、`build` 全绿；
+- Playwright 冒烟复跑通过（登录→建渠道→模型目录→网关调用→账单/审计）。

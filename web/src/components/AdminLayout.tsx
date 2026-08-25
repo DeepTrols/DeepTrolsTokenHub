@@ -16,6 +16,7 @@ import {
   Activity,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
+import { filterNavItems } from "../lib/domain/navigation";
 import RouteErrorBoundary from "./RouteErrorBoundary";
 
 const manageItems = [
@@ -32,7 +33,8 @@ const manageItems = [
 
 export default function AdminLayout() {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
+  const visibleManageItems = filterNavItems(manageItems, user);
 
   const handleLogout = async () => {
     await logout();
@@ -59,7 +61,7 @@ export default function AdminLayout() {
           </div>
 
           <nav className="flex flex-col gap-[3px] overflow-y-auto pr-0.5" aria-label="管理导航">
-            {manageItems.map((item) => (
+            {visibleManageItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

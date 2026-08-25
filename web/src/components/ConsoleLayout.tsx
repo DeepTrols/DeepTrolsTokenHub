@@ -2,38 +2,37 @@ import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { Key, Wallet, Receipt, Box, Play, LogOut, LayoutDashboard, Book, Settings, UserCircle, History, BarChart3 } from "lucide-react";
 import { useAuth } from "../lib/auth";
+import { isAdmin, isEnterpriseAdmin, isEnterpriseMember, filterNavItems } from "../lib/domain/navigation";
 import RouteErrorBoundary from "./RouteErrorBoundary";
 import { PendingReviewBanner } from "./PendingReviewBanner";
 
 export default function ConsoleLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const isAdmin = user?.role === "admin";
-  const isEnterpriseAdmin = user?.tenant_role === "owner" || user?.tenant_role === "admin";
   // Enterprise members have no self-service wallet: their balance is handed out
   // by the team admin, so the wallet menu is hidden for them (read-only spend).
-  const isEnterpriseMember = user?.tenant_role === "member";
 
   const navItems = [
     { to: "/dashboard", icon: LayoutDashboard, label: "用量信息", color: "text-[#4F6BED]" },
     { to: "/api-keys", icon: Key, label: "API keys", color: "text-[#0FA88B]" },
     { to: "/logs", icon: History, label: "调用记录", color: "text-[#8B6FE8]" },
     { to: "/usage", icon: BarChart3, label: "用量统计", color: "text-[#D3A94E]" },
-  ...(isEnterpriseMember
+  ...(isEnterpriseMember(user)
     ? []
       : [
           { to: "/recharge", icon: Wallet, label: "充值", color: "text-[#0FA88B]" },
           { to: "/bills", icon: Receipt, label: "账单", color: "text-[#0FA88B]" },
     ]),
-    ...(isEnterpriseAdmin
+    ...(isEnterpriseAdmin(user)
       ? [{ to: "/budget", icon: Wallet, label: "团队预算", color: "text-[#12A5B0]" }]
       : []),
     { to: "/models", icon: Box, label: "模型广场", color: "text-[#D3A94E]" },
     { to: "/playground", icon: Play, label: "在线体验", color: "text-[#4F6BED]" },
     { to: "/docs", icon: Book, label: "开发文档", color: "text-[#0FA88B]" },
     { to: "/account", icon: UserCircle, label: "用户中心", color: "text-[#4F6BED]" },
-    ...(isAdmin ? [{ to: "/admin/models", icon: Settings, label: "管理控制台", color: "text-[#D3A94E]" }] : []),
+    ...(isAdmin(user) ? [{ to: "/admin/models", icon: Settings, label: "管理控制台", color: "text-[#D3A94E]" }] : []),
   ];
+  const visibleNavItems = filterNavItems(navItems, user);
 
   const handleLogout = async () => {
     await logout();
@@ -56,7 +55,7 @@ export default function ConsoleLayout() {
           </div>
 
           <nav className="flex flex-col gap-[3px] overflow-y-auto pr-0.5" aria-label="主导航">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -85,7 +84,7 @@ export default function ConsoleLayout() {
               <span className="grid w-9 h-9 shrink-0 place-items-center rounded-[10px] bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white text-[12px] font-bold shadow-[0_6px_18px_rgba(79,107,237,0.35)]">{avatarChar}</span>
               <span className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold truncate">{displayName}</div>
-                <div className="text-[11px] text-[#5C6472]">{(user?.tenant_name || "DeepTrols")} · {isAdmin ? "管理员" : (isEnterpriseAdmin ? "企业管理员" : "成员")}</div>
+                <div className="text-[11px] text-[#5C6472]">{(user?.tenant_name || "DeepTrols")} · {isAdmin(user) ? "管理员" : (isEnterpriseAdmin(user) ? "企业管理员" : "成员")}</div>
               </span>
               <button onClick={handleLogout} aria-label="退出登录" className="grid w-7 h-7 place-items-center rounded-lg text-[#5C6472] hover:text-[#E5484D] hover:bg-white/70 transition-colors shrink-0">
                 <LogOut size={14} />
