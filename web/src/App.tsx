@@ -7,8 +7,6 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import APIKeys from "./pages/APIKeys";
-import CallLogs from "./pages/CallLogs";
-import UsageStats from "./pages/UsageStats";
 import Recharge from "./pages/Recharge";
 import Bills from "./pages/Bills";
 import ModelMarket from "./pages/ModelMarket";
@@ -48,8 +46,6 @@ export default function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="api-keys" element={<APIKeys />} />
-        <Route path="logs" element={<CallLogs />} />
-        <Route path="usage" element={<UsageStats />} />
         <Route path="wallet" element={<Navigate to="/recharge" replace />} />
         <Route path="recharge" element={<Recharge />} />
         <Route path="bills" element={<Bills />} />

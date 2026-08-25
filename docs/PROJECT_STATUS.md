@@ -2030,3 +2030,22 @@ cd web && npm run test:e2e
 
 - 视频上游私有任务 API 轮询/回调适配器（async_jobs 已就绪）；
 - 接口文档页（OpenAPI/swagger）与 i18n（计划标注可选）。
+
+## 六十一、2026-08-25 移除冗余的「调用记录」与「用量统计」页面
+
+> 按产品方向收敛：Dashboard「用量信息」已覆盖调用明细、按模型/Key 的用量
+> 统计与 CSV 导出（同一 `/usage` 数据源），两个独立页面造成信息重复。
+
+### 61.1 变更
+
+- 删除 `web/src/pages/CallLogs.tsx`（调用记录，/logs）与 `UsageStats.tsx`
+  （用量统计，/usage）及其测试；
+- `App.tsx`：移除 `/logs`、`/usage` 两条路由与对应 import；
+- `ConsoleLayout.tsx`：移除「调用记录」「用量统计」导航项及未再使用的
+  `History` / `BarChart3` 图标；
+- `ConsoleLayout.test.tsx`：移除对已删导航项的断言。
+
+### 61.2 验证
+
+- 前端 `npm test`（244/244，33 文件）、`lint`（0/0）、`build` 全绿；
+- Dashboard 的数据源 `/usage` 接口与图表/统计逻辑保持不变，仅页面收敛。
