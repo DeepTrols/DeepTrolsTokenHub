@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"strings"
 
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 )
@@ -11,15 +12,15 @@ import (
 // (OpenAICompatAdapter); this interface keeps handlers decoupled from the
 // concrete adapter.
 type Executor interface {
-	Execute(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*ExecuteResponse, error)
+	Execute(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any, extraHeaders ...map[string]string) (*ExecuteResponse, error)
 	// ExecuteEndpoint forwards a request to an arbitrary OpenAI-compatible
 	// endpoint (e.g. "embeddings", "images/generations", "audio/speech").
 	// The endpoint is relative to /v1 and must not include a leading slash.
-	ExecuteEndpoint(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*ExecuteResponse, error)
+	ExecuteEndpoint(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any, extraHeaders ...map[string]string) (*ExecuteResponse, error)
 	// ExecuteEndpointRaw forwards a request to an endpoint whose response is
 	// not JSON (e.g. audio/speech returns binary audio). The raw body is
 	// returned as-is together with the upstream content type.
-	ExecuteEndpointRaw(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*RawResponse, error)
+	ExecuteEndpointRaw(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any, extraHeaders ...map[string]string) (*RawResponse, error)
 }
 
 type ExecuteResponse struct {
@@ -39,4 +40,36 @@ type RawResponse struct {
 	Body          []byte
 	ProviderReqID string
 	DurationMs    int
+}
+
+// CustomHeadersFromConfig extracts the optional custom_headers block from a
+// channel instance config ({"X-Header": "value", ...}) into a map for the
+// executor. Values are stringified; non-string values are skipped.
+func CustomHeadersFromConfig(cfg map[string]any) map[string]string {
+	if cfg == nil {
+		return nil
+	}
+	raw, ok := cfg["custom_headers"]
+	if !ok || raw == nil {
+		return nil
+	}
+	obj, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]string, len(obj))
+	for k, v := range obj {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		key := strings.TrimSpace(k)
+		if key != "" {
+			out[key] = s
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

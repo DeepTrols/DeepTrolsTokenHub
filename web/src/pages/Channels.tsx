@@ -2,6 +2,7 @@ import { EmptyState } from "@/components/StateViews";
 import { useState } from "react";
 import { adminApi } from "../lib/api";
 import { useAdminMutation, useAdminQuery } from "../lib/hooks/use-api";
+import { parseHeaderLines, formatHeaderLines } from "../lib/domain/headers";
 import { Plus, Trash2, Play, RotateCw, Server } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ interface CredentialData {
   id: string; name: string; provider: string; base_url: string;
   masked_key: string; status: string; model_count: number;
   channel_ids: string[]; created_at: string; updated_at: string;
+  custom_headers?: Record<string, string>;
 }
 
 interface ProbeResult {
@@ -100,12 +102,14 @@ export default function Channels() {
   const [chRoundMode, setChRoundMode] = useState("round_robin");
   const [chTags, setChTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [chCustomHeaders, setChCustomHeaders] = useState("");
 
   const resetModal = () => {
     setChName(""); setChProvider("deepseek"); setChApiKey(""); setChBaseURL("");
     setChPriority(0); setChWeight(100); setChPoolType("shared"); setChMaxConcurrency(10);
     setChModelMapping(""); setChParamOverride(""); setChAutoDisable(false);
-    setChRoundMode("round_robin"); setChTags([]); setTagInput(""); setEditingId(null);
+    setChRoundMode("round_robin"); setChTags([]); setTagInput("");
+    setChCustomHeaders(""); setEditingId(null);
   };
   const openCreate = () => { resetModal(); setShowModal(true); };
 
@@ -116,6 +120,7 @@ export default function Channels() {
     setChPoolType("shared"); setChMaxConcurrency(10);
     setChModelMapping(""); setChParamOverride(""); setChAutoDisable(false);
     setChRoundMode("round_robin"); setChTags([]); setTagInput("");
+    setChCustomHeaders(cred.custom_headers ? formatHeaderLines(cred.custom_headers) : "");
     setShowModal(true);
   };
 
@@ -129,6 +134,8 @@ export default function Channels() {
       model_mapping: chModelMapping.trim() || undefined,
       param_override: chParamOverride.trim() || undefined,
     };
+    const customHeaders = parseHeaderLines(chCustomHeaders);
+    if (Object.keys(customHeaders).length > 0) body.custom_headers = customHeaders;
     try {
       if (editingId) { await updateMut.mutateAsync({ id: editingId, ...body }); }
       else { await createMut.mutateAsync(body); }
@@ -301,6 +308,11 @@ export default function Channels() {
                 <Label>参数覆盖</Label>
                 <textarea value={chParamOverride} onChange={(e) => setChParamOverride(e.target.value)} placeholder='{"temperature": 0.8}' rows={4} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
                 <p className="text-xs text-muted-foreground">覆盖或扩展上游请求参数</p>
+              </div>
+              <div className="space-y-2">
+                <Label>自定义请求头</Label>
+                <textarea value={chCustomHeaders} onChange={(e) => setChCustomHeaders(e.target.value)} placeholder={"X-Gateway-Id: gw-east-1\nX-Tenant: acme"} rows={4} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                <p className="text-xs text-muted-foreground">每行一个 "Key: Value"，随请求透传给上游；留空则沿用现有配置</p>
               </div>
             </TabsContent>
           </Tabs>

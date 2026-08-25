@@ -561,6 +561,93 @@ func TestHandleCreateProvider_Success(t *testing.T) {
 	}
 }
 
+func TestHandleCreateProvider_StoresCustomHeaders(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "admin-headers@example.com", "pass", "Admin Headers")
+
+	orig := discoverModelsFn
+	discoverModelsFn = func(provider, baseURL, apiKey string) ([]modelRef, error) {
+		return []modelRef{{ID: "deepseek-chat"}}, nil
+	}
+	defer func() { discoverModelsFn = orig }()
+
+	body := map[string]any{
+		"name":           "DeepSeek Headers",
+		"provider":       "deepseek",
+		"base_url":       "https://api.deepseek.com",
+		"api_key":        "sk-deepseek-1234",
+		"custom_headers": map[string]string{"X-Gateway-Id": "gw-east-1", "X-Tenant": "acme"},
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	HandleCreateProvider(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var configJSON []byte
+	err := a.Pool.QueryRow(context.Background(),
+		`SELECT config FROM channel_instances WHERE channel_id IN (SELECT id FROM channels WHERE name LIKE 'DeepSeek Headers%')`,
+	).Scan(&configJSON)
+	if err != nil {
+		t.Fatalf("query config: %v", err)
+	}
+	var config map[string]interface{}
+	if err := json.Unmarshal(configJSON, &config); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	headers, ok := config["custom_headers"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("custom_headers missing in stored config: %v", config)
+	}
+	if headers["X-Gateway-Id"] != "gw-east-1" || headers["X-Tenant"] != "acme" {
+		t.Errorf("stored custom_headers = %v", headers)
+	}
+}
+
+func TestHandleUpdateProvider_UpdatesCustomHeaders(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "admin-upd-headers@example.com", "pass", "Admin Upd Headers")
+	channelID := seedProviderInstanceForTest(t, a, "deepseek", "https://api.deepseek.com", "sk-old")
+
+	body := map[string]any{
+		"custom_headers": map[string]string{"X-New": "yes"},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/providers/"+channelID.String(), bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Put("/api/admin/providers/{id}", HandleUpdateProvider(a))
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var configJSON []byte
+	err := a.Pool.QueryRow(context.Background(),
+		`SELECT config FROM channel_instances WHERE channel_id = $1`, channelID,
+	).Scan(&configJSON)
+	if err != nil {
+		t.Fatalf("query config: %v", err)
+	}
+	var config map[string]interface{}
+	if err := json.Unmarshal(configJSON, &config); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	headers, ok := config["custom_headers"].(map[string]interface{})
+	if !ok || headers["X-New"] != "yes" {
+		t.Errorf("updated custom_headers = %v (ok=%v)", config["custom_headers"], ok)
+	}
+}
+
 func TestHandleCreateProvider_WithDefaultBaseURL(t *testing.T) {
 	a := appForProviderTest(t)
 	user := seedUserForProviderTest(t, a, "admin-default-url@example.com", "pass", "Admin Default URL")

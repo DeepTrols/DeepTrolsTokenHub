@@ -53,6 +53,44 @@ func TestOpenAICompatAdapter_ExecuteParsesUsage(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatAdapter_AppliesCustomHeaders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Custom-Header"); got != "v1" {
+			t.Errorf("X-Custom-Header = %q, want v1", got)
+		}
+		if got := r.Header.Get("X-Provider-Id"); got != "my-gateway" {
+			t.Errorf("X-Provider-Id = %q, want my-gateway", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-test" {
+			t.Errorf("authorization = %q, want Bearer sk-test (default must remain)", got)
+		}
+		w.Header().Set("x-request-id", "upstream-req-2")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "chatcmpl-2",
+			"usage": map[string]any{
+				"prompt_tokens":     float64(10),
+				"completion_tokens": float64(5),
+				"total_tokens":      float64(15),
+			},
+		})
+	}))
+	defer upstream.Close()
+
+	adapter := NewOpenAICompatAdapter()
+	extra := map[string]string{
+		"X-Custom-Header": "v1",
+		"X-Provider-Id":   "my-gateway",
+	}
+	resp, err := adapter.Execute(context.Background(), upstream.URL,
+		"sk-test", "deepseek-chat", map[string]any{"messages": []any{}}, extra)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if resp.ProviderReqID != "chatcmpl-2" {
+		t.Errorf("provider req id = %q", resp.ProviderReqID)
+	}
+}
+
 func TestOpenAICompatAdapter_ExecuteEndpointRaw(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "audio/mpeg")

@@ -102,4 +102,29 @@ describe("Channels", () => {
 
     expect(await screen.findByText(/测试失败 · HTTP 401: invalid api key/)).toBeInTheDocument();
   });
+
+  it("sends custom request headers when creating a provider", async () => {
+    const user = userEvent.setup();
+    mockAdminGet.mockResolvedValue({ data: [] });
+    mockAdminPost.mockResolvedValue({ provider: "deepseek", name: "Headers Provider", status: "active" });
+
+    renderWithProviders(<Channels />);
+
+    await user.click(await screen.findByText("添加渠道"));
+    await user.type(screen.getByPlaceholderText(/例如: DeepSeek 深度求索 生产环境/), "Headers Provider");
+    await user.type(screen.getByPlaceholderText("sk-..."), "sk-deepseek-1234");
+    await user.click(screen.getByText("高级配置"));
+    await user.type(
+      screen.getByPlaceholderText(/X-Gateway-Id: gw-east-1/),
+      "X-Gateway-Id: gw-east-1\nX-Tenant: acme",
+    );
+    await user.click(screen.getByRole("button", { name: /提交/ }));
+
+    await waitFor(() => {
+      expect(mockAdminPost).toHaveBeenCalledWith("/providers", expect.objectContaining({
+        name: "Headers Provider",
+        custom_headers: { "X-Gateway-Id": "gw-east-1", "X-Tenant": "acme" },
+      }));
+    });
+  });
 });

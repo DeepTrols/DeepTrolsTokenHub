@@ -1820,3 +1820,41 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 前端 `npm test`（248/248）、`lint`（0/0）、`build` 全绿；
 - 真实环境：本地 API 对现有 DeepSeek 凭证调用探测端点，200 + `ok:true`，
   上游实测 241ms、发现 3 个模型、`capabilities.chat=3`。
+
+## 五十五、2026-08-25 Provider 自定义请求头（多 section 表单补全）
+
+> Phase 5 前端补齐第九批：Provider 编辑器升级第二步——自定义请求头随
+> 网关请求透传上游，配置存于实例 config JSONB（无需迁移）。
+
+### 55.1 变更
+
+- 执行器 `internal/service/gateway/executor.go`：`Executor` 接口三个方法增加
+  `extraHeaders ...map[string]string`；新增 `CustomHeadersFromConfig`（从实例
+  config 提取 `custom_headers` 块，过滤非字符串值、裁剪 key）。
+- 适配器 `internal/provider/openai_compat.go`：`doRaw` 应用自定义头（默认
+  Authorization 之后，允许覆盖），`mergeHeaders` 合并多份头。
+- 网关 `chat.go` / `endpoints.go`：调用执行器时传入
+  `gw.CustomHeadersFromConfig(cand.Instance.Config)`（chat / embeddings /
+  audio / images 全路径）。
+- Provider 管理 `providers.go`：创建/更新请求支持 `custom_headers`，写入实例
+  config JSONB；列表响应回显 `custom_headers`（编辑表单可回填）。
+- 前端 `web/src/lib/domain/headers.ts`：`parseHeaderLines` / `formatHeaderLines`
+  纯函数 + 单测；`Channels.tsx` 高级配置新增「自定义请求头」文本框（每行
+  `Key: Value`），创建/编辑随请求提交。
+
+### 55.2 测试
+
+- `executor_test.go`：`CustomHeadersFromConfig` 表驱动（nil/缺失/空/字符串过滤/
+  非对象 5 组）；
+- `openai_compat_test.go`：适配器把自定义头带上且保留默认 Authorization；
+- `providers_test.go`：创建存储 custom_headers 到 config、更新写入（jsonb_set）；
+- 前端 `headers.test.ts` 2 组 + `Channels.test.tsx` 创建携带自定义头 1 例。
+
+### 55.3 验证
+
+- Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
+- 前端 `npm test`（254/254）、`lint`（0/0）、`build` 全绿；
+- 真实环境：本地 echo 上游 + 真实网关链路——创建带自定义头的 provider →
+  `/v1/chat/completions` 经路由打到 echo，上游实际收到
+  `X-Custom-Header: e2e-abc` 与 `X-Gateway-Id: gw-test`；
+  列表接口回显 custom_headers，探测端点对 echo 正常。

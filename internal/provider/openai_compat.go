@@ -37,17 +37,17 @@ var _ gw.Executor = (*OpenAICompatAdapter)(nil)
 const maxRawResponseBytes = 50 << 20
 
 // Execute sends a chat completion request to the given upstream endpoint.
-func (e *OpenAICompatAdapter) Execute(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
-	return e.ExecuteEndpoint(ctx, baseURL, apiKey, upstreamModel, "chat/completions", body)
+func (e *OpenAICompatAdapter) Execute(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any, extraHeaders ...map[string]string) (*gw.ExecuteResponse, error) {
+	return e.ExecuteEndpoint(ctx, baseURL, apiKey, upstreamModel, "chat/completions", body, extraHeaders...)
 }
 
 // ExecuteEndpoint forwards a JSON body to the given upstream /v1 endpoint.
-func (e *OpenAICompatAdapter) ExecuteEndpoint(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.ExecuteResponse, error) {
+func (e *OpenAICompatAdapter) ExecuteEndpoint(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any, extraHeaders ...map[string]string) (*gw.ExecuteResponse, error) {
 	reqBytes, url, err := buildUpstreamRequest(baseURL, upstreamModel, endpoint, body)
 	if err != nil {
 		return nil, err
 	}
-	respBytes, _, statusCode, _, durationMs, err := e.doRaw(ctx, apiKey, url, reqBytes)
+	respBytes, _, statusCode, _, durationMs, err := e.doRaw(ctx, apiKey, url, reqBytes, mergeHeaders(extraHeaders...))
 	if err != nil {
 		return nil, err
 	}
@@ -82,12 +82,12 @@ func (e *OpenAICompatAdapter) ExecuteEndpoint(ctx context.Context, baseURL, apiK
 // ExecuteEndpointRaw forwards a request to an endpoint whose response is not
 // JSON (e.g. audio/speech binary audio). The raw body is returned as-is with
 // the upstream content type so the handler can stream it back to the client.
-func (e *OpenAICompatAdapter) ExecuteEndpointRaw(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.RawResponse, error) {
+func (e *OpenAICompatAdapter) ExecuteEndpointRaw(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any, extraHeaders ...map[string]string) (*gw.RawResponse, error) {
 	reqBytes, url, err := buildUpstreamRequest(baseURL, upstreamModel, endpoint, body)
 	if err != nil {
 		return nil, err
 	}
-	respBytes, contentType, statusCode, providerReqID, durationMs, err := e.doRaw(ctx, apiKey, url, reqBytes)
+	respBytes, contentType, statusCode, providerReqID, durationMs, err := e.doRaw(ctx, apiKey, url, reqBytes, mergeHeaders(extraHeaders...))
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func buildUpstreamRequest(baseURL, upstreamModel, endpoint string, body map[stri
 // doRaw performs the HTTP POST and returns the raw response body, content
 // type, status code, provider request id and duration. Response bodies are
 // capped so a misbehaving upstream cannot exhaust memory.
-func (e *OpenAICompatAdapter) doRaw(ctx context.Context, apiKey, url string, reqBytes []byte) ([]byte, string, int, string, int, error) {
+func (e *OpenAICompatAdapter) doRaw(ctx context.Context, apiKey, url string, reqBytes []byte, extraHeaders map[string]string) ([]byte, string, int, string, int, error) {
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBytes))
 	if err != nil {
@@ -129,6 +129,9 @@ func (e *OpenAICompatAdapter) doRaw(ctx context.Context, apiKey, url string, req
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := e.client.Do(req)
 	if err != nil {
@@ -142,6 +145,23 @@ func (e *OpenAICompatAdapter) doRaw(ctx context.Context, apiKey, url string, req
 	}
 	return respBytes, resp.Header.Get("Content-Type"), resp.StatusCode,
 		resp.Header.Get("x-request-id"), int(time.Since(start).Milliseconds()), nil
+}
+
+// mergeHeaders flattens variadic header maps; later maps win on key conflicts.
+func mergeHeaders(maps ...map[string]string) map[string]string {
+	var out map[string]string
+	for _, m := range maps {
+		if len(m) == 0 {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]string, len(m))
+		}
+		for k, v := range m {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // readLimited reads at most maxBytes from r, refusing oversized bodies.

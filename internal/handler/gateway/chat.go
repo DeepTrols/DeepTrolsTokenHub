@@ -360,7 +360,8 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		}
 		reserveResult = rr
 
-		resp, lastErr = executor.Execute(r.Context(), baseURL, apiKey, upstreamModel, body)
+		resp, lastErr = executor.Execute(r.Context(), baseURL, apiKey, upstreamModel, body,
+			gw.CustomHeadersFromConfig(cand.Instance.Config))
 		if loadHold != nil {
 			loadHold.Release()
 		}

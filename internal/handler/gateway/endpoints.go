@@ -255,7 +255,8 @@ func handleForwardedRawExecution(
 		}
 		reserveResult = rr
 
-		raw, lastErr = executor.ExecuteEndpointRaw(r.Context(), baseURL, apiKey, upstreamModel, endpoint, body)
+		raw, lastErr = executor.ExecuteEndpointRaw(r.Context(), baseURL, apiKey, upstreamModel, endpoint, body,
+			gw.CustomHeadersFromConfig(cand.Instance.Config))
 		if loadHold != nil {
 			loadHold.Release()
 		}
@@ -489,7 +490,8 @@ func handleForwardedEndpointExecution(
 		}
 		reserveResult = rr
 
-		resp, lastErr = executor.ExecuteEndpoint(r.Context(), baseURL, apiKey, upstreamModel, endpoint, body)
+		resp, lastErr = executor.ExecuteEndpoint(r.Context(), baseURL, apiKey, upstreamModel, endpoint, body,
+			gw.CustomHeadersFromConfig(cand.Instance.Config))
 		if loadHold != nil {
 			loadHold.Release()
 		}

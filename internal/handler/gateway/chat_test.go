@@ -51,12 +51,14 @@ type mockExecutor struct {
 	executeRawCalled      int
 	lastBody              map[string]any
 	lastEndpoint          string
+	lastExtraHeaders      map[string]string
 }
 
-func (m *mockExecutor) Execute(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
+func (m *mockExecutor) Execute(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any, extraHeaders ...map[string]string) (*gw.ExecuteResponse, error) {
 	m.mu.Lock()
 	m.executeCalled++
 	m.lastBody = body
+	m.lastExtraHeaders = mergeTestHeaders(extraHeaders...)
 	m.mu.Unlock()
 	if m.executeFn != nil {
 		return m.executeFn(ctx, baseURL, apiKey, upstreamModel, body)
@@ -67,11 +69,12 @@ func (m *mockExecutor) Execute(ctx context.Context, baseURL, apiKey, upstreamMod
 // ExecuteEndpoint is the generic endpoint counterpart of Execute. It prefers
 // the endpoint-specific mock fn and falls back to the chat executeFn so
 // existing tests keep working unchanged.
-func (m *mockExecutor) ExecuteEndpoint(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.ExecuteResponse, error) {
+func (m *mockExecutor) ExecuteEndpoint(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any, extraHeaders ...map[string]string) (*gw.ExecuteResponse, error) {
 	m.mu.Lock()
 	m.executeEndpointCalled++
 	m.lastEndpoint = endpoint
 	m.lastBody = body
+	m.lastExtraHeaders = mergeTestHeaders(extraHeaders...)
 	m.mu.Unlock()
 	if m.executeEndpointFn != nil {
 		return m.executeEndpointFn(ctx, baseURL, apiKey, upstreamModel, endpoint, body)
@@ -85,16 +88,34 @@ func (m *mockExecutor) ExecuteEndpoint(ctx context.Context, baseURL, apiKey, ups
 // ExecuteEndpointRaw is the raw-response counterpart used by the audio
 // endpoint tests. It prefers the endpoint-specific mock fn and fails loudly
 // when a test forgets to stub it.
-func (m *mockExecutor) ExecuteEndpointRaw(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.RawResponse, error) {
+func (m *mockExecutor) ExecuteEndpointRaw(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any, extraHeaders ...map[string]string) (*gw.RawResponse, error) {
 	m.mu.Lock()
 	m.executeRawCalled++
 	m.lastEndpoint = endpoint
 	m.lastBody = body
+	m.lastExtraHeaders = mergeTestHeaders(extraHeaders...)
 	m.mu.Unlock()
 	if m.executeRawFn != nil {
 		return m.executeRawFn(ctx, baseURL, apiKey, upstreamModel, endpoint, body)
 	}
 	return nil, fmt.Errorf("mockExecutor: executeRawFn not set")
+}
+
+// mergeTestHeaders flattens variadic header maps for call tracking.
+func mergeTestHeaders(maps ...map[string]string) map[string]string {
+	var out map[string]string
+	for _, m := range maps {
+		if len(m) == 0 {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]string, len(m))
+		}
+		for k, v := range m {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // ============================================================================

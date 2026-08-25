@@ -19,32 +19,35 @@ import (
 
 // providerResponse is the JSON shape returned for a single provider in list/detail responses.
 type providerResponse struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Provider   string   `json:"provider"`
-	BaseURL    string   `json:"base_url"`
-	MaskedKey  string   `json:"masked_key"`
-	Status     string   `json:"status"`
-	ModelCount int      `json:"model_count"`
-	ChannelIDs []string `json:"channel_ids"`
-	CreatedAt  string   `json:"created_at"`
-	UpdatedAt  string   `json:"updated_at"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Provider      string            `json:"provider"`
+	BaseURL       string            `json:"base_url"`
+	MaskedKey     string            `json:"masked_key"`
+	Status        string            `json:"status"`
+	ModelCount    int               `json:"model_count"`
+	ChannelIDs    []string          `json:"channel_ids"`
+	CustomHeaders map[string]string `json:"custom_headers,omitempty"`
+	CreatedAt     string            `json:"created_at"`
+	UpdatedAt     string            `json:"updated_at"`
 }
 
 // createProviderRequest is the request body for creating or updating a provider credential.
 type createProviderRequest struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	BaseURL  string `json:"base_url"`
-	APIKey   string `json:"api_key"`
+	Name          string            `json:"name"`
+	Provider      string            `json:"provider"`
+	BaseURL       string            `json:"base_url"`
+	APIKey        string            `json:"api_key"`
+	CustomHeaders map[string]string `json:"custom_headers,omitempty"`
 }
 
 // updateProviderRequest is the request body for updating a provider credential.
 // All fields are optional — only non-empty fields are applied.
 type updateProviderRequest struct {
-	Name    string `json:"name"`
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key"`
+	Name          string            `json:"name"`
+	BaseURL       string            `json:"base_url"`
+	APIKey        string            `json:"api_key"`
+	CustomHeaders map[string]string `json:"custom_headers,omitempty"`
 }
 
 // defaultBaseURLs maps provider names to their default API base URLs (no trailing version path).
@@ -100,7 +103,8 @@ func HandleListProviders(a *app.App) http.HandlerFunc {
 					ch.status,
 					ci.created_at,
 					ci.updated_at,
-					ci.config
+					ci.config,
+					ci.config->'custom_headers' AS custom_headers_json
 				FROM channels ch
 				LEFT JOIN channel_instances ci ON ci.channel_id = ch.id
 				WHERE ch.status = 'active'
@@ -114,7 +118,8 @@ func HandleListProviders(a *app.App) http.HandlerFunc {
 				COUNT(*) AS model_count,
 				STRING_AGG(channel_id::text, ',') AS channel_ids_csv,
 				COALESCE(MIN(created_at), NOW()) AS created_at,
-				COALESCE(MAX(updated_at), NOW()) AS updated_at
+				COALESCE(MAX(updated_at), NOW()) AS updated_at,
+				COALESCE(MAX(custom_headers_json::text), '') AS custom_headers
 			FROM creds
 			GROUP BY base_url, api_key
 			ORDER BY display_name, base_url`,
@@ -135,12 +140,13 @@ func HandleListProviders(a *app.App) http.HandlerFunc {
 			channelIDsCSV string
 			createdAt     time.Time
 			updatedAt     time.Time
+			customHeaders string
 		}
 
 		var rows2 []row
 		for rows.Next() {
 			var r row
-			if err := rows.Scan(&r.id, &r.displayName, &r.providerType, &r.baseURL, &r.apiKey, &r.modelCount, &r.channelIDsCSV, &r.createdAt, &r.updatedAt); err != nil {
+			if err := rows.Scan(&r.id, &r.displayName, &r.providerType, &r.baseURL, &r.apiKey, &r.modelCount, &r.channelIDsCSV, &r.createdAt, &r.updatedAt, &r.customHeaders); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read provider"})
 				return
 			}
@@ -157,17 +163,24 @@ func HandleListProviders(a *app.App) http.HandlerFunc {
 			if r.channelIDsCSV == "" {
 				channelIDs = []string{}
 			}
+			var customHeaders map[string]string
+			if r.customHeaders != "" && r.customHeaders != "null" {
+				if err := json.Unmarshal([]byte(r.customHeaders), &customHeaders); err != nil {
+					customHeaders = nil
+				}
+			}
 			response = append(response, providerResponse{
-				ID:         r.id.String(),
-				Name:       r.displayName,
-				Provider:   r.providerType,
-				BaseURL:    r.baseURL,
-				MaskedKey:  maskAPIKey(r.apiKey),
-				Status:     "active",
-				ModelCount: r.modelCount,
-				ChannelIDs: channelIDs,
-				CreatedAt:  r.createdAt.Format(time.RFC3339),
-				UpdatedAt:  r.updatedAt.Format(time.RFC3339),
+				ID:            r.id.String(),
+				Name:          r.displayName,
+				Provider:      r.providerType,
+				BaseURL:       r.baseURL,
+				MaskedKey:     maskAPIKey(r.apiKey),
+				Status:        "active",
+				ModelCount:    r.modelCount,
+				ChannelIDs:    channelIDs,
+				CustomHeaders: customHeaders,
+				CreatedAt:     r.createdAt.Format(time.RFC3339),
+				UpdatedAt:     r.updatedAt.Format(time.RFC3339),
 			})
 		}
 
@@ -271,7 +284,12 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 				}
 
 				// Create channel instance with display name preserved
-				cfg, _ := json.Marshal(map[string]string{"api_key": req.APIKey, "provider": req.Provider, "display_name": req.Name})
+				cfg, _ := json.Marshal(map[string]any{
+					"api_key":        req.APIKey,
+					"provider":       req.Provider,
+					"display_name":   req.Name,
+					"custom_headers": req.CustomHeaders,
+				})
 				_, err = a.Pool.Exec(dbCtx,
 					`INSERT INTO channel_instances (id, channel_id, instance_type, base_url, provider_route, current_load, max_load, config, status, created_at, updated_at)
 				 VALUES ($1,$2,'serverless',$3,$4,0,10,$5,'active',$6,$6)
@@ -317,7 +335,12 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 				 VALUES ($1,$2,$3,'shared',100,'healthy','active',100,10,$4,$4) ON CONFLICT DO NOTHING`,
 				cid, req.Name+"-pending", mid, now,
 			)
-			cfg, _ := json.Marshal(map[string]string{"api_key": req.APIKey, "provider": req.Provider, "display_name": req.Name})
+			cfg, _ := json.Marshal(map[string]any{
+				"api_key":        req.APIKey,
+				"provider":       req.Provider,
+				"display_name":   req.Name,
+				"custom_headers": req.CustomHeaders,
+			})
 			a.Pool.Exec(dbCtx,
 				`INSERT INTO channel_instances (id, channel_id, instance_type, base_url, provider_route, current_load, max_load, config, status, created_at, updated_at)
 				 VALUES ($1,$2,'serverless',$3,$4,0,10,$5,'active',$6,$6) ON CONFLICT DO NOTHING`,
@@ -670,7 +693,7 @@ func HandleUpdateProvider(a *app.App) http.HandlerFunc {
 		}
 
 		// No fields to update
-		if req.Name == "" && req.BaseURL == "" && req.APIKey == "" {
+		if req.Name == "" && req.BaseURL == "" && req.APIKey == "" && req.CustomHeaders == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "At least one field (name, base_url, api_key) must be provided"})
 			return
 		}
@@ -744,6 +767,29 @@ func HandleUpdateProvider(a *app.App) http.HandlerFunc {
 			)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update API key"})
+				return
+			}
+		}
+
+		if req.CustomHeaders != nil {
+			headersJSON, err := json.Marshal(req.CustomHeaders)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid custom_headers"})
+				return
+			}
+			_, err = tx.Exec(dbCtx,
+				`UPDATE channel_instances
+				 SET config = jsonb_set(
+				       COALESCE(config, '{}'::jsonb),
+				       '{custom_headers}',
+				       $1::jsonb
+				     ),
+				     updated_at = $2
+				 WHERE base_url = $3 AND config->>'api_key' = $4`,
+				string(headersJSON), now, baseURL, apiKey,
+			)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update custom headers"})
 				return
 			}
 		}
