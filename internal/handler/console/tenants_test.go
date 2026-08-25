@@ -677,24 +677,6 @@ func TestHandleDeleteTenant_CascadeCleanup(t *testing.T) {
 		t.Fatalf("insert tenant_model: %v", err)
 	}
 
-	poolID := uuid.New()
-	if _, err := a.Pool.Exec(ctx,
-		`INSERT INTO quota_pools (id, tenant_id, dimension, unit_name) VALUES ($1, $2, 'token', 'token')`,
-		poolID, tn.ID); err != nil {
-		t.Fatalf("insert quota pool: %v", err)
-	}
-	allocID := uuid.New()
-	if _, err := a.Pool.Exec(ctx,
-		`INSERT INTO quota_allocations (id, pool_id, user_id, allocated_amount) VALUES ($1, $2, $3, 1000)`,
-		allocID, poolID, user.ID); err != nil {
-		t.Fatalf("insert quota allocation: %v", err)
-	}
-	if _, err := a.Pool.Exec(ctx,
-		`INSERT INTO quota_ledger (id, allocation_id, idempotency_key, action, amount, balance_after) VALUES ($1, $2, $3, 'grant', 1000, 1000)`,
-		uuid.New(), allocID, uuid.New().String()); err != nil {
-		t.Fatalf("insert quota ledger: %v", err)
-	}
-
 	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/"+tn.ID.String(), nil)
 	req = chiRouteCtx(req, "id", tn.ID.String())
 	req = setAdminCtxForTenants(req, user.ID.String())
@@ -722,23 +704,6 @@ func TestHandleDeleteTenant_CascadeCleanup(t *testing.T) {
 	}
 	assertTenantCount(`SELECT COUNT(*) FROM tenant_memberships WHERE tenant_id = $1`, 0, "tenant_memberships")
 	assertTenantCount(`SELECT COUNT(*) FROM tenant_models WHERE tenant_id = $1`, 0, "tenant_models")
-	assertTenantCount(`SELECT COUNT(*) FROM quota_pools WHERE tenant_id = $1`, 0, "quota_pools")
-
-	var allocCount int
-	if err := a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM quota_allocations WHERE pool_id = $1`, poolID).Scan(&allocCount); err != nil {
-		t.Fatalf("quota_allocations count: %v", err)
-	}
-	if allocCount != 0 {
-		t.Errorf("quota_allocations: got %d rows, want 0", allocCount)
-	}
-
-	var ledgerCount int
-	if err := a.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM quota_ledger WHERE allocation_id = $1`, allocID).Scan(&ledgerCount); err != nil {
-		t.Fatalf("quota_ledger count: %v", err)
-	}
-	if ledgerCount != 0 {
-		t.Errorf("quota_ledger: got %d rows, want 0", ledgerCount)
-	}
 
 	// The global model row is NOT tenant-owned and must survive.
 	var modelCount int

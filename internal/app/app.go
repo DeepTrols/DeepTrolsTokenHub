@@ -20,7 +20,6 @@ import (
 	"github.com/deeptrols/api/internal/repository/channel"
 	"github.com/deeptrols/api/internal/repository/membership"
 	"github.com/deeptrols/api/internal/repository/model"
-	"github.com/deeptrols/api/internal/repository/quota"
 	"github.com/deeptrols/api/internal/repository/tenant"
 	"github.com/deeptrols/api/internal/repository/usage"
 	"github.com/deeptrols/api/internal/repository/user"
@@ -54,14 +53,12 @@ type App struct {
 	Wallets     wallet.Repository
 	Channels    channel.Repository
 	Memberships membership.Repository
-	Quotas      quota.Repository
 
 	// Services
-	Charger      *billing.Charger
-	Logger       *billing.Logger
-	Pricer       *billing.Pricer
-	QuotaChecker *billing.QuotaChecker
-	Router       *gateway.Router
+	Charger *billing.Charger
+	Logger  *billing.Logger
+	Pricer  *billing.Pricer
+	Router  *gateway.Router
 	// LoadTracker tracks per-instance in-flight counts in Redis. It is always
 	// non-nil; when Redis is unavailable it is a no-op tracker and routing
 	// falls back to the DB current_load column.
@@ -104,16 +101,10 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.Channels = channel.NewPostgresRepository(pool)
 	a.Memberships = membership.NewPostgresRepository(pool)
 
-	// One quota repository is shared by the gateway's QuotaChecker (consumption
-	// reads/writes) and the console/admin handlers (pool + allocation management).
-	quotaRepo := quota.NewPostgresRepository(pool)
-	a.Quotas = quotaRepo
-
 	// Wire services.
 	a.Charger = billing.NewCharger(a.Wallets)
 	a.Logger = billing.NewLoggerWithPool(a.Usage, a.Pool)
 	a.Pricer = billing.NewPricer(a.Models.(model.PricingRepository))
-	a.QuotaChecker = billing.NewQuotaChecker(quotaRepo)
 	a.Router = gateway.NewRouter(a.Models, a.Channels)
 	a.Executor = gateway.NewLiteLLMExecutor()
 	a.HttpClient = &http.Client{Timeout: 120 * time.Second}

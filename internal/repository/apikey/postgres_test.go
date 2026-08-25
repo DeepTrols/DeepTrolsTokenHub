@@ -246,7 +246,7 @@ func TestListByUser(t *testing.T) {
 // created without limits (NULL cumulative/weekly/monthly_limit, NULL name,
 // NULL tenant_id) crashed the scan with "cannot scan NULL into *string".
 // The demo seed produces exactly these rows, and so does a key that is created
-// with no quota configured.
+// with no limits configured.
 func TestListByUser_HandlesNullLimits(t *testing.T) {
 	repo := NewPostgresRepository(testutil.SetupPool(t))
 	ctx := context.Background()

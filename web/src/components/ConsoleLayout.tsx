@@ -1,6 +1,6 @@
 import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Key, Wallet, Receipt, Box, Play, LogOut, LayoutDashboard, Book, Settings, UserCircle } from "lucide-react";
+import { Key, Wallet, Receipt, Box, Play, LogOut, LayoutDashboard, Book, Settings, UserCircle, History, BarChart3 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
 import { PendingReviewBanner } from "./PendingReviewBanner";
@@ -17,6 +17,8 @@ export default function ConsoleLayout() {
   const navItems = [
     { to: "/dashboard", icon: LayoutDashboard, label: "用量信息", color: "text-[#4F6BED]" },
     { to: "/api-keys", icon: Key, label: "API keys", color: "text-[#0FA88B]" },
+    { to: "/logs", icon: History, label: "调用记录", color: "text-[#8B6FE8]" },
+    { to: "/usage", icon: BarChart3, label: "用量统计", color: "text-[#D3A94E]" },
     ...(isEnterpriseMember
       ? []
       : [

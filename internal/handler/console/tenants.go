@@ -484,7 +484,7 @@ func HandleUpdateTenant(a *app.App) http.HandlerFunc {
 }
 
 // HandleDeleteTenant permanently deletes a tenant and all tenant-owned rows
-// (quota pools/allocations/ledger, models, memberships, invitations).
+// (tenant models, memberships, invitations).
 func HandleDeleteTenant(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if rejectNonAdmin(w, r) {

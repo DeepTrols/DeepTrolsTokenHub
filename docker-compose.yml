@@ -25,7 +25,6 @@ x-api-env: &api-env
   JWT_SECRET: ${JWT_SECRET:-change-me-in-production-jwt-secret}
   JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-24}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:-abcdefghijklmnopqrstuvwxyz123456}
-  TOTP_ISSUER: ${TOTP_ISSUER:-DeepTrols}
   ADMIN_EMAIL: ${ADMIN_EMAIL:-deeptrols@admin.com}
   ADMIN_PASSWORD: ${ADMIN_PASSWORD:-deeptrols@2026}
   COOKIE_SECURE: ${COOKIE_SECURE:-true}
@@ -71,7 +70,7 @@ services:
       redis:
         condition: service_healthy
 
-  # Background workers: billing committer / health checker / reconciler.
+  # Background workers: health checker / reconciler.
   # Same image as api; entrypoint overridden to ./worker.
   worker:
     build: .

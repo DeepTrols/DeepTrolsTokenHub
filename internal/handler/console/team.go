@@ -313,8 +313,8 @@ type createSubAccountRequest struct {
 
 // HandleCreateSubAccount lets an enterprise admin provision a sub-account bound
 // to their tenant. The sub-account is an enterprise user with an active
-// membership and an empty wallet; quota is handed out afterwards via
-// HandleAllocateTeamQuota. The three inserts run in one transaction so a failed
+// membership and an empty wallet; balance is handed out afterwards via
+// HandleAllocateBalance. The three inserts run in one transaction so a failed
 // step can never leave a half-created account behind.
 func HandleCreateSubAccount(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -402,7 +402,7 @@ func HandleCreateSubAccount(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// 3. Wallet row (zero balance; quota is the spend control for sub-accounts).
+		// 3. Wallet row (zero balance; balance is allocated by the team admin).
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO wallets (id, user_id, balance, frozen, currency, version, created_at, updated_at)
 			 VALUES ($1, $2, '0', '0', 'CNY', 0, $3, $3)`,

@@ -84,12 +84,11 @@ type ModelPricing struct {
 
 // TenantModel is the OEM model selection configuration.
 type TenantModel struct {
-	ID           uuid.UUID
-	TenantID     uuid.UUID
-	ModelID      uuid.UUID
-	IsListed     bool
-	AllowPayg    bool
-	QuotaEnabled bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	ModelID   uuid.UUID
+	IsListed  bool
+	AllowPayg bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

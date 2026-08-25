@@ -98,12 +98,10 @@ func main() {
 		name string
 		sql  string
 	}{
-		{"route_policies", "SELECT COUNT(*) FROM route_policies WHERE model_id IN (" + idList + ")"},
 		{"channel_instances", "SELECT COUNT(*) FROM channel_instances WHERE channel_id IN (SELECT id FROM channels WHERE model_id IN (" + idList + "))"},
 		{"channels", "SELECT COUNT(*) FROM channels WHERE model_id IN (" + idList + ")"},
 		{"tenant_models", "SELECT COUNT(*) FROM tenant_models WHERE model_id IN (" + idList + ")"},
 		{"model_pricing", "SELECT COUNT(*) FROM model_pricing WHERE model_id IN (" + idList + ")"},
-		{"quota_pools", "SELECT COUNT(*) FROM quota_pools WHERE model_id IN (" + idList + ")"},
 		{"usage_logs(match by code, must be 0)", "SELECT COUNT(*) FROM usage_logs WHERE public_model_code IN (" + codeList + ")"},
 	} {
 		var n int
@@ -146,7 +144,6 @@ func main() {
 	}{
 		{"model_pricing", "SELECT * FROM model_pricing WHERE model_id IN (" + idList + ")"},
 		{"tenant_models", "SELECT * FROM tenant_models WHERE model_id IN (" + idList + ")"},
-		{"route_policies", "SELECT * FROM route_policies WHERE model_id IN (" + idList + ")"},
 		{"channels", "SELECT * FROM channels WHERE model_id IN (" + idList + ")"},
 		{"channel_instances", "SELECT * FROM channel_instances WHERE channel_id IN (SELECT id FROM channels WHERE model_id IN (" + idList + "))"},
 		{"models", "SELECT * FROM models WHERE id IN (" + idList + ")"},
@@ -167,7 +164,6 @@ func main() {
 		name string
 		sql  string
 	}{
-		{"route_policies", "DELETE FROM route_policies WHERE model_id IN (" + idList + ")"},
 		{"channel_instances", "DELETE FROM channel_instances WHERE channel_id IN (SELECT id FROM channels WHERE model_id IN (" + idList + "))"},
 		{"channels", "DELETE FROM channels WHERE model_id IN (" + idList + ")"},
 		{"tenant_models", "DELETE FROM tenant_models WHERE model_id IN (" + idList + ")"},

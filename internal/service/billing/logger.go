@@ -39,7 +39,6 @@ type LogUsageParams struct {
 	UpstreamModelCode string
 	ChannelID         *uuid.UUID
 	InstanceID        *uuid.UUID
-	RoutePolicyID     *uuid.UUID
 	ProviderRequestID string
 	UsageSource       domain.UsageSource
 	UsageRaw          map[string]any
@@ -137,7 +136,6 @@ func buildUsageLog(params LogUsageParams, logID uuid.UUID, now time.Time) *domai
 		UpstreamModelCode: params.UpstreamModelCode,
 		ChannelID:         params.ChannelID,
 		InstanceID:        params.InstanceID,
-		RoutePolicyID:     params.RoutePolicyID,
 		ProviderRequestID: params.ProviderRequestID,
 		UsageSource:       params.UsageSource,
 		UsageRaw:          params.UsageRaw,

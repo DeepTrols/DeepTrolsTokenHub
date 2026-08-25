@@ -182,27 +182,13 @@ func handleForwardedRawExecution(
 		requestID = uuid.New().String()
 	}
 
-	var quotaReservation *billing.QuotaReservation
-	if application.QuotaChecker != nil && estimatedUsage.TotalTokens > 0 {
-		reservation, err := application.QuotaChecker.Reserve(r.Context(), userID, tenantIDOrDefault(tenantID), primary.Channel.ModelID, estimatedUsage.TotalTokens, requestID)
-		if err != nil {
-			log.Printf("gateway: %s quota reserve error: %v", endpoint, err)
-		} else if reservation != nil && reservation.Insufficient {
-			writeError(w, http.StatusTooManyRequests, "quota_exceeded", "Token quota exceeded. Please upgrade your plan or wait for quota to reset.")
-			return
-		}
-		quotaReservation = reservation
-	}
-
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 	if err != nil {
 		log.Printf("gateway: %s wallet lookup error: %v", endpoint, err)
-		releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Unable to verify account")
 		return
 	}
 	if wallet == nil {
-		releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 		writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 		return
 	}
@@ -244,7 +230,6 @@ func handleForwardedRawExecution(
 		}
 		if !wallet.CanReserve(holdAmount) {
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
-			releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 			if loadHold != nil {
 				loadHold.Release()
 			}
@@ -254,7 +239,6 @@ func handleForwardedRawExecution(
 		if rerr != nil {
 			log.Printf("gateway: %s reserve error: %v", endpoint, rerr)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
-			releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 			if loadHold != nil {
 				loadHold.Release()
 			}
@@ -282,7 +266,6 @@ func handleForwardedRawExecution(
 	}
 
 	if upstreamFailed {
-		releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 		// Build a synthetic JSON response for the shared failure logger so
 		// error classification and evidence capture stay identical.
 		synthetic := (*gw.ExecuteResponse)(nil)
@@ -347,15 +330,12 @@ func handleForwardedRawExecution(
 		walletCharged = holdAmount
 		underfunded = true
 	}
-	if application.QuotaChecker != nil && quotaReservation != nil {
-		application.QuotaChecker.Settle(r.Context(), quotaReservation, actualUsage.TotalTokens, requestID)
-	}
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
 	}
 
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, synthetic, routeResult, actualCosts, actualUsage.TotalTokens, walletCharged, underfunded, pricingIncomplete)
+	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, synthetic, routeResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
 
 	if raw.ContentType != "" {
 		w.Header().Set("Content-Type", raw.ContentType)
@@ -422,30 +402,14 @@ func handleForwardedEndpointExecution(
 		requestID = uuid.New().String()
 	}
 
-	// Quota: token-based endpoints reserve quota atomically before upstream.
-	// Image/TTS calls have no token quota and skip the reservation.
-	var quotaReservation *billing.QuotaReservation
-	if application.QuotaChecker != nil && estimatedUsage.TotalTokens > 0 {
-		reservation, err := application.QuotaChecker.Reserve(r.Context(), userID, tenantIDOrDefault(tenantID), primary.Channel.ModelID, estimatedUsage.TotalTokens, requestID)
-		if err != nil {
-			log.Printf("gateway: %s quota reserve error: %v", endpoint, err)
-		} else if reservation != nil && reservation.Insufficient {
-			writeError(w, http.StatusTooManyRequests, "quota_exceeded", "Token quota exceeded. Please upgrade your plan or wait for quota to reset.")
-			return
-		}
-		quotaReservation = reservation
-	}
-
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 	if err != nil {
 		log.Printf("gateway: %s wallet lookup error: %v", endpoint, err)
-		releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Unable to verify account")
 		return
 	}
 	if wallet == nil {
 		// Fail-closed: every calling account must have a wallet to hold budget.
-		releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 		writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 		return
 	}
@@ -487,7 +451,6 @@ func handleForwardedEndpointExecution(
 		}
 		if !wallet.CanReserve(holdAmount) {
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
-			releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 			if loadHold != nil {
 				loadHold.Release()
 			}
@@ -497,7 +460,6 @@ func handleForwardedEndpointExecution(
 		if rerr != nil {
 			log.Printf("gateway: %s reserve error: %v", endpoint, rerr)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
-			releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 			if loadHold != nil {
 				loadHold.Release()
 			}
@@ -528,7 +490,6 @@ func handleForwardedEndpointExecution(
 	}
 
 	if upstreamFailed {
-		releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 		msg := "Upstream request failed"
 		if lastErr != nil {
 			msg = lastErr.Error()
@@ -575,10 +536,6 @@ func handleForwardedEndpointExecution(
 		walletCharged = holdAmount
 		underfunded = true
 	}
-	if application.QuotaChecker != nil && quotaReservation != nil {
-		application.QuotaChecker.Settle(r.Context(), quotaReservation, actualUsage.TotalTokens, requestID)
-	}
-
 	// Record spend against API key limits (best-effort, after settle).
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
@@ -587,7 +544,7 @@ func handleForwardedEndpointExecution(
 	// Log usage in background with a detached context so it survives the HTTP
 	// request lifecycle.
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, actualUsage.TotalTokens, walletCharged, underfunded, pricingIncomplete)
+	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)

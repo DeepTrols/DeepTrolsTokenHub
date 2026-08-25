@@ -108,9 +108,6 @@ func main() {
 				r.Delete("/team/{userId}", console.HandleRemoveMember(application))
 				r.Put("/team/{userId}/role", console.HandleChangeMemberRole(application))
 				r.Put("/team/{userId}/status", console.HandleSuspendMember(application))
-				r.Get("/team/quotas", console.HandleListTeamQuotas(application))
-				r.Post("/team/quotas/allocate", console.HandleAllocateTeamQuota(application))
-				r.Get("/team/quotas/ledger", console.HandleTeamQuotaLedger(application))
 				r.Post("/team/balance/allocate", console.HandleAllocateBalance(application))
 			})
 
@@ -158,23 +155,12 @@ func main() {
 		r.Post("/channels/{id}/instances", console.HandleAddInstance(application))
 		r.Delete("/channels/{id}/instances/{instanceId}", console.HandleRemoveInstance(application))
 
-		r.Get("/policies", console.HandleListPolicies(application))
-		r.Post("/policies", console.HandleCreatePolicy(application))
-		r.Put("/policies/{id}", console.HandleUpdatePolicy(application))
-		r.Delete("/policies/{id}", console.HandleDeletePolicy(application))
-
 		r.Get("/tenants", console.HandleListTenants(application))
 		r.Post("/tenants", console.HandleCreateTenant(application))
 		r.Get("/tenants/{id}", console.HandleGetTenant(application))
 		r.Put("/tenants/{id}", console.HandleUpdateTenant(application))
 		r.Delete("/tenants/{id}", console.HandleDeleteTenant(application))
 
-		r.Get("/quotas", console.HandleListQuotaPools(application))
-		r.Post("/quotas", console.HandleCreateQuotaPool(application))
-		r.Put("/quotas/{id}", console.HandleUpdateQuotaPool(application))
-		r.Delete("/quotas/{id}", console.HandleDeleteQuotaPool(application))
-		r.Post("/quotas/{id}/allocate", console.HandleAllocateQuota(application))
-		r.Get("/quota-ledger", console.HandleQuotaLedger(application))
 		r.Get("/reconciliation", console.HandleListReconciliationRuns(application))
 
 		r.Get("/users", console.HandleListUsers(application))

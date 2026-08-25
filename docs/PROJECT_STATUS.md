@@ -24,7 +24,7 @@
 | 三表事务写入 | usage_log + charge_line + provider_evidence 单事务落库 |
 | 流式计费闭环 | SSE 最后 chunk 提取 usage，detached context 提交 |
 | 计费同步化 | Reserve → Settle（按真实用量多退少补）→ Release 单请求内完成 |
-| 配额强制 | 网关 Check→429 拦截，Deduct→ledger 扣除，Restore 失败恢复 |
+| 配额强制 | ❌ 已移除（2026-08-25，迁移 000014 删表） |
 | 响应缓存 | SHA256(request)→Redis，命中零计费，X-Cache: HIT |
 
 ### 2.2 5 不变量
@@ -33,9 +33,9 @@
 |---|--------|------|
 | 1 | request_id 不是全局唯一账务身份 | 复合身份 tenant+user+key+type+request_id |
 | 2 | 预算预留在上游调用前 | Reserve → Execute → Commit/Release |
-| 3 | 路由结果进入证据链 | channel_id + instance_id + route_policy_id |
-| 4 | usage 来源显式标记 | upstream / estimated / cached 三种标记 |
-| 5 | 流式错误不伪装成功 | ⚠️ 有缺陷，[DONE] 无条件发送 |
+| 3 | 路由结果进入证据链 | channel_id + instance_id |
+| 4 | usage 来源显式标记 | upstream / final_chunk / estimated 三种标记 |
+| 5 | 流式错误不伪装成功 | 流中断/上游报错落 failed/partial 日志 + evidence |
 
 ### 2.3 网关
 
@@ -52,7 +52,7 @@
 |------|------|
 | API Key Bearer Token | HMAC-SHA256 哈希查表，6 边界治理（模型/IP/累计/周/月/超限动作） |
 | JWT 用户鉴权 | HS256，httpOnly cookie + SameSite，服务端 logout |
-| TOTP 2FA | 完整实现（setup + verify + login 强制），RFC 6238 |
+| TOTP 2FA | ❌ 已移除（2026-08-11 删除，见 commit `b9a98b1`） |
 | 租户识别 | Host header → tenant_domains，fail-closed（未知域名 403） |
 | 安全头 | CSP/HSTS/X-Frame-Options/X-Content-Type-Options/Referrer-Policy |
 | 限流 | Redis 优先 + 内存降级，网关按 Key 限流，登录按 IP 限流 |
@@ -64,9 +64,7 @@
 | 模型管理 | CRUD + 多维定价 |
 | Provider 凭证 | CRUD + 14 家默认 URL + Sync 自动发现模型 |
 | 渠道管理 | CRUD + 实例管理（添加/删除）+ 健康/权重 |
-| 路由策略 | CRUD + 4 种 fallback 策略 |
 | 租户管理 | CRUD + 域名管理 + 5 状态状态机 |
-| 配额管理 | 池 CRUD（创建/编辑/删除）+ 用户分配 + 账簿查询 |
 | 用户管理 | 列表 + 创建 + 角色/状态编辑 + 删除 |
 | 成本分析 | 按模型成本汇总 + 加价率设置 |
 | 对账管理 | 查看对账运行记录与差异 |
@@ -74,7 +72,7 @@
 
 ### 2.6 用户控制台 API (23/23)
 
-登录、注册、TOTP 设置/验证、登出、个人信息、修改密码、API Key CRUD（6 边界）、密钥明文查看、用量历史（含费用明细）、钱包余额、交易记录、在线充值、兑换码、邀请码、模型列表、登录历史
+登录、注册、登出、个人信息、修改密码、API Key CRUD（6 边界）、密钥明文查看、用量历史（含费用明细）、钱包余额、交易记录、在线充值、模型列表、登录历史
 
 ### 2.7 Worker 后台任务
 
@@ -90,8 +88,8 @@
 | UI 框架 | shadcn/ui（Radix 原语），21 页面全部迁移 |
 | 页面结构 | SectionPageLayout 统一组件 |
 | 状态组件 | LoadingState / ErrorState / EmptyState |
-| 用户端页面 | 数据看板、API 密钥、模型广场、在线体验、调用记录、钱包管理、用量统计、安全设置、开发文档 |
-| 管理端页面 | 模型管理、渠道管理、租户管理、路由策略、配额管理、对账管理、审计日志、用户管理、成本分析 |
+| 用户端页面 | 用量信息、API keys、调用记录、用量统计、充值、账单、模型广场、在线体验、用户中心、开发文档 |
+| 管理端页面 | 模型管理、渠道管理、配额管理、对账管理、策略管理、成本核算、企业管理、个人管理、账务管理 |
 
 ### 2.9 部署与运维
 
@@ -1052,3 +1050,92 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - Go：`go test ./... -count=1`（含 TEST_DATABASE_URL 真实 Postgres 集成测试）、`go vet ./...`、
   `go build ./...`、gofmt 全绿；`-v` 下确认警告输出正常。
 - 前端：`tsc -b`、`npm run lint`（0/0）、`npm test`（251/251，退出码 0）、`vite build` 全绿。
+
+## 二十九、2026-08-25 文档过期清理 + 死页面删除 + 导航补全 + outbox 正式移除
+
+> 依据 2026-08-25 全仓审计结论执行（见本批 diff；审计见对话记录）。不涉及资金路径，按
+> AGENTS.md 轻量流程，改完跑全量验证。
+
+### 29.1 文档与代码口径同步（删过期行）
+
+- **TOTP / 兑换码 / 邀请奖励**：功能清单、PROJECT_STATUS 已完成列表、README（环境变量 /
+  API 端点 / 前端页面 / 安全章节）、.env.example、docker-compose 中的相关行全部删除或标注
+  "已移除（2026-08-11 `b9a98b1`）"。
+- **Durable Outbox**：功能清单两处由 ✅ 改为 ❌ 已移除（计费已同步化，Committer 已删，
+  outbox_events 表随迁移 000013 正式删除）。
+- **模型广场**：状态由"三级分组（商家/Plan/工厂）+ 折叠展开"改为"平铺列表"。
+- **平台层 A/B 跨 channel 重试**：由 ❌ 改为 ✅（候选 failover 已实现）。
+- **控制台页面**：安全设置 → 用户中心；调用记录 / 用量统计标注并补导航；管理端页面表对齐
+  实际（渠道管理=Provider 凭证、无独立审计日志页）。
+- **README 端点表纠错**：`api-keys/{id}/plain` → `/{id}/secret`、`quotas/allocate` →
+  `quotas/{id}/allocate`、`quotas/ledger` → `quota-ledger`、`users/{id}/ledger` →
+  `/ledger`；删除不存在的 `/admin/audit`、`/costs/markup`、`/wallet/redeem`、`/auth/totp/*`。
+- **5 不变量 #5 表述**：由"状态始终 completed"改为"流中断/上游报错落 failed/partial +
+  evidence"。
+
+### 29.2 死页面删除 + 导航补全
+
+- 删除无路由的 `web/src/pages/Providers.tsx` 及 `Providers.test.tsx`（/admin/providers 已
+  重定向到渠道管理；Provider Sync 按钮随之移除，创建渠道时仍会自动发现模型）。
+- `ConsoleLayout` 增加「调用记录 /logs」「用量统计 /usage」导航入口，并更新
+  `ConsoleLayout.test.tsx` 断言（238/238）。
+
+### 29.3 outbox_events 正式移除
+
+- `migrations/000001_init.up/down.sql`：删除 outbox_events 建表/回滚语句。
+- 新增 `migrations/000013_drop_outbox.up/down.sql`：对已应用旧迁移的库执行 DROP TABLE
+  （down 恢复建表）。
+- `internal/repository/testutil/db.go`：TruncateAll 移除 outbox_events（表已不存在）。
+
+### 29.4 残留清理
+
+- `git rm docs/_fix.py`（一次性改文档脚本，已无用）。
+- 删除 `litellm-config.yaml` 空目录（LiteLLM 已于 2026-08-19 移除）、根目录设计过程文件
+  （brand-logo-gradient/solid.png、brand-logo-preview.html、payment-icons-preview.html）。
+- 删除空目录：`internal/service/model`、`internal/service/reconciliation`、
+  `internal/service/tenant`、`internal/repository/settings`、根 `node_modules`、`.gotmp`。
+
+### 29.5 验证（全绿）
+
+- Go：`go build ./...`、`go vet ./...`、`go test ./... -count=1`（repository 集成测试走
+  真实 Postgres 私有 schema）全绿；gofmt 无 diff。
+- 前端：`npm test`（238/238，退出码 0）、`npm run lint`（0/0）、`npm run build`
+  （tsc -b + vite build）全绿。
+
+## 三十、2026-08-25 配额管理 / 策略管理整体移除
+
+> 用户确认删除配额管理与策略管理（含前端页面、管理 API、网关强制、领域/仓储/服务层、
+> 数据库表）。属核心路径（网关）变更，按 AGENTS.md 执行全量验证并记录。
+
+### 30.1 删除范围
+
+- **前端**：删除 `web/src/pages/QuotaManagement.tsx`（+test）、`Policies.tsx`（+test）；
+  AdminLayout 移除「配额管理」「策略管理」导航；App.tsx 移除 `/admin/quotas`、
+  `/admin/policies` 路由。
+- **管理 API**：删除 `/api/admin/quotas*`、`/api/admin/quota-ledger`、
+  `/api/admin/policies*` 路由；`/api/console/team/quotas*` 团队配额端点一并删除。
+- **网关强制**：删除 QuotaChecker（Reserve/Settle/Release）调用；路由不再查询
+  route_policies，回退为"全部健康渠道按权重/负载排序 + 实例最低负载"；`RouteResult`
+  移除 RoutePolicyID。
+- **领域/仓储/服务**：删除 `internal/domain/quota.go`、
+  `internal/repository/quota/`、`internal/service/billing/quota.go`；
+  channel 仓储删除 FindRoutePolicy；tenant 删除配额表级联清理；`usage_logs` 删除
+  `route_policy_id` 列（保留 `quota_deducted` 证据列，恒为 0）。
+- **数据库**：`000001` 不再建 quota 三表与 route_policies；`000008` 改为 no-op；
+  新增 `migrations/000014_drop_quota_policy.up/down.sql` 对已建库执行
+  DROP TABLE（route_policies / quota_ledger / quota_allocations / quota_pools）并
+  DROP COLUMN（usage_logs.route_policy_id、tenant_models.quota_enabled）。
+
+### 30.2 行为变化
+
+- 网关不再有"配额不足 → 429"拦截；费用控制仅剩钱包 Reserve/Settle/Release。
+- 路由不再支持候选渠道白名单与 fallback 策略；渠道选择 = 权重/并发评分 + 实例实时负载。
+- 请求证据链保留 channel_id + instance_id；route_policy_id 列已删。
+
+### 30.3 验证（全绿）
+
+- Go：`go build ./...`、`go vet ./...`、`go test ./... -count=1`（repository 集成测试走
+  真实 Postgres 私有 schema，验证迁移 000001/000008/000014 后 schema 一致）全绿。
+- 前端：`npm test`（227/227，退出码 0）、`npm run lint`（0/0）、`npm run build`
+  （tsc -b + vite build）全绿。
+- 文档同步：功能清单、README、PROJECT_STATUS 二节/三十节已按现状更新。

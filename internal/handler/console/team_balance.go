@@ -21,7 +21,7 @@ type allocateBalanceRequest struct {
 
 // HandleAllocateBalance lets an enterprise admin transfer money from their own
 // wallet to a team member's wallet. The member then spends that balance
-// directly through the gateway (which already charges wallets), so no quota
+// directly through the gateway (which already charges wallets), so no
 // pool is involved. The recipient must be an active member of the caller's
 // tenant — cross-tenant transfers are rejected.
 func HandleAllocateBalance(a *app.App) http.HandlerFunc {

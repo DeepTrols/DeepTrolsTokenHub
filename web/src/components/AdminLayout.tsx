@@ -8,9 +8,7 @@ import {
   UserCog,
   DollarSign,
   Building2,
-  Route,
   Calculator,
-  Coins,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import RouteErrorBoundary from "./RouteErrorBoundary";
@@ -18,9 +16,7 @@ import RouteErrorBoundary from "./RouteErrorBoundary";
 const manageItems = [
   { to: "/admin/models", icon: Box, label: "模型管理", color: "text-[#4F6BED]" },
   { to: "/admin/channels", icon: Shield, label: "渠道管理", color: "text-[#0FA88B]" },
-  { to: "/admin/quotas", icon: Coins, label: "配额管理", color: "text-[#12A5B0]" },
   { to: "/admin/reconciliation", icon: BarChart3, label: "对账管理", color: "text-[#8B6FE8]" },
-  { to: "/admin/policies", icon: Route, label: "策略管理", color: "text-[#D3A94E]" },
   { to: "/admin/costs", icon: Calculator, label: "成本核算", color: "text-[#C9A96A]" },
 ];
 

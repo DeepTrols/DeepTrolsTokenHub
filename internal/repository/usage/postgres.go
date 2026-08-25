@@ -29,22 +29,21 @@ func (r *PostgresRepository) CreateUsageLog(ctx context.Context, log *domain.Usa
 		INSERT INTO usage_logs (
 			id, tenant_id, user_id, api_key_id, request_id, request_type,
 			public_model_code, upstream_model_code, channel_id, instance_id,
-			route_policy_id, provider_request_id, usage_source, usage_raw,
+			provider_request_id, usage_source, usage_raw,
 			usage_normalized, estimated_cost, list_cost, discount_amount,
 			final_cost, upstream_cost, currency, price_snapshot,
 			quota_deducted, wallet_charged, status, error_code, error_message,
 			request_summary, response_summary, created_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12, $13, $14, $15, $16, $17, $18,
-			$19, $20, $21, $22, $23, $24, $25, $26, $27,
-			$28, $29, $30
+			$11, $12, $13, $14, $15, $16, $17, $18, $19,
+			$20, $21, $22, $23, $24, $25, $26, $27, $28, $29
 		)
 	`
 	_, err := r.pool.Exec(ctx, query,
 		log.ID, log.TenantID, log.UserID, log.APIKeyID, log.RequestID, log.RequestType,
 		log.PublicModelCode, log.UpstreamModelCode, log.ChannelID, log.InstanceID,
-		log.RoutePolicyID, log.ProviderRequestID, log.UsageSource,
+		log.ProviderRequestID, log.UsageSource,
 		jsonb.Marshal(log.UsageRaw), jsonb.Marshal(log.UsageNormalized),
 		log.EstimatedCost, log.ListCost, log.DiscountAmount,
 		log.FinalCost, log.UpstreamCost, log.Currency, jsonb.Marshal(log.PriceSnapshot),
@@ -127,12 +126,12 @@ func (r *PostgresRepository) ListByAPIKey(ctx context.Context, apiKeyID uuid.UUI
 // estimated_cost, upstream_cost, error_code/message, request/response_summary)
 // are COALESCE'd so a log row with routing/error details unrecorded scans into
 // zero values instead of failing with "cannot scan NULL into *string".
-// channel_id/instance_id/route_policy_id/tenant_id are *uuid.UUID pointers and
-// tolerate NULL natively.
+// channel_id/instance_id/tenant_id are *uuid.UUID pointers and tolerate NULL
+// natively.
 const usageLogSelectClause = `
 	id, tenant_id, user_id, api_key_id, request_id, request_type,
 	public_model_code, COALESCE(upstream_model_code, ''), channel_id, instance_id,
-	route_policy_id, COALESCE(provider_request_id, ''), usage_source,
+	COALESCE(provider_request_id, ''), usage_source,
 	COALESCE(usage_raw::text, '{}'), COALESCE(usage_normalized::text, '{}'),
 	COALESCE(estimated_cost::text, ''), list_cost, discount_amount,
 	final_cost, COALESCE(upstream_cost::text, ''), currency,
@@ -151,7 +150,7 @@ func scanUsageLog(row pgx.Row) (*domain.UsageLog, error) {
 	err := row.Scan(
 		&l.ID, &l.TenantID, &l.UserID, &l.APIKeyID, &l.RequestID, &l.RequestType,
 		&l.PublicModelCode, &l.UpstreamModelCode, &l.ChannelID, &l.InstanceID,
-		&l.RoutePolicyID, &l.ProviderRequestID, &l.UsageSource,
+		&l.ProviderRequestID, &l.UsageSource,
 		&usageRawJSON, &usageNormJSON,
 		&estimatedCostStr, &listCostStr, &discountStr,
 		&finalCostStr, &upstreamCostStr, &l.Currency,

@@ -8,6 +8,8 @@
 > 上次：2026-08-21（B1 定价引擎落地：成本/售价分离 + 峰谷/缓存维度 + 无加价（售价=成本）+ PAYG 门禁，详见 PROJECT_STATUS.md 二十六节）
 > 本次：2026-08-24（第二篇端点状态修正：/v1/embeddings、/v1/images/generations、/v1/audio/speech 已实现并注册，
 > 实现率 2/16 → 5/16；详见 PROJECT_STATUS.md 二十七节）
+> 本次：2026-08-25（配额管理 / 策略管理整体移除：页面、API、网关强制、route_policies 与 quota 三表随迁移 000014 删除；
+> 详见 PROJECT_STATUS.md 三十节）
 
 ---
 
@@ -25,12 +27,12 @@
 | 模型 CRUD + 多维定价 | POST/PUT/DELETE /api/admin/models | ✅ 已实现 |
 | Provider 凭证管理 | 加密存储 + Sync 自动发现 + 14 家默认 URL | ✅ 已实现 |
 | Channel 管理 | 绑定模型+实例、权重/健康 | ✅ 已实现 |
-| 路由策略 CRUD | RoutePolicy + fallback 配置 | ✅ 已实现 |
+| 路由策略 CRUD | RoutePolicy + fallback 配置 | ❌ 已移除（2026-08-25） |
 | 租户生命周期 | 状态机（5 状态） | ✅ 已实现 |
-| 配额管理 | pool / allocation / ledger 三层 + 网关 Check→429 拦截 | ✅ 已实现 |
+| 配额管理 | pool / allocation / ledger 三层 + 网关 Check→429 拦截 | ❌ 已移除（2026-08-25） |
 | 用户等级折扣 | 基于 user_level 的阶梯折扣 | ❌ 未实现 |
 | OEM 模型定价 | 租户级独立定价 | 🟡 数据层已支持（model_pricing.tenant_id 覆盖 + 平台回退），OEM 自助管理端点/前端未提供 |
-| MFA/TOTP | 注册 + 验证 | ✅ 完整实现（login 强制 + setup + verify） |
+| MFA/TOTP | 注册 + 验证 | ❌ 已移除（2026-08-11 与兑换码/邀请奖励一并删除） |
 | 登录历史 | 记录 + 查询 | ✅ 已实现 |
 
 ### 执行面 (Execution Plane)
@@ -38,7 +40,7 @@
 |------|---------|---------|
 | OpenAI 兼容直连转发 | `/v1/chat/completions` | ✅ 已实现（渠道实例直连上游；内置 LiteLLM 已于 2026-08-19 移除） |
 | 加权最少负载路由 | weight / max_concurrency | ✅ 已实现 |
-| RoutePolicy 路由 | 候选 channel + 4 fallback | ✅ 已实现 |
+| RoutePolicy 路由 | 候选 channel + 4 fallback | ❌ 已移除（路由回退为全部健康渠道按权重/负载排序） |
 | Channel 实例管理 | base_url + provider_route | ✅ 已实现 |
 | 流式 SSE 转发 | text/event-stream | ✅ 已实现 |
 | Provider 模型同步 | 调用上游 /v1/models API 自动发现 | ✅ 已实现 |
@@ -70,9 +72,9 @@
 | usage_log + charge_line + evidence | 三表事务写库 | ✅ 已实现 |
 | Price Snapshot | 价格快照存入 usage_log | ✅ 已实现（pricer 写入 price_version / source / currency / captured_at / rows，非空快照） |
 | 成本/售价分离 + 峰谷定价 | cost/sell × peak/off_peak 定价行；售价 = 显式售价行 或 成本原价（无加价）；缓存命中按 cache_read 维度计费 | ✅ 已实现（migration 000011 + pricer 双通道） |
-| Durable Outbox | 异步计费事件 + Committer 100% 测试覆盖 | ✅ 已实现 |
+| Durable Outbox | 异步计费事件 + Committer | ❌ 已移除（计费已同步化；Committer 已删，outbox_events 表随迁移 000013 正式删除） |
 | 多维定价 | model_pricing 表 + conditions JSONB | 🟡 表就绪，conditions 未评估 |
-| 配额消费 | 网关 Check→429 + Deduct→ledger + Restore（best-effort） | ✅ 已实现 |
+| 配额消费 | 网关 Check→429 + Deduct→ledger + Restore（best-effort） | ❌ 已移除（2026-08-25） |
 | 租户级定价 | tenant_id 覆盖平台价格 | 🟡 数据层已支持（tenant_id 优先、NULL 回退平台价），管理入口未提供 |
 | 阶梯折扣 | volume-based discount + 月度计数器 | ❌ 未实现 |
 | 支付/充值 | 真实支付集成 | ❌ mock 数据 |
@@ -101,7 +103,7 @@
 
 | # | 端点 | 实现 | 计费 |
 |---|------|------|------|
-| 1 | `POST /v1/chat/completions` | ✅ | ✅ 完整（含配额检查） |
+| 1 | `POST /v1/chat/completions` | ✅ | ✅ 完整 |
 | 2 | `POST /v1/responses` | ❌ | — |
 | 3 | `POST /v1/messages` | ❌ | — |
 | 4 | `POST /v1/messages/count_tokens` | ❌ | — |
@@ -146,7 +148,7 @@
 | 折扣 | 用户等级折扣 | ❌ |
 | 折扣 | OEM 独立折扣 | ❌ |
 | 折扣 | 阶梯用量折扣 | ❌ |
-| 配额 | quota_pools/allocations/ledger 三层 + 网关强制 | ✅ |
+| 配额 | quota_pools/allocations/ledger 三层 + 网关强制 | ❌ 已移除（2026-08-25） |
 | 钱包 | balance + frozen + 乐观锁 | ✅ |
 | 钱包 | reserve → commit/release | ✅ |
 | 钱包 | 交易流水 | ✅ |
@@ -175,7 +177,7 @@
 | AI 折扣（独立于商品折扣） | ❌ |
 | 代充值（同租户钱包转账） | ✅ 已实现（team_balance.go：企业主/管理员同租户转账，幂等） |
 | Owner 钱包（Admin 发放额度） | ❌ |
-| AI 配额池（三层账 + 幂等） | ✅ |
+| AI 配额池（三层账 + 幂等） | ❌ 已移除（2026-08-25） |
 | API Key 代管 | ❌ 故意隐藏 |
 | 可见性裁剪（OEM 经营 vs 平台成本） | ❌ |
 
@@ -188,13 +190,13 @@
 | 模块化单体 | ✅ |
 | API + Worker 双进程 | ✅ |
 | Worker singleton（Redis lease） | ✅ pkg/lease（SET NX EX） |
-| Durable Outbox | ✅（Committer 100% 测试覆盖） |
+| Durable Outbox | ❌ 已移除（计费同步化；表随迁移 000013 删除） |
 | Channel 健康监测 | ✅ |
 | 健康评分状态机（degraded） | ✅ ±30 渐进（≥70 healthy / 30-69 degraded / <30 unhealthy） |
 | Redis 实时 current_load | ✅ LoadTracker（Redis 优先，故障回退 DB + 限流告警） |
 | 共享池/独享池/混合池 | ❌ |
-| RouteContext + RoutePolicy | ✅ |
-| 平台层 A/B 跨 channel 重试 | ❌ |
+| RouteContext（候选排序 + 实例选择） | ✅（RoutePolicy 已移除） |
+| 平台层 A/B 跨 channel 重试 | ✅ 已实现（候选 failover：RouteCandidates 顺序重试，失败自动切换下一渠道） |
 
 ---
 
@@ -221,16 +223,16 @@
 | 调用日志 | ✅ |
 | 用量统计 | ✅ |
 | 钱包账单 | ✅ |
-| 模型广场 | ✅ 三级分组（商家/Plan/工厂）+ 折叠展开 |
+| 模型广场 | ✅ 平铺列表（2026-08-19 起去除商家/Plan/工厂分组） |
 | 在线体验（Playground） | ✅ |
-| 安全设置 | ✅（TOTP login 强制 + setup + verify） |
+| 用户中心 | ✅ 账户资料 + 团队管理 + 登录历史（原安全设置并入；TOTP 已移除） |
 | 开发文档 | ✅ |
 | 模型管理（Admin CRUD） | ✅ Provider 下拉 + badge 同名区分 |
 | Provider 凭证（Admin） | ✅ Sync 按钮 + 14 家默认 URL + 自动发现 |
 | Channel 管理（Admin） | ✅ |
-| 路由策略（Admin） | ✅ |
+| 路由策略（Admin） | ❌ 已移除（2026-08-25） |
 | 租户管理（Admin） | ✅ |
-| 配额管理（Admin 创建/分配） | ✅ |
+| 配额管理（Admin 创建/分配） | ❌ 已移除（2026-08-25） |
 | 对账管理（Admin 只读） | ✅ |
 
 ---
@@ -241,13 +243,12 @@
 |---------|------|
 | 入口鉴权（Bearer/HMAC/x-api-key/x-goog-api-key） | 🟡 Bearer + httpOnly cookie |
 | 租户识别（Host → tenant_id） | ✅ |
-| 路由决策（RouteContext + RoutePolicy） | ✅ |
-| 配额检查（Check→429） | ✅ 路由后 / Reserve 前 |
+| 路由决策（RouteContext：候选排序 + 实例选择） | ✅ |
+| 配额检查（Check→429） | ❌ 已移除（2026-08-25） |
 | 预算预留（上游调用前 Reserve） | ✅ |
 | 执行转发（OpenAI 兼容直连 / Native Adapter） | 🟡 仅 Chat |
 | 流式 usage 提取（最后 chunk） | ✅ |
-| 计费提交（同步 / 异步 Outbox） | ✅ |
-| 配额扣除（Deduct→quota_ledger） | ✅ 成功后异步 best-effort |
+| 计费提交 | ✅ 同步（Reserve→Settle→Release 单请求内完成；Outbox 已移除） |
 | 幂等保护（request identity 去重） | 🟡 |
 | 字段保护（拒绝覆盖 api_key/headers/base_url） | ✅（7 字段过滤） |
 | Console Playground（JWT + owned key_id） | ✅ |
@@ -258,10 +259,10 @@
 
 | OpenRouter 能力 | DeepTrols 对照 |
 |----------------|---------------|
-| 统一 API 入口 | ✅ Chat（含配额拦截） |
+| 统一 API 入口 | ✅ Chat |
 | 统一计费 | ✅ 9 维 |
 | 统一 API Key | ✅ 6 边界 |
-| 模型市场 + 定价透明 | ✅ 三级分组 |
+| 模型市场 + 定价透明 | ✅ 平铺列表 |
 | BYOK | ❌ |
 | 路由（权重 + 延迟 + 价格） | 🟡 权重 + 负载 |
 | 多模态（图片/音频/视频） | ❌ |
@@ -275,12 +276,12 @@
 
 | 分类 | 总数 | ✅ 完成 | 🟡 部分 | ❌ 未开始 |
 |------|------|--------|--------|----------|
-| Gateway 端点 | 16 | 2 | 0 | 14 |
+| Gateway 端点 | 16 | 5 | 0 | 11 |
 | 鉴权方式 | 4 | 2 | 0 | 2 |
 | 计费能力 | 16 | 14 | 0 | 2 |
 | 对账级别 | 4 | 2 | 0 | 2 |
-| OEM 能力 | 17 | 11 | 2 | 4 |
-| Console 页面 | 16 | 16 | 0 | 0 |
+| OEM 能力 | 16 | 10 | 2 | 4 |
+| Console 页面 | 14 | 14 | 0 | 0 |
 | Worker 能力 | 5 | 4 | 1 | 0 |
 | Adapter 类型 | 4 | 1 | 0 | 3 |
 
@@ -291,7 +292,7 @@
 - 后端：限流 Redis 化、reconciliation 测试、对账 L1
 
 **中期**:
-- Embeddings + Images 端点、TOTP 登录流程、前端测试补完
+- Embeddings + Images 端点、前端测试补完（TOTP 已移除，不再实施）
 
 **长期**:
 - Messages/Audio/Video 端点、Gemini Adapter、BYOK、HA、支付充值

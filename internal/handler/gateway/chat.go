@@ -152,21 +152,6 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		requestID = uuid.New().String()
 	}
 
-	// Quota: atomically reserve the estimated token count BEFORE calling
-	// upstream (no Check→Deduct race; concurrent requests cannot overdraw).
-	var quotaReservation *billing.QuotaReservation
-	if application.QuotaChecker != nil {
-		estimatedTokens := estimateUsageFromBody(body).TotalTokens
-		reservation, err := application.QuotaChecker.Reserve(r.Context(), userID, tenantIDOrDefault(tenantID), primary.Channel.ModelID, estimatedTokens, requestID)
-		if err != nil {
-			log.Printf("gateway: quota reserve error: %v", err)
-		} else if reservation != nil && reservation.Insufficient {
-			writeError(w, http.StatusTooManyRequests, "quota_exceeded", "Token quota exceeded. Please upgrade your plan or wait for quota to reset.")
-			return
-		}
-		quotaReservation = reservation
-	}
-
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 	if err != nil {
 		log.Printf("gateway: wallet lookup error: %v", err)
@@ -220,9 +205,6 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		}
 		if !wallet.CanReserve(holdAmount) {
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
-			if application.QuotaChecker != nil {
-				application.QuotaChecker.Release(r.Context(), quotaReservation, requestID)
-			}
 			if loadHold != nil {
 				loadHold.Release()
 			}
@@ -232,9 +214,6 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		if rerr != nil {
 			log.Printf("gateway: reserve error: %v", rerr)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
-			if application.QuotaChecker != nil {
-				application.QuotaChecker.Release(r.Context(), quotaReservation, requestID)
-			}
 			if loadHold != nil {
 				loadHold.Release()
 			}
@@ -265,9 +244,6 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	}
 
 	if upstreamFailed {
-		// Release the quota reservation with a detached fallback: a cancelled
-		// request context must never leave quota or wallet holds frozen.
-		releaseQuotaDetached(r.Context(), application, quotaReservation, requestID)
 		msg := "Upstream request failed"
 		if lastErr != nil {
 			msg = lastErr.Error()
@@ -302,7 +278,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 			}
 			pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
 			go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModelName,
-				lastResp, lastRouteResult, actualCosts, lastResp.Usage.TotalTokens, walletCharged, underfunded, pricingIncomplete)
+				lastResp, lastRouteResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
 			writeError(w, http.StatusBadGateway, "upstream_error", msg)
 			return
 		}
@@ -326,8 +302,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	}
 	actualCosts := calculateActualCosts(r.Context(), application, routeResult, resp, tenantID)
 
-	// Settle reserved funds; reconcile the quota reservation against the
-	// ACTUAL tokens consumed.
+	// Settle reserved funds against the ACTUAL tokens consumed.
 	finalCost := decimal.Zero
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
@@ -354,10 +329,6 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		walletCharged = holdAmount
 		underfunded = true
 	}
-	if application.QuotaChecker != nil {
-		application.QuotaChecker.Settle(r.Context(), quotaReservation, actualQuotaTokens(resp, body), requestID)
-	}
-
 	// ---- Store response in cache ----
 	if cacheSvc != nil && cacheSvc.IsEnabled() && cacheSvc.IsModelAccepted(modelName) {
 		if respBodyBytes, jerr := json.Marshal(resp.Body); jerr == nil {
@@ -378,14 +349,6 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	// a data race (logUsage reads resp.Body from a separate goroutine).
 	resp.Body["model"] = modelName
 
-	// Determine actual tokens used for quota settlement and logging.
-	var quotaDeducted int64
-	if resp.Usage != nil && resp.Usage.HasUsage() {
-		quotaDeducted = resp.Usage.TotalTokens
-	} else {
-		quotaDeducted = estimateUsageFromBody(body).TotalTokens
-	}
-
 	// Record spend against API key limits (best-effort, after settle).
 	if !upstreamFailed && actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
@@ -394,7 +357,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	// Log usage in background with a detached context so it survives
 	// the HTTP request lifecycle.
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, quotaDeducted, walletCharged, underfunded, pricingIncomplete)
+	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
@@ -453,21 +416,6 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		holdAmount, _ = decimal.NewFromString(minHoldAmount)
 	}
 
-	// Quota: atomically reserve the estimated token count BEFORE calling
-	// upstream (no Check→Deduct race).
-	var quotaReservation *billing.QuotaReservation
-	if application.QuotaChecker != nil {
-		estimatedTokens := estimateUsageFromBody(body).TotalTokens
-		reservation, err := application.QuotaChecker.Reserve(r.Context(), userID, tenantIDOrDefault(tenantID), routeResult.Channel.ModelID, estimatedTokens, requestID)
-		if err != nil {
-			log.Printf("gateway: stream quota reserve error: %v", err)
-		} else if reservation != nil && reservation.Insufficient {
-			writeError(w, http.StatusTooManyRequests, "quota_exceeded", "Token quota exceeded. Please upgrade your plan or wait for quota to reset.")
-			return
-		}
-		quotaReservation = reservation
-	}
-
 	var reserveResult *billing.ReserveResult
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 	if err != nil {
@@ -507,7 +455,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 
 	reqBytes, err := json.Marshal(body)
 	if err != nil {
-		releaseIfReserved(r.Context(), application, reserveResult, quotaReservation, requestID)
+		releaseIfReserved(r.Context(), application, reserveResult)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to encode request")
 		return
 	}
@@ -515,7 +463,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	url := strings.TrimSuffix(baseURL, "/v1") + "/v1/chat/completions"
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), "POST", url, bytes.NewReader(reqBytes))
 	if err != nil {
-		releaseIfReserved(r.Context(), application, reserveResult, quotaReservation, requestID)
+		releaseIfReserved(r.Context(), application, reserveResult)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Failed to create upstream request")
 		return
 	}
@@ -538,7 +486,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	resp, err := client.Do(upstreamReq)
 	if err != nil {
 		log.Printf("gateway: stream upstream error: %v", err)
-		releaseIfReserved(r.Context(), application, reserveResult, quotaReservation, requestID)
+		releaseIfReserved(r.Context(), application, reserveResult)
 		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
 			routeResult, body, requestID, "", 0, domain.UsageLogStatusFailed,
 			"upstream_error", err.Error(), 0, nil, int(time.Since(startTime).Milliseconds()))
@@ -549,7 +497,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 
 	if resp.StatusCode >= 400 {
 		respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxUpstreamErrorBody))
-		releaseIfReserved(r.Context(), application, reserveResult, quotaReservation, requestID)
+		releaseIfReserved(r.Context(), application, reserveResult)
 		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
 			routeResult, body, requestID, "", 0, domain.UsageLogStatusFailed,
 			"upstream_http_error", "upstream returned non-2xx", resp.StatusCode, respBytes, int(time.Since(startTime).Milliseconds()))
@@ -562,7 +510,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	// ---- Forward SSE stream while buffering last data chunk ----
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		releaseIfReserved(r.Context(), application, reserveResult, quotaReservation, requestID)
+		releaseIfReserved(r.Context(), application, reserveResult)
 		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
 			routeResult, body, requestID, "", 0, domain.UsageLogStatusFailed,
 			"streaming_not_supported", "streaming not supported by response writer", 0, nil, int(time.Since(startTime).Milliseconds()))
@@ -616,7 +564,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		// The client may have disconnected (r.Context() cancelled): release
 		// with a detached context so the wallet hold is always compensated.
 		relCtx, relCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		releaseIfReserved(relCtx, application, reserveResult, quotaReservation, requestID)
+		releaseIfReserved(relCtx, application, reserveResult)
 		relCancel()
 		go logStreamFailure(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel,
 			routeResult, body, requestID, lastDataLine, chunksForwarded, domain.UsageLogStatusFailed,
@@ -703,14 +651,6 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 			walletCharged = holdAmount
 			underfunded = true
 		}
-		// Reconcile the quota reservation against actual tokens consumed.
-		if application.QuotaChecker != nil {
-			quotaTokens := normUsage.TotalTokens
-			if !normUsage.HasUsage() {
-				quotaTokens = estimateUsageFromBody(body).TotalTokens
-			}
-			application.QuotaChecker.Settle(commitCtx, quotaReservation, quotaTokens, requestID)
-		}
 	}
 
 	// Determine usage source tag.
@@ -719,14 +659,6 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		domainUsageSource = domain.UsageSourceFinalChunk
 	} else if usageSource == usageparser.SourceUpstream {
 		domainUsageSource = domain.UsageSourceUpstream
-	}
-
-	// Determine actual tokens used for quota settlement and logging.
-	var quotaDeducted int64
-	if normUsage.HasUsage() {
-		quotaDeducted = normUsage.TotalTokens
-	} else {
-		quotaDeducted = estimateUsageFromBody(body).TotalTokens
 	}
 
 	// Record spend against API key limits (best-effort, after settle).
@@ -745,7 +677,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	}
 
 	// Log usage in background with detached context.
-	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, quotaDeducted, domain.UsageLogStatusCompleted, walletCharged, underfunded, pricingIncomplete)
+	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, domain.UsageLogStatusCompleted, walletCharged, underfunded, pricingIncomplete)
 }
 
 // resolveStreamAPIKeyID extracts the API key ID for streaming logging.
@@ -761,14 +693,11 @@ func resolveStreamAPIKeyID(r *http.Request) uuid.UUID {
 
 // releaseIfReserved releases a reserved wallet transaction if it exists and
 // returns the quota reservation on upstream failure (compensation).
-func releaseIfReserved(ctx context.Context, application *app.App, reserveResult *billing.ReserveResult, quotaReservation *billing.QuotaReservation, requestID string) {
+func releaseIfReserved(ctx context.Context, application *app.App, reserveResult *billing.ReserveResult) {
 	if reserveResult != nil {
 		if relErr := application.Charger.Release(ctx, reserveResult.TransactionID); relErr != nil {
 			log.Printf("gateway: release error tx=%s: %v", reserveResult.TransactionID, relErr)
 		}
-	}
-	if application.QuotaChecker != nil {
-		application.QuotaChecker.Release(ctx, quotaReservation, requestID)
 	}
 }
 
@@ -785,30 +714,6 @@ func releaseWalletHold(ctx context.Context, application *app.App, txID uuid.UUID
 	if err := application.Charger.Release(relCtx, txID); err != nil {
 		log.Printf("gateway: release error tx=%s: %v", txID, err)
 	}
-}
-
-// releaseQuotaDetached releases the quota reservation, falling back to a
-// detached context when the request context is already cancelled.
-func releaseQuotaDetached(ctx context.Context, application *app.App, quotaReservation *billing.QuotaReservation, requestID string) {
-	if application.QuotaChecker == nil {
-		return
-	}
-	relCtx := ctx
-	if ctx.Err() != nil {
-		var cancel context.CancelFunc
-		relCtx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-	}
-	application.QuotaChecker.Release(relCtx, quotaReservation, requestID)
-}
-
-// actualQuotaTokens returns the tokens actually consumed from the upstream
-// response, falling back to the request-body estimate when usage is absent.
-func actualQuotaTokens(resp *gw.ExecuteResponse, body map[string]any) int64 {
-	if resp != nil && resp.Usage != nil && resp.Usage.HasUsage() {
-		return resp.Usage.TotalTokens
-	}
-	return estimateUsageFromBody(body).TotalTokens
 }
 
 // estimateUsageFromBody estimates token usage from the request body messages.
@@ -966,14 +871,6 @@ func upstreamProvider(routeResult *gw.RouteResult) string {
 	return "direct"
 }
 
-// tenantIDOrDefault returns tenantID if non-nil, otherwise returns uuid.Nil.
-func tenantIDOrDefault(tenantID *uuid.UUID) uuid.UUID {
-	if tenantID != nil {
-		return *tenantID
-	}
-	return uuid.Nil
-}
-
 // tenantIDOrDefaultPtr returns tenantID unchanged (nil-safe convenience for
 // evidence logging params).
 func tenantIDOrDefaultPtr(tenantID *uuid.UUID) *uuid.UUID {
@@ -993,7 +890,7 @@ func rejectIncompletePricing(w http.ResponseWriter, priceResult *billing.PriceRe
 
 // logUsageWithCosts records the usage log with real costs from the pricer.
 // Uses a detached context (30s timeout) independent of the HTTP request lifecycle.
-func logUsageWithCosts(r *http.Request, application *app.App, requestType string, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, quotaDeducted int64, walletCharged decimal.Decimal, underfunded bool, pricingIncomplete bool) {
+func logUsageWithCosts(r *http.Request, application *app.App, requestType string, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, walletCharged decimal.Decimal, underfunded bool, pricingIncomplete bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1029,7 +926,6 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 
 	// Extract evidence fields from route result when available.
 	var channelID, instanceID *uuid.UUID
-	var routePolicyID *uuid.UUID
 	if routeResult != nil {
 		if routeResult.Channel != nil {
 			id := routeResult.Channel.ID
@@ -1039,7 +935,6 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 			id := routeResult.Instance.ID
 			instanceID = &id
 		}
-		routePolicyID = routeResult.RoutePolicyID
 	}
 
 	// Compute final cost: pricer ListCost for now.
@@ -1062,7 +957,6 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 		ProviderRequestID: resp.ProviderReqID,
 		ChannelID:         channelID,
 		InstanceID:        instanceID,
-		RoutePolicyID:     routePolicyID,
 		UsageSource:       usageSource,
 		UsageRaw:          usageRaw,
 		UsageNormalized:   normalizedJSON,
@@ -1071,7 +965,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 		UpstreamCost:      costs.UpstreamCost,
 		Currency:          "CNY",
 		PriceSnapshot:     costs.PriceSnapshot,
-		QuotaDeducted:     quotaDeducted,
+		QuotaDeducted:     0,
 		ChargeLines:       costs.ChargeLines,
 		Status:            status,
 		ErrorCode:         "",
@@ -1102,7 +996,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 }
 
 // logStreamUsage records usage for streaming requests.
-func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, quotaDeducted int64, status domain.UsageLogStatus, walletCharged decimal.Decimal, underfunded bool, pricingIncomplete bool) {
+func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, status domain.UsageLogStatus, walletCharged decimal.Decimal, underfunded bool, pricingIncomplete bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1116,7 +1010,6 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *
 	}
 
 	var channelID, instanceID *uuid.UUID
-	var routePolicyID *uuid.UUID
 	if routeResult != nil {
 		if routeResult.Channel != nil {
 			id := routeResult.Channel.ID
@@ -1126,7 +1019,6 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *
 			id := routeResult.Instance.ID
 			instanceID = &id
 		}
-		routePolicyID = routeResult.RoutePolicyID
 	}
 
 	finalCost := costs.ListCost
@@ -1147,7 +1039,6 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *
 		UpstreamModelCode: upstreamModel,
 		ChannelID:         channelID,
 		InstanceID:        instanceID,
-		RoutePolicyID:     routePolicyID,
 		UsageSource:       usageSource,
 		UsageRaw:          usageRaw,
 		UsageNormalized:   normalizedJSON,
@@ -1156,7 +1047,7 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *
 		UpstreamCost:      costs.UpstreamCost,
 		Currency:          "CNY",
 		PriceSnapshot:     costs.PriceSnapshot,
-		QuotaDeducted:     quotaDeducted,
+		QuotaDeducted:     0,
 		ChargeLines:       costs.ChargeLines,
 		Status:            status,
 		ErrorCode:         "",
@@ -1223,7 +1114,6 @@ func logStreamFailure(application *app.App, userID, apiKeyID uuid.UUID, tenantID
 	}
 
 	var channelID, instanceID *uuid.UUID
-	var routePolicyID *uuid.UUID
 	if routeResult != nil {
 		if routeResult.Channel != nil {
 			id := routeResult.Channel.ID
@@ -1233,7 +1123,6 @@ func logStreamFailure(application *app.App, userID, apiKeyID uuid.UUID, tenantID
 			id := routeResult.Instance.ID
 			instanceID = &id
 		}
-		routePolicyID = routeResult.RoutePolicyID
 	}
 
 	params := billing.LogUsageParams{
@@ -1246,7 +1135,6 @@ func logStreamFailure(application *app.App, userID, apiKeyID uuid.UUID, tenantID
 		UpstreamModelCode: upstreamModel,
 		ChannelID:         channelID,
 		InstanceID:        instanceID,
-		RoutePolicyID:     routePolicyID,
 		UsageSource:       usageSource,
 		UsageRaw:          usageRaw,
 		UsageNormalized:   map[string]any{},
@@ -1342,7 +1230,6 @@ func logNonStreamFailure(application *app.App, requestType string, userID, apiKe
 	}
 
 	var channelID, instanceID *uuid.UUID
-	var routePolicyID *uuid.UUID
 	if routeResult != nil {
 		if routeResult.Channel != nil {
 			id := routeResult.Channel.ID
@@ -1352,7 +1239,6 @@ func logNonStreamFailure(application *app.App, requestType string, userID, apiKe
 			id := routeResult.Instance.ID
 			instanceID = &id
 		}
-		routePolicyID = routeResult.RoutePolicyID
 	}
 
 	params := billing.LogUsageParams{
@@ -1365,7 +1251,6 @@ func logNonStreamFailure(application *app.App, requestType string, userID, apiKe
 		UpstreamModelCode: upstreamModel,
 		ChannelID:         channelID,
 		InstanceID:        instanceID,
-		RoutePolicyID:     routePolicyID,
 		ProviderRequestID: providerReqID,
 		UsageSource:       domain.UsageSourceEstimated,
 		UsageRaw:          map[string]any{},

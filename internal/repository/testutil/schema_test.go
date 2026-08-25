@@ -175,20 +175,6 @@ func TestSetupPool_IsolatedAndMigrated(t *testing.T) {
 		t.Errorf("usage_source CHECK does not allow cached: %s", constraintDef)
 	}
 
-	// 000008: quota_allocations uniqueness constraint must exist.
-	var constraintCount int
-	if err := pool.QueryRow(ctx,
-		`SELECT count(*)
-		 FROM pg_constraint c
-		 JOIN pg_class t ON t.oid = c.conrelid
-		 JOIN pg_namespace n ON n.oid = t.relnamespace
-		 WHERE c.conname = 'quota_allocations_pool_user_unique' AND n.nspname = current_schema()`).
-		Scan(&constraintCount); err != nil {
-		t.Fatalf("constraint lookup: %v", err)
-	}
-	if constraintCount != 1 {
-		t.Errorf("quota_allocations_pool_user_unique count = %d, want 1", constraintCount)
-	}
 }
 
 // TestSetupPool_SameSchemaAcrossCalls verifies a package reuses its schema

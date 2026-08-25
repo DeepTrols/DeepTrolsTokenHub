@@ -13,5 +13,4 @@ type Repository interface {
 	ListInstances(ctx context.Context, channelID uuid.UUID) ([]domain.ChannelInstance, error)
 	UpdateHealth(ctx context.Context, id uuid.UUID, score int, status domain.HealthStatus) error
 	UpdateInstanceLoad(ctx context.Context, id uuid.UUID, load int) error
-	FindRoutePolicy(ctx context.Context, tenantID *uuid.UUID, modelID uuid.UUID, userLevel string) (*domain.RoutePolicy, error)
 }

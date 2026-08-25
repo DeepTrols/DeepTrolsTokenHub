@@ -55,8 +55,9 @@ describe("ConsoleLayout 四角色导航", () => {
     renderLayout();
 
     expect(screen.getByText("用量信息")).toBeInTheDocument();
+    expect(screen.getByText("调用记录")).toBeInTheDocument();
+    expect(screen.getByText("用量统计")).toBeInTheDocument();
     expect(screen.getByText("用户中心")).toBeInTheDocument();
-    expect(screen.queryByText("用量统计")).not.toBeInTheDocument();
     expect(screen.queryByText("充值")).not.toBeInTheDocument();
     expect(screen.queryByText("账单")).not.toBeInTheDocument();
     expect(screen.queryByText("团队管理")).not.toBeInTheDocument();
@@ -101,6 +102,8 @@ describe("ConsoleLayout 四角色导航", () => {
     auth.user.tenant_role = "owner";
     renderLayout();
 
+    expect(screen.getByRole("link", { name: "调用记录" })).toHaveAttribute("href", "/logs");
+    expect(screen.getByRole("link", { name: "用量统计" })).toHaveAttribute("href", "/usage");
     expect(screen.getByRole("link", { name: "充值" })).toHaveAttribute("href", "/recharge");
     expect(screen.getByRole("link", { name: "账单" })).toHaveAttribute("href", "/bills");
     expect(screen.getByRole("link", { name: "用户中心" })).toHaveAttribute("href", "/account");

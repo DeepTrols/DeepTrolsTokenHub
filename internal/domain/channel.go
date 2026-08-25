@@ -73,26 +73,3 @@ const (
 	InstanceStatusInactive InstanceStatus = "inactive"
 	InstanceStatusPending  InstanceStatus = "pending"
 )
-
-type RoutePolicy struct {
-	ID                  uuid.UUID
-	Name                string
-	TenantID            *uuid.UUID
-	UserLevel           string
-	ModelID             *uuid.UUID
-	Priority            int
-	CandidateChannelIDs []uuid.UUID
-	FallbackPolicy      FallbackPolicy
-	IsActive            bool
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-}
-
-type FallbackPolicy string
-
-const (
-	FallbackDisabled      FallbackPolicy = "disabled"
-	FallbackTenantDefault FallbackPolicy = "tenant_default"
-	FallbackSharedAllowed FallbackPolicy = "shared_allowed"
-	FallbackNextPolicy    FallbackPolicy = "next_policy"
-)

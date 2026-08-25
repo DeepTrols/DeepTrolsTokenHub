@@ -26,7 +26,6 @@ type RouteResult struct {
 	Channel       *domain.Channel
 	Instance      *domain.ChannelInstance
 	UpstreamModel string
-	RoutePolicyID *uuid.UUID
 }
 
 // LoadSource supplies real-time in-flight counts per channel instance. The
@@ -108,32 +107,6 @@ func (r *Router) RouteCandidates(ctx context.Context, identity *domain.RequestId
 		return nil, ErrNoChannelAvailable
 	}
 
-	// Look up active route policy for this model/tenant/user-level combination.
-	var routePolicyID *uuid.UUID
-	policy, _ := r.channels.FindRoutePolicy(ctx, identity.TenantID, mdl.ID, identity.UserLevel)
-
-	if policy != nil && policy.IsActive {
-		routePolicyID = &policy.ID
-
-		if len(policy.CandidateChannelIDs) > 0 {
-			filtered := filterChannelsByCandidateIDs(channels, policy.CandidateChannelIDs)
-			if len(filtered) == 0 {
-				switch policy.FallbackPolicy {
-				case domain.FallbackDisabled:
-					return nil, ErrNoChannelAvailable
-				case domain.FallbackTenantDefault:
-					// Use all channels from the original list.
-				case domain.FallbackSharedAllowed:
-					channels = filterChannelsByPoolType(channels, domain.PoolTypeShared)
-				case domain.FallbackNextPolicy:
-					// Use all channels as fallback (next-policy recursion not yet implemented).
-				}
-			} else {
-				channels = filtered
-			}
-		}
-	}
-
 	var candidates []domain.Channel
 	for _, ch := range channels {
 		if ch.IsRoutable() {
@@ -168,7 +141,6 @@ func (r *Router) RouteCandidates(ctx context.Context, identity *domain.RequestId
 			Channel:       &channelCopy,
 			Instance:      &instance,
 			UpstreamModel: instance.ProviderRoute,
-			RoutePolicyID: routePolicyID,
 		})
 	}
 	if len(results) == 0 {
@@ -232,30 +204,4 @@ func selectWeightedLeastLoad(channels []domain.Channel) domain.Channel {
 		}
 	}
 	return best
-}
-
-// filterChannelsByCandidateIDs returns only channels whose ID appears in the candidate set.
-func filterChannelsByCandidateIDs(channels []domain.Channel, candidateIDs []uuid.UUID) []domain.Channel {
-	idSet := make(map[uuid.UUID]bool, len(candidateIDs))
-	for _, id := range candidateIDs {
-		idSet[id] = true
-	}
-	var filtered []domain.Channel
-	for _, ch := range channels {
-		if idSet[ch.ID] {
-			filtered = append(filtered, ch)
-		}
-	}
-	return filtered
-}
-
-// filterChannelsByPoolType returns only channels matching the given pool type.
-func filterChannelsByPoolType(channels []domain.Channel, poolType domain.PoolType) []domain.Channel {
-	var filtered []domain.Channel
-	for _, ch := range channels {
-		if ch.PoolType == poolType {
-			filtered = append(filtered, ch)
-		}
-	}
-	return filtered
 }

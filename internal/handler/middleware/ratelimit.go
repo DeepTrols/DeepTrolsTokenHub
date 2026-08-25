@@ -69,8 +69,9 @@ func GatewayRateLimit(limiter ratelimit.RateLimiter, limit int, window time.Dura
 
 // TeamRateLimit rate-limits team management actions by console user ID (from
 // ConsoleAuth context) with an IP fallback. Applied to the /team group so an
-// authenticated user cannot spam invites, status toggles, or ownership
-// transfers. Must run after ConsoleAuth, which sets CtxUserID.
+// authenticated user cannot spam status toggles, role changes, member
+// removal, or balance allocations. Must run after ConsoleAuth, which
+// sets CtxUserID.
 func TeamRateLimit(limiter ratelimit.RateLimiter, limit int, window time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

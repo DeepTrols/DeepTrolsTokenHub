@@ -157,7 +157,6 @@ CREATE TABLE tenant_models (
     model_id UUID NOT NULL REFERENCES models(id),
     is_listed BOOLEAN NOT NULL DEFAULT FALSE,
     allow_payg BOOLEAN NOT NULL DEFAULT FALSE,
-    quota_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (tenant_id, model_id)
@@ -198,45 +197,6 @@ CREATE TABLE wallet_transactions (
 CREATE INDEX idx_wallet_tx_wallet ON wallet_transactions(wallet_id, created_at DESC);
 
 -- ============================================================================
--- Quota Pools
--- ============================================================================
-
-CREATE TABLE quota_pools (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    model_id UUID REFERENCES models(id),
-    dimension VARCHAR(64) NOT NULL,
-    total_amount BIGINT NOT NULL DEFAULT 0,
-    allocated_amount BIGINT NOT NULL DEFAULT 0,
-    used_amount BIGINT NOT NULL DEFAULT 0,
-    unit_name VARCHAR(64) NOT NULL DEFAULT 'token',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE quota_allocations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    pool_id UUID NOT NULL REFERENCES quota_pools(id),
-    user_id UUID NOT NULL REFERENCES users(id),
-    allocated_amount BIGINT NOT NULL,
-    used_amount BIGINT NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE quota_ledger (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    allocation_id UUID NOT NULL REFERENCES quota_allocations(id),
-    idempotency_key VARCHAR(255) NOT NULL UNIQUE,
-    action VARCHAR(32) NOT NULL
-        CHECK (action IN ('grant', 'allocate', 'reclaim', 'consume', 'restore')),
-    amount BIGINT NOT NULL,
-    balance_after BIGINT NOT NULL,
-    reference_id UUID,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ============================================================================
 -- Channels & Routing
 -- ============================================================================
 
@@ -273,21 +233,6 @@ CREATE TABLE channel_instances (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE route_policies (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    tenant_id UUID,
-    user_level VARCHAR(64),
-    model_id UUID REFERENCES models(id),
-    priority INT NOT NULL DEFAULT 0,
-    candidate_channel_ids UUID[] NOT NULL,
-    fallback_policy VARCHAR(32) NOT NULL DEFAULT 'disabled'
-        CHECK (fallback_policy IN ('disabled', 'tenant_default', 'shared_allowed', 'next_policy')),
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 -- ============================================================================
 -- Usage Logs & Charge Lines
 -- ============================================================================
@@ -303,7 +248,6 @@ CREATE TABLE usage_logs (
     upstream_model_code VARCHAR(255),
     channel_id UUID REFERENCES channels(id),
     instance_id UUID REFERENCES channel_instances(id),
-    route_policy_id UUID REFERENCES route_policies(id),
     provider_request_id VARCHAR(255),
     usage_source VARCHAR(32) NOT NULL
         CHECK (usage_source IN ('upstream', 'final_chunk', 'estimated')),
@@ -406,27 +350,6 @@ CREATE TABLE reconciliation_diffs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     resolved_at TIMESTAMPTZ
 );
-
--- ============================================================================
--- Outbox (Durable async billing)
--- ============================================================================
-
-CREATE TABLE outbox_events (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_type VARCHAR(64) NOT NULL,
-    aggregate_id UUID NOT NULL,
-    payload JSONB NOT NULL,
-    idempotency_key VARCHAR(255) NOT NULL UNIQUE,
-    status VARCHAR(32) NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
-    retry_count INT NOT NULL DEFAULT 0,
-    max_retries INT NOT NULL DEFAULT 3,
-    last_error TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    processed_at TIMESTAMPTZ
-);
-
-CREATE INDEX idx_outbox_status ON outbox_events(status, created_at);
 
 -- ============================================================================
 -- Audit Log

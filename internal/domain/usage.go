@@ -18,7 +18,6 @@ type UsageLog struct {
 	UpstreamModelCode string
 	ChannelID         *uuid.UUID
 	InstanceID        *uuid.UUID
-	RoutePolicyID     *uuid.UUID
 	ProviderRequestID string
 	UsageSource       UsageSource
 	UsageRaw          map[string]any

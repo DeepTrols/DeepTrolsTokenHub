@@ -34,7 +34,7 @@ const (
 // by trying multiple candidate keys per dimension (first non-nil wins).
 //
 // Upstream-reported usage is untrusted: every dimension is clamped so a
-// negative or overlapping count can never shrink quota or double-bill a
+// negative or overlapping count can never under-report usage or double-bill a
 // request. TotalTokens falls back to the sum of the token dimensions when the
 // provider omits it.
 func ParseOpenAIUsage(raw map[string]any) (*NormalizedUsage, error) {

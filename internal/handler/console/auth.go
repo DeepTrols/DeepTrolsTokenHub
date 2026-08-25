@@ -68,7 +68,7 @@ type registerRequest struct {
 
 // enterpriseRegisterRequest is the self-service registration payload for
 // enterprise accounts. The tenant is created pending_review and approved by a
-// platform admin before it can consume quota or billing.
+// platform admin before it can consume billing.
 type enterpriseRegisterRequest struct {
 	CompanyName string `json:"company_name"`
 	ContactName string `json:"contact_name"`

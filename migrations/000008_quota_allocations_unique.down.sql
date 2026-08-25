@@ -1,2 +1,2 @@
-ALTER TABLE quota_allocations
-    DROP CONSTRAINT IF EXISTS quota_allocations_pool_user_unique;
+-- No-op: see 000008_quota_allocations_unique.up.sql.
+SELECT 1;

@@ -134,22 +134,6 @@ func (r *PostgresRepository) UpdateInstanceLoad(ctx context.Context, id uuid.UUI
 	return nil
 }
 
-// FindRoutePolicy retrieves the best matching route policy.
-func (r *PostgresRepository) FindRoutePolicy(ctx context.Context, tenantID *uuid.UUID, modelID uuid.UUID, userLevel string) (*domain.RoutePolicy, error) {
-	query := `
-		SELECT id, name, tenant_id, user_level, model_id, priority,
-			candidate_channel_ids, fallback_policy, is_active, created_at, updated_at
-		FROM route_policies
-		WHERE is_active = TRUE
-		  AND model_id = $1
-		  AND (user_level = $2 OR user_level IS NULL)
-		  AND tenant_id IS NOT DISTINCT FROM $3
-		ORDER BY priority DESC
-		LIMIT 1
-	`
-	return scanRoutePolicy(r.pool.QueryRow(ctx, query, modelID, userLevel, tenantID))
-}
-
 // --- helpers ---
 
 const channelSelectClause = `
@@ -169,19 +153,6 @@ func scanChannel(row pgx.Row) (*domain.Channel, error) {
 		return nil, fmt.Errorf("channel scan: %w", err)
 	}
 	return &c, nil
-}
-
-func scanRoutePolicy(row pgx.Row) (*domain.RoutePolicy, error) {
-	var rp domain.RoutePolicy
-	err := row.Scan(
-		&rp.ID, &rp.Name, &rp.TenantID, &rp.UserLevel, &rp.ModelID,
-		&rp.Priority, &rp.CandidateChannelIDs, &rp.FallbackPolicy,
-		&rp.IsActive, &rp.CreatedAt, &rp.UpdatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("route policy scan: %w", err)
-	}
-	return &rp, nil
 }
 
 func unmarshalJSONB(raw string) map[string]any {

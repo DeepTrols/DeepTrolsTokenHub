@@ -73,7 +73,7 @@ func (r *PostgresRepository) ListByTenant(ctx context.Context, tenantID *uuid.UU
 			m.context_window, m.max_output_tokens, m.capabilities,
 			m.status, m.release_stage, m.created_at, m.updated_at,
 			tm.id, tm.tenant_id, tm.model_id,
-			tm.is_listed, tm.allow_payg, tm.quota_enabled,
+			tm.is_listed, tm.allow_payg,
 			tm.created_at, tm.updated_at
 		FROM models m
 		LEFT JOIN tenant_models tm ON tm.model_id = m.id
@@ -109,7 +109,7 @@ func (r *PostgresRepository) ListByTenant(ctx context.Context, tenantID *uuid.UU
 func (r *PostgresRepository) GetTenantModel(ctx context.Context, tenantID uuid.UUID, modelCode string) (*domain.TenantModel, error) {
 	const query = `
 		SELECT tm.id, tm.tenant_id, tm.model_id, tm.is_listed, tm.allow_payg,
-			tm.quota_enabled, tm.created_at, tm.updated_at
+			tm.created_at, tm.updated_at
 		FROM tenant_models tm
 		JOIN models m ON m.id = tm.model_id
 		WHERE tm.tenant_id = $1 AND m.code = $2
@@ -117,7 +117,7 @@ func (r *PostgresRepository) GetTenantModel(ctx context.Context, tenantID uuid.U
 	row := r.pool.QueryRow(ctx, query, tenantID, modelCode)
 	var tm domain.TenantModel
 	err := row.Scan(&tm.ID, &tm.TenantID, &tm.ModelID, &tm.IsListed,
-		&tm.AllowPayg, &tm.QuotaEnabled, &tm.CreatedAt, &tm.UpdatedAt)
+		&tm.AllowPayg, &tm.CreatedAt, &tm.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("model tenant model not found: tenant=%s code=%s: %w", tenantID, modelCode, err)
@@ -217,7 +217,7 @@ func scanModelWithTenant(row pgx.Row) (*domain.Model, *domain.TenantModel, error
 	var description, displayName *string
 	var contextWindow, maxOutputTokens *int
 	var tmID, tmTenantID, tmModelID *uuid.UUID
-	var isListed, allowPayg, quotaEnabled *bool
+	var isListed, allowPayg *bool
 	var tmCreatedAt, tmUpdatedAt *time.Time
 
 	err := row.Scan(
@@ -225,7 +225,7 @@ func scanModelWithTenant(row pgx.Row) (*domain.Model, *domain.TenantModel, error
 		&description, &contextWindow, &maxOutputTokens,
 		&m.Capabilities, &m.Status, &m.ReleaseStage, &m.CreatedAt, &m.UpdatedAt,
 		&tmID, &tmTenantID, &tmModelID,
-		&isListed, &allowPayg, &quotaEnabled,
+		&isListed, &allowPayg,
 		&tmCreatedAt, &tmUpdatedAt,
 	)
 	if err != nil {
@@ -247,14 +247,13 @@ func scanModelWithTenant(row pgx.Row) (*domain.Model, *domain.TenantModel, error
 	var tm *domain.TenantModel
 	if tmID != nil {
 		tm = &domain.TenantModel{
-			ID:           *tmID,
-			TenantID:     *tmTenantID,
-			ModelID:      *tmModelID,
-			IsListed:     coalesceBool(isListed),
-			AllowPayg:    coalesceBool(allowPayg),
-			QuotaEnabled: coalesceBool(quotaEnabled),
-			CreatedAt:    coalesceTime(tmCreatedAt),
-			UpdatedAt:    coalesceTime(tmUpdatedAt),
+			ID:        *tmID,
+			TenantID:  *tmTenantID,
+			ModelID:   *tmModelID,
+			IsListed:  coalesceBool(isListed),
+			AllowPayg: coalesceBool(allowPayg),
+			CreatedAt: coalesceTime(tmCreatedAt),
+			UpdatedAt: coalesceTime(tmUpdatedAt),
 		}
 	}
 	return &m, tm, nil

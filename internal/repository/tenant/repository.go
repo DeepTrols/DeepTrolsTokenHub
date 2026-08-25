@@ -18,7 +18,7 @@ type Repository interface {
 	Update(ctx context.Context, tenant *domain.Tenant) error
 	List(ctx context.Context) ([]domain.Tenant, error)
 	// Delete permanently removes the tenant and all tenant-owned rows
-	// (quota pools/allocations/ledger, tenant models, memberships, invitations).
+	// (tenant models, memberships, invitations).
 	// Returns ErrNotFound when no tenant with the id exists.
 	Delete(ctx context.Context, id uuid.UUID) error
 }

@@ -11,6 +11,5 @@ type RequestIdentity struct {
 	TenantID    *uuid.UUID
 	RequestID   string
 	RequestType string
-	UserLevel   string
 	APIKey      *APIKey
 }

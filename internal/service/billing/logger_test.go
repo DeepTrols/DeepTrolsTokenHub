@@ -280,7 +280,6 @@ func TestLogger_Record_DomainMapping(t *testing.T) {
 	tenantID := uuid.New()
 	channelID := uuid.New()
 	instanceID := uuid.New()
-	policyID := uuid.New()
 
 	l := NewLogger(repo)
 	params := LogUsageParams{
@@ -293,7 +292,6 @@ func TestLogger_Record_DomainMapping(t *testing.T) {
 		UpstreamModelCode: "gpt-4o-azure",
 		ChannelID:         &channelID,
 		InstanceID:        &instanceID,
-		RoutePolicyID:     &policyID,
 		ProviderRequestID: "prov-map-001",
 		UsageSource:       domain.UsageSourceUpstream,
 		UsageRaw:          map[string]any{"prompt_tokens": float64(500)},
@@ -331,9 +329,6 @@ func TestLogger_Record_DomainMapping(t *testing.T) {
 	}
 	if capturedLog.InstanceID == nil || *capturedLog.InstanceID != instanceID {
 		t.Error("InstanceID not mapped correctly")
-	}
-	if capturedLog.RoutePolicyID == nil || *capturedLog.RoutePolicyID != policyID {
-		t.Error("RoutePolicyID not mapped correctly")
 	}
 	if capturedLog.UsageSource != domain.UsageSourceUpstream {
 		t.Errorf("UsageSource = %s, want %s", capturedLog.UsageSource, domain.UsageSourceUpstream)

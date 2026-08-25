@@ -5,9 +5,9 @@
 ## 架构
 
 ```
-控制面 (Control)  → API Key / JWT / 租户隔离 / 模型目录 / 配额 / 路由策略
+控制面 (Control)  → API Key / JWT / 租户隔离 / 模型目录 / 渠道凭证
 执行面 (Execution) → OpenAI 兼容直连 / Provider Adapter / 加权路由 / Fallback / 响应缓存
-资金面 (Money)    → Reserve→Commit→Release / 钱包 / 配额消费 / Price Snapshot
+资金面 (Money)    → Reserve→Commit→Release / 钱包 / Price Snapshot
 证据面 (Evidence) → Usage Log / Charge Line / Provider Evidence / 对账 L0+L1
 ```
 
@@ -34,21 +34,20 @@ internal/
     auth.go                  #   Auth（登录/注册/Token 请求体）
     channel.go               #   Channel + Instance（渠道实例）
     model.go                 #   Model（含多维定价）
-    quota.go                 #   Quota（Pool / Allocation / Ledger）
     tenant.go                #   Tenant（5 状态状态机）
     usage.go                 #   UsageLog + ChargeLine + ProviderEvidence
     user.go                  #   User（角色 + 状态）
     wallet.go                #   Wallet（乐观锁版本号）
   handler/
     gateway/                 # OpenAI-compatible 网关（/v1/chat/completions + /v1/models + embeddings/images/audio 转发）
-    console/                 # 控制台 API（认证/密钥/用量/钱包/模型/配额/团队/租户）
+    console/                 # 控制台 API（认证/密钥/用量/钱包/模型/团队/租户）
     middleware/              # 鉴权/租户/限流/安全头/CORS
   service/
-    billing/                 # 计费引擎（Reserve/Commit/Release + 定价 + 配额）
+    billing/                 # 计费引擎（Reserve/Commit/Release + 定价）
     cache/                   # 响应缓存（SHA256→Redis，命中零计费）
     gateway/                 # 网关服务（路由 + OpenAI 兼容直连执行）
   repository/                # 数据访问接口（PostgreSQL 实现）
-    apikey/ channel/ model/ quota/ tenant/ usage/ user/ wallet/
+    apikey/ channel/ model/ tenant/ usage/ user/ wallet/
   worker/
     health_checker/          # 渠道实例健康探测（60s 周期，渐进评分）
     reconciliation/          # 对账 Worker（L0 漏记账 + L1 证据不匹配）
@@ -117,11 +116,10 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 | `CORS_ORIGIN` | 前端域名 | `http://localhost:5173` |
 | `COOKIE_SECURE` | Cookie Secure 标记 | 开发 `false`，生产 `true` |
 | `API_PORT` | API 监听端口 | `8080` |
-| `TOTP_ISSUER` | TOTP 签发方名称 | `DeepTrols` |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 自动创建的管理员 | `deeptrols@admin.com` / `deeptrols@2026` |
 | `ENABLE_FAKE_PAYMENT` | **演示充值开关（资金安全）** | **`false`（生产必须保持）** |
 
-> ⚠️ **`ENABLE_FAKE_PAYMENT`**：`false`（默认）时 `/wallet/topup`、`/wallet/redeem` 返回 403，注册与管理员不再自动赠送余额；同时 API 启动时**拒绝已知弱密钥**（JWT/加密/管理员密码命中默认值时直接退出）。开发环境需要造币口时设 `true`。
+> ⚠️ **`ENABLE_FAKE_PAYMENT`**：`false`（默认）时 `/wallet/topup` 返回 403，注册与管理员不再自动赠送余额；同时 API 启动时**拒绝已知弱密钥**（JWT/加密/管理员密码命中默认值时直接退出）。开发环境需要造币口时设 `true`。
 >
 > ⚠️ **生产密钥**：docker-compose 模板中的默认值均为 DEV-ONLY。生产部署请 `cp .env.example .env` 后设置强随机密钥（`openssl rand -hex 32` / `openssl rand -hex 16`），`ENABLE_FAKE_PAYMENT` 保持 `false`。
 
@@ -131,7 +129,7 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 |------|------|------|
 | 管理员 | `deeptrols@admin.com` | `deeptrols@2026` |
 
-首次登录后建议立即修改密码。管理员拥有模型管理、Provider 凭证、Channel、租户、配额、对账、用户管理、成本分析等全部后台权限。
+首次登录后建议立即修改密码。管理员拥有模型管理、Provider 凭证、Channel、租户、对账、用户管理、成本分析等全部后台权限。
 
 ## API 端点
 
@@ -139,26 +137,26 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 
 | 端点 | 说明 |
 |------|------|
-| `POST /v1/chat/completions` | 聊天补全（流式 SSE + 非流式，含配额检查 + 响应缓存） |
+| `POST /v1/chat/completions` | 聊天补全（流式 SSE + 非流式，含响应缓存） |
 | `GET /v1/models` | 可用模型列表（按 API Key allowlist 过滤） |
+| `POST /v1/embeddings` | 嵌入向量（转发 + 计费闭环） |
+| `POST /v1/images/generations` | 图片生成（转发 + 按图计费） |
+| `POST /v1/audio/speech` | 文字转语音（raw 转发 + TTS 字符计费） |
 
 ### Console（用户端，Cookie 鉴权）
 
 | 端点 | 说明 |
 |------|------|
-| `POST /api/console/auth/login` | 登录（含 TOTP 二次验证） |
+| `POST /api/console/auth/login` | 登录 |
 | `POST /api/console/auth/logout` | 登出（服务端清除 cookie） |
 | `POST /api/console/auth/register` | 注册 |
-| `POST /api/console/auth/totp/setup` | 开启两步验证 |
-| `POST /api/console/auth/totp/verify` | 验证 TOTP |
 | `GET /api/console/me` | 当前用户信息 |
 | `PUT /api/console/me/password` | 修改密码 |
 | `GET/POST /api/console/api-keys` | API 密钥管理（6 边界 CRUD） |
-| `GET /api/console/api-keys/{id}/plain` | 查看 API Key 明文（仅一次） |
+| `GET /api/console/api-keys/{id}/secret` | 查看 API Key 明文（仅一次） |
 | `GET /api/console/usage` | 调用日志（含费用明细） |
 | `GET /api/console/wallet` | 钱包余额 + 交易记录 |
 | `POST /api/console/wallet/topup` | 在线充值 |
-| `POST /api/console/wallet/redeem` | 兑换码充值 |
 | `GET /api/console/models` | 模型广场（含定价） |
 | `GET /api/console/security/login-history` | 登录历史 |
 
@@ -171,16 +169,10 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 | `POST /api/admin/providers/{id}/sync` | 从上游 API 同步模型 |
 | `CRUD /api/admin/channels` | Channel 管理（模型绑定 + 实例增删） |
 | `CRUD /api/admin/tenants` | 租户管理（5 状态状态机 + 域名） |
-| `CRUD /api/admin/policies` | 路由策略（4 种 fallback） |
-| `GET /api/admin/quotas` | 配额池查看 |
-| `POST /api/admin/quotas/allocate` | 分配配额给用户 |
-| `GET /api/admin/quotas/ledger` | 配额消费账簿 |
 | `GET /api/admin/reconciliation` | 对账结果查看 |
-| `GET /api/admin/audit` | 管理员操作审计日志 |
 | `GET /api/admin/costs` | 成本分析（按模型汇总 + 加价率） |
-| `PUT /api/admin/costs/markup` | 设置加价率 |
 | `GET/POST/PUT/DELETE /api/admin/users` | 用户管理（CRUD + 角色/状态） |
-| `GET /api/admin/users/{id}/ledger` | 用户账簿 |
+| `GET /api/admin/ledger` | 账号账簿（账务管理） |
 
 ## 前端页面
 
@@ -188,32 +180,30 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 
 | 页面 | 路由 | 说明 |
 |------|------|------|
-| 登录 | `/login` | 邮箱 + 密码 + TOTP |
+| 登录 | `/login` | 邮箱 + 密码 |
 | 注册 | `/register` | 新用户注册 |
-| 数据看板 | `/dashboard` | 用量概览 + 关键指标 |
+| 用量信息 | `/dashboard` | 用量概览 + 关键指标 |
 | API 密钥 | `/api-keys` | 密钥管理（CRUD + 6 边界） |
+| 调用记录 | `/logs` | 用量历史 + 费用明细 |
+| 用量统计 | `/usage` | 用量图表 + 统计 |
+| 充值 | `/recharge` | 在线充值（演示造币口） |
+| 账单 | `/bills` | 充值/交易记录 |
 | 模型广场 | `/models` | 模型浏览 + 定价 |
 | 在线体验 | `/playground` | 模型在线测试 |
-| 调用记录 | `/call-logs` | 用量历史 + 费用明细 |
-| 钱包管理 | `/wallet` | 余额 + 交易记录 + 充值 |
-| 用量统计 | `/usage-stats` | 用量图表 + 统计 |
-| 安全设置 | `/security` | TOTP + 登录历史 |
+| 用户中心 | `/account` | 账户资料 + 团队管理 + 登录历史 |
 | 开发文档 | `/docs` | API 使用指南 |
 
-### 管理端（10 页面）
+### 管理端（7 页面）
 
 | 页面 | 路由 | 说明 |
 |------|------|------|
 | 模型管理 | `/admin/models` | 模型 CRUD + 多维定价 |
-| Provider 管理 | `/admin/providers` | 凭证管理 + 模型同步 |
-| 渠道管理 | `/admin/channels` | Channel + 实例管理 |
-| 租户管理 | `/admin/tenants` | 租户 CRUD + 域名 |
-| 路由策略 | `/admin/policies` | 策略 CRUD + fallback |
-| 配额管理 | `/admin/quotas` | 配额池 + 分配 + 账簿 |
+| 渠道管理 | `/admin/channels` | Provider 凭证 CRUD（创建时自动发现模型并建渠道） |
 | 对账管理 | `/admin/reconciliation` | 对账运行记录 |
-| 审计日志 | `/admin/audit-logs` | 管理员操作记录 |
-| 用户管理 | `/admin/users` | 用户 CRUD + 角色/状态 |
-| 成本分析 | `/admin/costs` | 按模型成本汇总 + 加价率 |
+| 成本核算 | `/admin/costs` | 按模型成本汇总 |
+| 企业管理 | `/admin/tenants` | 租户 CRUD + 审核/状态 |
+| 个人管理 | `/admin/users` | 用户 CRUD + 角色/状态 |
+| 账务管理 | `/admin/finance` | 账号账簿 |
 
 ## 使用示例
 
@@ -256,12 +246,6 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 - **流式计费闭环**：SSE 最后 chunk 提取 usage → detached context 异步提交
 - **计费同步化**：Reserve → Settle（按真实用量多退少补）→ Release 单请求内完成，无需异步对账补偿
 
-### 配额系统
-
-- **三层模型**：Pool（配额池）→ Allocation（用户分配）→ Ledger（消费记录）
-- **网关强制**：Check → 429 拦截（配额不足），Deduct → ledger 扣除，Restore → 失败恢复
-- **精度**：统一 token 计量，decimal 精度
-
 ### 响应缓存
 
 - **SHA256(request) → Redis**：相同请求命中缓存，零计费
@@ -271,7 +255,6 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 
 - **API Key**：HMAC-SHA256 哈希查表，6 边界治理（模型白名单 / IP / 累计 / 周限额 / 月限额 / 超限动作）
 - **JWT 用户鉴权**：HS256，httpOnly cookie + SameSite Strict，服务端 logout
-- **TOTP 2FA**：完整实现（setup + verify + login 强制），RFC 6238
 - **租户隔离**：Host header → tenant_domains 表匹配
 - **限流**：Redis 优先 + 内存降级，网关按 Key 限流，登录按 IP 限流
 - **安全头**：CSP / HSTS / X-Frame-Options / X-Content-Type-Options / Referrer-Policy
@@ -292,7 +275,7 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 | 2 | 预算预留必须发生在上游调用前 | Reserve → Execute → Commit/Release |
 | 3 | 路由结果必须进入证据链 | `channel_id` + `instance_id` + `route_policy_id` |
 | 4 | `usage` 来源必须显式标记 | `upstream` / `final_chunk` / `estimated` / `cached` |
-| 5 | 流式错误不能伪装成正常成功 | 无条件发送 usage log，状态始终 `completed` |
+| 5 | 流式错误不能伪装成正常成功 | 流中断/上游报错落 `failed`/`partial` 日志 + evidence，错误不伪装成功 |
 
 ## 开发
 
