@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
-import { APIKeyData, UsageLog, WalletData } from "../lib/api";
+import { APIKeyData, ModelData, UsageLog, WalletData } from "../lib/api";
 import { useConsoleQuery } from "../lib/hooks/use-api";
 import { formatAmount } from "../lib/format";
 import RangePicker from "../components/RangePicker";
@@ -150,6 +150,7 @@ export default function Dashboard() {
 
   const { data: wallet, isLoading: walletLoading, isError: walletError, refetch: refetchWallet } = useConsoleQuery<WalletData>("/wallet");
   const { data: keyData } = useConsoleQuery<{ data: APIKeyData[] }>("/api-keys");
+  const { data: modelData } = useConsoleQuery<{ data: ModelData[] }>("/models");
   const keys = keyData?.data ?? [];
 
   const range = useMemo(() => {
@@ -173,12 +174,30 @@ export default function Dashboard() {
   const stats = useMemo(() => sumUsage(logs), [logs]);
   const daily = useMemo(() => aggregateDaily(logs, range.from, range.to), [logs, range]);
   const modelList = useMemo(() => {
+    const catalogModels = modelData?.data ?? [];
     const cost: Record<string, number> = {};
-    for (const d of daily) for (const [m, c] of Object.entries(d.models)) cost[m] = (cost[m] || 0) + c;
-    return uniqueModels(daily).sort((a, b) => (cost[b] || 0) - (cost[a] || 0));
-  }, [daily]);
+    for (const d of daily)
+      for (const [m, c] of Object.entries(d.models)) {
+        if (m && m !== "未知模型") cost[m] = (cost[m] || 0) + c;
+      }
+    // 以实际模型目录为主，同时保留用量里出现过但目录已移除的模型。
+    const codes = new Set<string>(catalogModels.map((m) => m.code));
+    for (const m of Object.keys(cost)) codes.add(m);
+    return [...codes]
+      .map((code) => {
+        const meta = catalogModels.find((m) => m.code === code);
+        return { code, label: meta?.display_name || code };
+      })
+      .sort((a, b) => {
+        const ca = cost[a.code] || 0;
+        const cb = cost[b.code] || 0;
+        if (cb !== ca) return cb - ca;
+        return a.code.localeCompare(b.code);
+      });
+  }, [daily, modelData]);
   useEffect(() => {
-    if (!modelList.includes(selectedModel)) setSelectedModel(modelList[0] || "");
+    const codes = modelList.map((m) => m.code);
+    if (!codes.includes(selectedModel)) setSelectedModel(codes[0] || "");
   }, [modelList, selectedModel]);
   const modelLogs = useMemo(
     () => (selectedModel ? logs.filter((l) => l.model === selectedModel) : []),
@@ -429,7 +448,7 @@ export default function Dashboard() {
             <SelectMenu
               ariaLabel="选择模型"
               value={selectedModel}
-              options={modelList.map((m) => ({ value: m, label: m }))}
+              options={modelList.map((m) => ({ value: m.code, label: m.label }))}
               onChange={setSelectedModel}
             />
           </div>

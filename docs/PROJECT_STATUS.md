@@ -2232,3 +2232,24 @@ cd web && npm run test:e2e
 
 - 前端 `npm test`（205/205，27 文件）、`lint`（0/0）、`build` 全绿；
 - 两页断言只依赖文本（标题/数值），不依赖类名，样式改动不影响现有测试。
+
+## 六十九、2026-08-25 用量信息的「按模型查看」下拉对齐真实模型目录
+
+> 原下拉只从当前时间范围的实际用量日志里取模型，导致目录里已添加但当前时段无
+> 用量的模型无法选择。改为以 `/models`（模型目录，`ListActive`）为主，同时保留
+> 用量里出现过但目录已移除的模型，方便回看历史。
+
+### 69.1 变更
+
+- `web/src/pages/Dashboard.tsx`：新增 `useConsoleQuery("/models")` 读取模型目录；
+  `modelList` 由「仅用量模型」改为「目录模型 + 用量出现过的模型」合流，按用量费用
+  降序、其余按 code 字典序排序；下拉展示 `display_name`（缺失则用 code）。
+- **回归测试**：新增 `includes catalog models with no usage in the model dropdown`，
+  验证目录中有但当前用量为空的模型（`deepseek-v4-flash-vision-exp`）也会出现在下拉。
+- 附带处理：过滤 `未知模型` 占位，避免把非真实模型带进下拉。
+
+### 69.2 验证
+
+- 前端 `npm test`（206/206，27 文件）、`lint`（0/0）、`build` 全绿；
+- 实测 `/api/console/models` 返回 3 个模型（`deepseek-v4-flash` /
+  `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro`），下拉以真实目录为准。

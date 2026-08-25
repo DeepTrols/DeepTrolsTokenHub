@@ -240,6 +240,30 @@ describe("Dashboard（用量信息）", () => {
     expect(screen.getByLabelText("选择模型")).toHaveTextContent("gpt-4o");
   });
 
+  it("includes catalog models with no usage in the model dropdown", async () => {
+    const user = userEvent.setup();
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.startsWith("/wallet")) return Promise.resolve(wallet);
+      if (path.startsWith("/api-keys")) return Promise.resolve({ data: keys });
+      if (path.startsWith("/models"))
+        return Promise.resolve({
+          data: [
+            { code: "deepseek-v4-flash", provider: "deepseek", category: "chat", display_name: "DeepSeek V4 Flash", context_window: 131072, pricing: {} },
+            { code: "deepseek-v4-flash-vision-exp", provider: "deepseek", category: "chat", display_name: "DeepSeek V4 Flash Vision", context_window: 131072, pricing: {} },
+          ],
+        });
+      if (path.startsWith("/usage")) return Promise.resolve({ data: [] });
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<Dashboard />);
+
+    const modelSelect = await screen.findByLabelText("选择模型");
+    await user.click(modelSelect);
+    expect(screen.getAllByText("DeepSeek V4 Flash").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("DeepSeek V4 Flash Vision")).toBeInTheDocument();
+  });
+
   it("shows loading spinner while data is pending", () => {
     mockApiGet.mockImplementation(() => new Promise(() => {}));
 
