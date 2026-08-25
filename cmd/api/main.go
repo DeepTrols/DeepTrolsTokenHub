@@ -81,7 +81,9 @@ func main() {
 		r.Post("/chat/completions", gateway.HandleChatCompletions(application))
 		r.Post("/embeddings", gateway.HandleEmbeddings(application))
 		r.Post("/images/generations", gateway.HandleImagesGenerations(application))
+		r.Post("/images/edits", gateway.HandleImagesEdits(application))
 		r.Post("/audio/speech", gateway.HandleAudioSpeech(application))
+		r.Post("/audio/transcriptions", gateway.HandleAudioTranscriptions(application))
 	})
 
 	// Console API (JWT-protected, user-facing).

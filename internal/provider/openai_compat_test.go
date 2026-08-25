@@ -3,9 +3,12 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	gw "github.com/deeptrols/api/internal/service/gateway"
 )
 
 func TestOpenAICompatAdapter_ExecuteParsesUsage(t *testing.T) {
@@ -107,6 +110,75 @@ func TestOpenAICompatAdapter_ExecuteEndpointRaw(t *testing.T) {
 	if string(raw.Body) != "fake-audio-bytes" || raw.ContentType != "audio/mpeg" {
 		t.Errorf("raw = %q / %q", raw.Body, raw.ContentType)
 	}
+}
+
+func TestOpenAICompatAdapter_ExecuteEndpointMultipart(t *testing.T) {
+	t.Run("json response", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/v1/audio/transcriptions" {
+				t.Errorf("path = %s, want /v1/audio/transcriptions", r.URL.Path)
+			}
+			if got := r.Header.Get("X-Custom-Header"); got != "v1" {
+				t.Errorf("X-Custom-Header = %q, want v1", got)
+			}
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatalf("parse multipart: %v", err)
+			}
+			if got := r.FormValue("model"); got != "whisper-1" {
+				t.Errorf("model = %q, want whisper-1", got)
+			}
+			if got := r.FormValue("language"); got != "zh" {
+				t.Errorf("language = %q, want zh", got)
+			}
+			f, _, err := r.FormFile("file")
+			if err != nil {
+				t.Fatalf("form file: %v", err)
+			}
+			content, _ := io.ReadAll(f)
+			_ = f.Close()
+			if string(content) != "fake-audio" {
+				t.Errorf("file content = %q, want fake-audio", string(content))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"text": "你好"})
+		}))
+		defer upstream.Close()
+
+		adapter := NewOpenAICompatAdapter()
+		resp, err := adapter.ExecuteEndpointMultipart(context.Background(), upstream.URL,
+			"sk-test", "whisper-1", "audio/transcriptions",
+			map[string]any{"language": "zh"},
+			map[string]gw.MultipartFile{"file": {FileName: "a.mp3", ContentType: "audio/mpeg", Content: []byte("fake-audio")}},
+			map[string]string{"X-Custom-Header": "v1"},
+		)
+		if err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		if resp.Body["text"] != "你好" {
+			t.Errorf("text = %v, want 你好", resp.Body["text"])
+		}
+	})
+
+	t.Run("plain text response", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write([]byte("transcribed plain text"))
+		}))
+		defer upstream.Close()
+
+		adapter := NewOpenAICompatAdapter()
+		resp, err := adapter.ExecuteEndpointMultipart(context.Background(), upstream.URL,
+			"sk-test", "whisper-1", "audio/transcriptions",
+			nil,
+			map[string]gw.MultipartFile{"file": {FileName: "a.mp3", ContentType: "audio/mpeg", Content: []byte("fake-audio")}},
+		)
+		if err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		if resp.Body["text"] != "transcribed plain text" {
+			t.Errorf("text = %v, want transcribed plain text", resp.Body["text"])
+		}
+	})
 }
 
 func TestBuildUpstreamRequest(t *testing.T) {

@@ -21,6 +21,11 @@ type Executor interface {
 	// not JSON (e.g. audio/speech returns binary audio). The raw body is
 	// returned as-is together with the upstream content type.
 	ExecuteEndpointRaw(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any, extraHeaders ...map[string]string) (*RawResponse, error)
+	// ExecuteEndpointMultipart forwards a multipart/form-data request (e.g.
+	// audio/transcriptions, images/edits). File parts carry raw bytes; field
+	// parts are stringified. The JSON-or-text response is returned as an
+	// ExecuteResponse with Body either a decoded JSON object or {"text": ...}.
+	ExecuteEndpointMultipart(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, fields map[string]any, files map[string]MultipartFile, extraHeaders ...map[string]string) (*ExecuteResponse, error)
 }
 
 type ExecuteResponse struct {
@@ -40,6 +45,13 @@ type RawResponse struct {
 	Body          []byte
 	ProviderReqID string
 	DurationMs    int
+}
+
+// MultipartFile is a single file part of a multipart upstream request.
+type MultipartFile struct {
+	FileName    string
+	ContentType string
+	Content     []byte
 }
 
 // CustomHeadersFromConfig extracts the optional custom_headers block from a

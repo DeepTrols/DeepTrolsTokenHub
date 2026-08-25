@@ -1,11 +1,14 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +80,204 @@ func newEndpointRequest(userID, apiKeyID uuid.UUID, path string, body map[string
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Request-ID", "test-ep-"+uuid.New().String())
 	return setAuthContext(req, userID, apiKeyID)
+}
+
+// newMultipartEndpointRequest builds a POST request with auth context and a
+// multipart body containing the given fields and files.
+func newMultipartEndpointRequest(userID, apiKeyID uuid.UUID, path string, fields map[string]string, files map[string]struct {
+	name, contentType string
+	content           []byte
+}) *http.Request {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		_ = w.WriteField(k, v)
+	}
+	for name, f := range files {
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, name, f.name))
+		h.Set("Content-Type", f.contentType)
+		part, _ := w.CreatePart(h)
+		_, _ = part.Write(f.content)
+	}
+	_ = w.Close()
+	req := httptest.NewRequest(http.MethodPost, path, &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("X-Request-ID", "test-mp-"+uuid.New().String())
+	return setAuthContext(req, userID, apiKeyID)
+}
+
+func TestHandleAudioTranscriptions_Success(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeMultipartFn: func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, fields map[string]any, files map[string]gw.MultipartFile) (*gw.ExecuteResponse, error) {
+			return &gw.ExecuteResponse{
+				StatusCode:  http.StatusOK,
+				Body:        map[string]any{"text": "你好"},
+				Usage:       &usageparser.NormalizedUsage{},
+				UsageSource: usageparser.SourceEstimated,
+				DurationMs:  30,
+			}, nil
+		},
+	}
+	application, walletRepo, usageRepo := newEndpointEnv(executor)
+
+	req := newMultipartEndpointRequest(userID, apiKeyID, "/v1/audio/transcriptions",
+		map[string]string{"model": "whisper-1", "language": "zh"},
+		map[string]struct {
+			name, contentType string
+			content           []byte
+		}{
+			"file": {name: "demo.mp3", contentType: "audio/mpeg", content: []byte("fake-audio-bytes")},
+		},
+	)
+	w := httptest.NewRecorder()
+	HandleAudioTranscriptions(application).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	if executor.lastEndpoint != "audio/transcriptions" {
+		t.Errorf("lastEndpoint = %q, want audio/transcriptions", executor.lastEndpoint)
+	}
+	if got := executor.lastMultipartFiles["file"].Content; string(got) != "fake-audio-bytes" {
+		t.Errorf("file content = %q, want fake-audio-bytes", string(got))
+	}
+	if walletRepo.settleCalled != 1 {
+		t.Errorf("settleCalled = %d, want 1", walletRepo.settleCalled)
+	}
+	log := waitForUsageLog(t, usageRepo)
+	if log.RequestType != "audio" {
+		t.Errorf("RequestType = %q, want audio", log.RequestType)
+	}
+	if len(usageRepo.lastChargeLines) == 0 || usageRepo.lastChargeLines[0].Dimension != "audio" {
+		t.Errorf("charge lines = %+v, want first dimension audio", usageRepo.lastChargeLines)
+	}
+	if log.UsageNormalized["audio_seconds"] != float64(1) {
+		t.Errorf("UsageNormalized = %+v, want audio_seconds 1", log.UsageNormalized)
+	}
+}
+
+func TestHandleAudioTranscriptions_PlainTextRelay(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeMultipartFn: func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, fields map[string]any, files map[string]gw.MultipartFile) (*gw.ExecuteResponse, error) {
+			return &gw.ExecuteResponse{
+				StatusCode:  http.StatusOK,
+				Body:        map[string]any{"text": "transcribed"},
+				Usage:       &usageparser.NormalizedUsage{},
+				UsageSource: usageparser.SourceEstimated,
+				DurationMs:  10,
+			}, nil
+		},
+	}
+	application, _, _ := newEndpointEnv(executor)
+
+	req := newMultipartEndpointRequest(userID, apiKeyID, "/v1/audio/transcriptions",
+		map[string]string{"model": "whisper-1"},
+		map[string]struct {
+			name, contentType string
+			content           []byte
+		}{
+			"file": {name: "demo.mp3", contentType: "audio/mpeg", content: []byte("fake-audio-bytes")},
+		},
+	)
+	w := httptest.NewRecorder()
+	HandleAudioTranscriptions(application).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/plain", ct)
+	}
+	if w.Body.String() != "transcribed" {
+		t.Errorf("body = %q, want transcribed", w.Body.String())
+	}
+}
+
+func TestHandleImagesEdits_Success(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{
+		executeMultipartFn: func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, fields map[string]any, files map[string]gw.MultipartFile) (*gw.ExecuteResponse, error) {
+			return &gw.ExecuteResponse{
+				StatusCode:  http.StatusOK,
+				Body:        map[string]any{"created": int64(1), "data": []any{map[string]any{"url": "https://img/x"}}},
+				Usage:       &usageparser.NormalizedUsage{},
+				UsageSource: usageparser.SourceEstimated,
+				DurationMs:  40,
+			}, nil
+		},
+	}
+	application, walletRepo, usageRepo := newEndpointEnv(executor)
+
+	req := newMultipartEndpointRequest(userID, apiKeyID, "/v1/images/edits",
+		map[string]string{"model": "dall-e-2", "prompt": "add a hat"},
+		map[string]struct {
+			name, contentType string
+			content           []byte
+		}{
+			"image": {name: "pic.png", contentType: "image/png", content: []byte("png-bytes")},
+		},
+	)
+	w := httptest.NewRecorder()
+	HandleImagesEdits(application).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	if executor.lastEndpoint != "images/edits" {
+		t.Errorf("lastEndpoint = %q, want images/edits", executor.lastEndpoint)
+	}
+	if walletRepo.settleCalled != 1 {
+		t.Errorf("settleCalled = %d, want 1", walletRepo.settleCalled)
+	}
+	log := waitForUsageLog(t, usageRepo)
+	if log.RequestType != "images" {
+		t.Errorf("RequestType = %q, want images", log.RequestType)
+	}
+	if len(usageRepo.lastChargeLines) == 0 || usageRepo.lastChargeLines[0].Dimension != "image" {
+		t.Errorf("charge lines = %+v, want first dimension image", usageRepo.lastChargeLines)
+	}
+}
+
+func TestHandleAudioTranscriptions_MissingModelOrFile(t *testing.T) {
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	executor := &mockExecutor{}
+	application, _, _ := newEndpointEnv(executor)
+
+	t.Run("missing model", func(t *testing.T) {
+		req := newMultipartEndpointRequest(userID, apiKeyID, "/v1/audio/transcriptions",
+			map[string]string{},
+			map[string]struct {
+				name, contentType string
+				content           []byte
+			}{
+				"file": {name: "demo.mp3", contentType: "audio/mpeg", content: []byte("fake-audio-bytes")},
+			},
+		)
+		w := httptest.NewRecorder()
+		HandleAudioTranscriptions(application).ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body = %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		req := newMultipartEndpointRequest(userID, apiKeyID, "/v1/audio/transcriptions",
+			map[string]string{"model": "whisper-1"},
+			nil,
+		)
+		w := httptest.NewRecorder()
+		HandleAudioTranscriptions(application).ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body = %s", w.Code, w.Body.String())
+		}
+	})
 }
 
 func TestHandleEmbeddings_Success_UpstreamUsage(t *testing.T) {

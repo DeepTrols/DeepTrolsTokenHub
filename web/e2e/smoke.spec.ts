@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 // Requires a local stack:
 //   - API on 127.0.0.1:8082 (CORS_ORIGIN=http://localhost:3000)
 //   - vite dev server on :3000 with PROXY_TARGET=http://127.0.0.1:8082
-//   - echo upstream on 127.0.0.1:8090 (scripts/echo_upstream.go)
+//   - echo upstream on 127.0.0.1:8090 (go run ./scripts/echo_upstream)
 const ECHO = "http://127.0.0.1:8090";
 
 test.describe.configure({ mode: "serial" });

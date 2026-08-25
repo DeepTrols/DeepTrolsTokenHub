@@ -41,17 +41,21 @@ var (
 // ============================================================================
 
 type mockExecutor struct {
-	mu                sync.Mutex
-	executeFn         func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error)
-	executeEndpointFn func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.ExecuteResponse, error)
-	executeRawFn      func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.RawResponse, error)
+	mu                 sync.Mutex
+	executeFn          func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error)
+	executeEndpointFn  func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.ExecuteResponse, error)
+	executeRawFn       func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, body map[string]any) (*gw.RawResponse, error)
+	executeMultipartFn func(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, fields map[string]any, files map[string]gw.MultipartFile) (*gw.ExecuteResponse, error)
 	// call tracking
-	executeCalled         int
-	executeEndpointCalled int
-	executeRawCalled      int
-	lastBody              map[string]any
-	lastEndpoint          string
-	lastExtraHeaders      map[string]string
+	executeCalled          int
+	executeEndpointCalled  int
+	executeRawCalled       int
+	executeMultipartCalled int
+	lastBody               map[string]any
+	lastEndpoint           string
+	lastMultipartFields    map[string]any
+	lastMultipartFiles     map[string]gw.MultipartFile
+	lastExtraHeaders       map[string]string
 }
 
 func (m *mockExecutor) Execute(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any, extraHeaders ...map[string]string) (*gw.ExecuteResponse, error) {
@@ -99,6 +103,22 @@ func (m *mockExecutor) ExecuteEndpointRaw(ctx context.Context, baseURL, apiKey, 
 		return m.executeRawFn(ctx, baseURL, apiKey, upstreamModel, endpoint, body)
 	}
 	return nil, fmt.Errorf("mockExecutor: executeRawFn not set")
+}
+
+// ExecuteEndpointMultipart is the multipart counterpart used by the
+// transcriptions/images-edits endpoint tests.
+func (m *mockExecutor) ExecuteEndpointMultipart(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, fields map[string]any, files map[string]gw.MultipartFile, extraHeaders ...map[string]string) (*gw.ExecuteResponse, error) {
+	m.mu.Lock()
+	m.executeMultipartCalled++
+	m.lastEndpoint = endpoint
+	m.lastMultipartFields = fields
+	m.lastMultipartFiles = files
+	m.lastExtraHeaders = mergeTestHeaders(extraHeaders...)
+	m.mu.Unlock()
+	if m.executeMultipartFn != nil {
+		return m.executeMultipartFn(ctx, baseURL, apiKey, upstreamModel, endpoint, fields, files)
+	}
+	return nil, fmt.Errorf("mockExecutor: executeMultipartFn not set")
 }
 
 // mergeTestHeaders flattens variadic header maps for call tracking.

@@ -1884,7 +1884,7 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 ```bash
 # 1) echo 上游
-go run ./scripts/echo_upstream.go        # 127.0.0.1:8090
+go run ./scripts/echo_upstream           # 127.0.0.1:8090
 # 2) API（本地 PG/Redis + 000001-000019 迁移）
 API_PORT=8082 CORS_ORIGIN=http://localhost:3000 go run ./cmd/api
 # 3) 前端（代理到 8082）
@@ -1898,3 +1898,43 @@ cd web && npm run test:e2e
 - `npx playwright test` 通过（登录→建渠道→模型目录→网关调用→账单/审计
   全链路 3s 完成，真实 DB + 真实 HTTP）；
 - 前端 `lint`（0/0）、`build` 全绿；此前 Go 全量与前端 254/254 单测保持不变。
+
+## 五十七、2026-08-25 Phase 4 端点补全：音频转写 + 图片编辑（multipart）
+
+> 按蓝图 Phase 4 落地 `/v1/audio/transcriptions` 与 `/v1/images/edits`，
+> 复用 Reserve→Execute→Settle→Evidence 管线（`/v1/videos/generations`
+> 异步任务另行推进）。
+
+### 57.1 变更
+
+- `internal/service/gateway/executor.go`：`Executor` 新增
+  `ExecuteEndpointMultipart`；`MultipartFile`（文件名/类型/字节）。
+- `internal/provider/openai_compat.go`：`buildMultipartBody`（model 字段 +
+  字符串字段 + 文件 part，内部 `_` 前缀字段不外发）；`doRaw` 支持自定义
+  Content-Type；multipart 响应 JSON 或纯文本（包装为 `{"text": ...}`）。
+- `internal/handler/gateway/endpoints.go`：
+  - `parseMultipartForwardedRequest`：25MB 上限、必填 model/file、首文件字节数
+    记为内部 `_file_size`；
+  - `handleForwardedMultipartExecution`：候选 failover、预算预留先于上游、
+    结算/审计/分钟桶/Key 花费与既有路径一致；
+  - `HandleAudioTranscriptions`（按音频秒数计费，dimension `audio`）、
+    `HandleImagesEdits`（按张计费，dimension `image`）；
+  - 纯文本转写响应按 `text/plain` 回传，JSON 响应原样回传。
+- `cmd/api/main.go`：注册 `/v1/audio/transcriptions`、`/v1/images/edits`。
+- `scripts/echo_upstream/`：从单文件移到子包（避免与 scripts 其它 main 冲突），
+  新增 transcription / images-edits 处理器供 E2E 使用。
+
+### 57.2 测试
+
+- `openai_compat_test.go`：multipart JSON 响应（校验 model/字段/文件/自定义头）
+  与纯文本响应两组；
+- `endpoints_test.go`：转写成功（dimension audio、audio_seconds=1）、纯文本
+  回传、图片编辑成功（dimension image）、缺 model / 缺 file 400。
+
+### 57.3 验证
+
+- Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
+- 真实环境（API 8082 + echo 8090 + 本地 PG）：`/v1/audio/transcriptions`
+  返回 200 `你好`；`/v1/images/edits` 返回 200 JSON；usage 落账
+  `cost=0.001`（audio）与 `cost=0.05`（image）；缺失定价时 422
+  `pricing_incomplete`（fail-closed 生效）。

@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"strings"
 	"time"
 
@@ -47,7 +49,7 @@ func (e *OpenAICompatAdapter) ExecuteEndpoint(ctx context.Context, baseURL, apiK
 	if err != nil {
 		return nil, err
 	}
-	respBytes, _, statusCode, _, durationMs, err := e.doRaw(ctx, apiKey, url, reqBytes, mergeHeaders(extraHeaders...))
+	respBytes, _, statusCode, _, durationMs, err := e.doRaw(ctx, apiKey, url, "application/json", reqBytes, mergeHeaders(extraHeaders...))
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +89,7 @@ func (e *OpenAICompatAdapter) ExecuteEndpointRaw(ctx context.Context, baseURL, a
 	if err != nil {
 		return nil, err
 	}
-	respBytes, contentType, statusCode, providerReqID, durationMs, err := e.doRaw(ctx, apiKey, url, reqBytes, mergeHeaders(extraHeaders...))
+	respBytes, contentType, statusCode, providerReqID, durationMs, err := e.doRaw(ctx, apiKey, url, "application/json", reqBytes, mergeHeaders(extraHeaders...))
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +97,48 @@ func (e *OpenAICompatAdapter) ExecuteEndpointRaw(ctx context.Context, baseURL, a
 		StatusCode:    statusCode,
 		ContentType:   contentType,
 		Body:          respBytes,
+		ProviderReqID: providerReqID,
+		DurationMs:    durationMs,
+	}, nil
+}
+
+// ExecuteEndpointMultipart forwards a multipart/form-data request (audio
+// transcriptions, images edits). File parts carry raw bytes; field parts are
+// stringified. Responses are either JSON (unmarshalled into Body) or plain
+// text (wrapped as {"text": "..."}).
+func (e *OpenAICompatAdapter) ExecuteEndpointMultipart(ctx context.Context, baseURL, apiKey, upstreamModel, endpoint string, fields map[string]any, files map[string]gw.MultipartFile, extraHeaders ...map[string]string) (*gw.ExecuteResponse, error) {
+	url := fmt.Sprintf("%s/v1/%s", strings.TrimSuffix(baseURL, "/v1"), strings.TrimPrefix(endpoint, "/"))
+	reqBytes, contentType, err := buildMultipartBody(upstreamModel, fields, files)
+	if err != nil {
+		return nil, err
+	}
+	respBytes, respContentType, statusCode, providerReqID, durationMs, err := e.doRaw(ctx, apiKey, url, contentType, reqBytes, mergeHeaders(extraHeaders...))
+	if err != nil {
+		return nil, err
+	}
+
+	respBody := map[string]any{}
+	if strings.Contains(respContentType, "application/json") {
+		if err := json.Unmarshal(respBytes, &respBody); err != nil {
+			return nil, fmt.Errorf("unmarshal response: %w", err)
+		}
+	} else {
+		// Default transcription response is plain text (response_format=text).
+		respBody["text"] = string(respBytes)
+	}
+
+	usage, err := usageparser.ParseOpenAIUsage(respBody)
+	source := usageparser.SourceUpstream
+	if err != nil || !usage.HasUsage() {
+		usage = &usageparser.NormalizedUsage{}
+		source = usageparser.SourceEstimated
+	}
+
+	return &gw.ExecuteResponse{
+		StatusCode:    statusCode,
+		Body:          respBody,
+		Usage:         usage,
+		UsageSource:   source,
 		ProviderReqID: providerReqID,
 		DurationMs:    durationMs,
 	}, nil
@@ -118,16 +162,55 @@ func buildUpstreamRequest(baseURL, upstreamModel, endpoint string, body map[stri
 	return reqBytes, url, nil
 }
 
+// buildMultipartBody renders a multipart/form-data payload: the model field
+// first, then remaining string fields, then file parts. Internal fields whose
+// keys start with "_" are never forwarded upstream.
+func buildMultipartBody(upstreamModel string, fields map[string]any, files map[string]gw.MultipartFile) ([]byte, string, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	if err := w.WriteField("model", upstreamModel); err != nil {
+		return nil, "", fmt.Errorf("write model field: %w", err)
+	}
+	for k, v := range fields {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+		if err := w.WriteField(k, fmt.Sprint(v)); err != nil {
+			return nil, "", fmt.Errorf("write field %s: %w", k, err)
+		}
+	}
+	for name, f := range files {
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, name, f.FileName))
+		ct := f.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		header.Set("Content-Type", ct)
+		part, err := w.CreatePart(header)
+		if err != nil {
+			return nil, "", fmt.Errorf("create part %s: %w", name, err)
+		}
+		if _, err := part.Write(f.Content); err != nil {
+			return nil, "", fmt.Errorf("write file %s: %w", name, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		return nil, "", fmt.Errorf("close multipart writer: %w", err)
+	}
+	return buf.Bytes(), w.FormDataContentType(), nil
+}
+
 // doRaw performs the HTTP POST and returns the raw response body, content
 // type, status code, provider request id and duration. Response bodies are
 // capped so a misbehaving upstream cannot exhaust memory.
-func (e *OpenAICompatAdapter) doRaw(ctx context.Context, apiKey, url string, reqBytes []byte, extraHeaders map[string]string) ([]byte, string, int, string, int, error) {
+func (e *OpenAICompatAdapter) doRaw(ctx context.Context, apiKey, url, contentType string, reqBytes []byte, extraHeaders map[string]string) ([]byte, string, int, string, int, error) {
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBytes))
 	if err != nil {
 		return nil, "", 0, "", 0, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	for k, v := range extraHeaders {
 		req.Header.Set(k, v)
