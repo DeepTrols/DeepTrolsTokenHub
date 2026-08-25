@@ -1319,3 +1319,29 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿。
 - 前端未改动。
+
+## 三十七、2026-08-25 Phase 0：网关资源模型演进
+
+> 蓝图 Step 2（Phase 0）：为强路由准备资源语义（策略 / 粘性会话 / 冷却 / 并发上限）。
+
+### 37.1 变更
+
+- 迁移 `000017_gateway_resources`：
+  - `channels` 增加 `strategy`（priority_only / cost / quality）、`sticky_session`、
+    `fallback_order`；
+  - `channel_instances` 增加 `cooldown_until`、`last_checked_at`、`concurrency_limit`
+    （默认 10，`max_load` 保留兼容）。
+- `internal/domain/channel.go`：`RouteStrategy` 常量 + `ValidRouteStrategy`；Channel /
+  ChannelInstance 新字段。
+- `internal/repository/channel`：select/scan 覆盖新字段；新增 `EnterCooldown` /
+  `ClearCooldown`（含 `last_checked_at` 打点）；mock 仓储同步补方法。
+
+### 37.2 测试
+
+- `domain_test.go`：`ValidRouteStrategy` 表驱动；
+- `channel/postgres_test.go`：策略/粘性/回退序字段回读、并发上限、冷却设置/清除、
+  不存在实例报错（真实 PG）。
+
+### 37.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。

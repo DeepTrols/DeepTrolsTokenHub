@@ -271,3 +271,74 @@ func TestChannelUpdateHealth(t *testing.T) {
 		}
 	})
 }
+
+func TestChannelStrategyAndInstanceCooldown(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateAll(t, repo.pool)
+
+	modelID := seedChannelModel(t, ctx, repo)
+	chID := uuid.New()
+	_, err := repo.pool.Exec(ctx, `
+		INSERT INTO channels (id, name, model_id, pool_type, health_score, health_status,
+			status, weight, max_concurrency, strategy, sticky_session, fallback_order)
+		VALUES ($1, $2, $3, 'shared', 100, 'healthy', 'active', 100, 10, $4, $5, $6)
+	`, chID, "strategic-channel", modelID, domain.RouteStrategyCost, true, 3)
+	if err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	got, err := repo.FindByID(ctx, chID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if got.Strategy != domain.RouteStrategyCost || !got.StickySession || got.FallbackOrder != 3 {
+		t.Errorf("strategy fields = %s/%v/%d, want cost/true/3",
+			got.Strategy, got.StickySession, got.FallbackOrder)
+	}
+
+	instID := uuid.New()
+	_, err = repo.pool.Exec(ctx, `
+		INSERT INTO channel_instances (id, channel_id, instance_type, base_url, provider_route,
+			current_load, max_load, concurrency_limit, config, status)
+		VALUES ($1, $2, 'serverless', 'https://example.com', 'deepseek-chat',
+			0, 10, 25, '{}', 'active')
+	`, instID, chID)
+	if err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+
+	until := time.Now().UTC().Add(5 * time.Minute)
+	if err := repo.EnterCooldown(ctx, instID, until); err != nil {
+		t.Fatalf("EnterCooldown: %v", err)
+	}
+	instances, err := repo.ListInstances(ctx, chID)
+	if err != nil {
+		t.Fatalf("ListInstances: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("instances = %d, want 1", len(instances))
+	}
+	if instances[0].ConcurrencyLimit != 25 {
+		t.Errorf("concurrency_limit = %d, want 25", instances[0].ConcurrencyLimit)
+	}
+	if instances[0].CooldownUntil == nil ||
+		!instances[0].CooldownUntil.UTC().Truncate(time.Second).Equal(until.UTC().Truncate(time.Second)) {
+		t.Errorf("cooldown_until = %v, want %v", instances[0].CooldownUntil, until)
+	}
+	if instances[0].LastCheckedAt == nil {
+		t.Error("last_checked_at should be set after EnterCooldown")
+	}
+
+	if err := repo.ClearCooldown(ctx, instID); err != nil {
+		t.Fatalf("ClearCooldown: %v", err)
+	}
+	instances, _ = repo.ListInstances(ctx, chID)
+	if instances[0].CooldownUntil != nil {
+		t.Errorf("cooldown_until = %v, want nil after clear", instances[0].CooldownUntil)
+	}
+
+	if err := repo.EnterCooldown(ctx, uuid.New(), until); err == nil {
+		t.Error("EnterCooldown on missing instance should error")
+	}
+}

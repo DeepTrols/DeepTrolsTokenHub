@@ -2,6 +2,21 @@ package domain
 
 import "testing"
 
+func TestValidRouteStrategy(t *testing.T) {
+	cases := map[RouteStrategy]bool{
+		RouteStrategyPriorityOnly: true,
+		RouteStrategyCost:         true,
+		RouteStrategyQuality:      true,
+		RouteStrategy("random"):   false,
+		RouteStrategy(""):         false,
+	}
+	for strategy, want := range cases {
+		if got := ValidRouteStrategy(strategy); got != want {
+			t.Errorf("ValidRouteStrategy(%q) = %v, want %v", strategy, got, want)
+		}
+	}
+}
+
 func TestTenant_AllowTraffic(t *testing.T) {
 	cases := []struct {
 		name   string

@@ -17,8 +17,29 @@ type Channel struct {
 	Status         ChannelStatus
 	Weight         int
 	MaxConcurrency int
+	Strategy       RouteStrategy
+	StickySession  bool
+	FallbackOrder  int
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type RouteStrategy string
+
+const (
+	RouteStrategyPriorityOnly RouteStrategy = "priority_only"
+	RouteStrategyCost         RouteStrategy = "cost"
+	RouteStrategyQuality      RouteStrategy = "quality"
+)
+
+// ValidRouteStrategy reports whether s is a supported routing strategy.
+func ValidRouteStrategy(s RouteStrategy) bool {
+	switch s {
+	case RouteStrategyPriorityOnly, RouteStrategyCost, RouteStrategyQuality:
+		return true
+	default:
+		return false
+	}
 }
 
 type PoolType string
@@ -53,17 +74,20 @@ func (c Channel) IsRoutable() bool {
 }
 
 type ChannelInstance struct {
-	ID            uuid.UUID
-	ChannelID     uuid.UUID
-	InstanceType  string
-	BaseURL       string
-	ProviderRoute string
-	CurrentLoad   int
-	MaxLoad       int
-	Config        map[string]any
-	Status        InstanceStatus
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID               uuid.UUID
+	ChannelID        uuid.UUID
+	InstanceType     string
+	BaseURL          string
+	ProviderRoute    string
+	CurrentLoad      int
+	MaxLoad          int
+	ConcurrencyLimit int
+	CooldownUntil    *time.Time
+	LastCheckedAt    *time.Time
+	Config           map[string]any
+	Status           InstanceStatus
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type InstanceStatus string

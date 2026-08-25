@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/google/uuid"
@@ -65,7 +66,7 @@ func (r *PostgresRepository) FindByID(ctx context.Context, id uuid.UUID) (*domai
 func (r *PostgresRepository) ListInstances(ctx context.Context, channelID uuid.UUID) ([]domain.ChannelInstance, error) {
 	const query = `
 		SELECT id, channel_id, instance_type, base_url, provider_route,
-			current_load, max_load,
+			current_load, max_load, concurrency_limit, cooldown_until, last_checked_at,
 			COALESCE(config::text, '{}'),
 			status, created_at, updated_at
 		FROM channel_instances
@@ -86,7 +87,8 @@ func (r *PostgresRepository) ListInstances(ctx context.Context, channelID uuid.U
 		var providerRoute *string
 		err := rows.Scan(
 			&ci.ID, &ci.ChannelID, &ci.InstanceType, &ci.BaseURL, &providerRoute,
-			&ci.CurrentLoad, &ci.MaxLoad,
+			&ci.CurrentLoad, &ci.MaxLoad, &ci.ConcurrencyLimit,
+			&ci.CooldownUntil, &ci.LastCheckedAt,
 			&configJSON,
 			&ci.Status, &ci.CreatedAt, &ci.UpdatedAt,
 		)
@@ -134,11 +136,40 @@ func (r *PostgresRepository) UpdateInstanceLoad(ctx context.Context, id uuid.UUI
 	return nil
 }
 
+// EnterCooldown marks an instance as cooling down until the given time.
+func (r *PostgresRepository) EnterCooldown(ctx context.Context, instanceID uuid.UUID, until time.Time) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE channel_instances SET cooldown_until = $1, last_checked_at = NOW(), updated_at = NOW()
+		 WHERE id = $2`, until.UTC(), instanceID)
+	if err != nil {
+		return fmt.Errorf("channel instance enter cooldown: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("channel instance enter cooldown: instance %s not found", instanceID)
+	}
+	return nil
+}
+
+// ClearCooldown removes the cooldown window and records the check time.
+func (r *PostgresRepository) ClearCooldown(ctx context.Context, instanceID uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE channel_instances SET cooldown_until = NULL, last_checked_at = NOW(), updated_at = NOW()
+		 WHERE id = $1`, instanceID)
+	if err != nil {
+		return fmt.Errorf("channel instance clear cooldown: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("channel instance clear cooldown: instance %s not found", instanceID)
+	}
+	return nil
+}
+
 // --- helpers ---
 
 const channelSelectClause = `
 	id, name, model_id, tenant_id, pool_type, health_score, health_status,
-	status, weight, max_concurrency, created_at, updated_at
+	status, weight, max_concurrency, strategy, sticky_session, fallback_order,
+	created_at, updated_at
 `
 
 func scanChannel(row pgx.Row) (*domain.Channel, error) {
@@ -147,6 +178,7 @@ func scanChannel(row pgx.Row) (*domain.Channel, error) {
 		&c.ID, &c.Name, &c.ModelID, &c.TenantID, &c.PoolType,
 		&c.HealthScore, &c.HealthStatus,
 		&c.Status, &c.Weight, &c.MaxConcurrency,
+		&c.Strategy, &c.StickySession, &c.FallbackOrder,
 		&c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {

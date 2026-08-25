@@ -307,6 +307,12 @@ func (m *mockChannelRepo) UpdateHealth(ctx context.Context, id uuid.UUID, score 
 func (m *mockChannelRepo) UpdateInstanceLoad(ctx context.Context, id uuid.UUID, load int) error {
 	return nil
 }
+func (m *mockChannelRepo) EnterCooldown(ctx context.Context, id uuid.UUID, until time.Time) error {
+	return nil
+}
+func (m *mockChannelRepo) ClearCooldown(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
 
 // ============================================================================
 // Test helpers
