@@ -109,6 +109,8 @@ func main() {
 				r.Put("/team/{userId}/role", console.HandleChangeMemberRole(application))
 				r.Put("/team/{userId}/status", console.HandleSuspendMember(application))
 				r.Post("/team/balance/allocate", console.HandleAllocateBalance(application))
+				r.Get("/team/budget", console.HandleGetTeamBudget(application))
+				r.Post("/team/budget/requests", console.HandleCreateBudgetRequest(application))
 			})
 
 			r.Get("/api-keys", console.HandleListAPIKeys(application))
@@ -169,6 +171,12 @@ func main() {
 		r.Put("/users/{id}/role", console.HandleUpdateUserRole(application))
 		r.Post("/users", console.HandleCreateUser(application))
 		r.Delete("/users/{id}", console.HandleDeleteUser(application))
+
+		// Budget governance (Phase 1): platform oversight + request approvals.
+		r.Get("/budgets", console.HandleListBudgets(application))
+		r.Get("/budgets/requests", console.HandleListBudgetRequests(application))
+		r.Post("/budgets/requests/{id}/approve", console.HandleApproveBudgetRequest(application))
+		r.Post("/budgets/requests/{id}/reject", console.HandleRejectBudgetRequest(application))
 
 		// Billing connectors (OneAPI / NewAPI / Aliyun billing sync, Step 1a).
 		r.Get("/billing/connectors", console.HandleListBillingConnectors(application))

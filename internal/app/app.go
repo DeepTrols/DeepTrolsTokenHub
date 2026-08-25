@@ -24,6 +24,7 @@ import (
 	"github.com/deeptrols/api/internal/pkg/redis"
 	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/repository/apikey"
+	"github.com/deeptrols/api/internal/repository/budget"
 	"github.com/deeptrols/api/internal/repository/channel"
 	"github.com/deeptrols/api/internal/repository/membership"
 	"github.com/deeptrols/api/internal/repository/model"
@@ -60,6 +61,7 @@ type App struct {
 	Wallets     wallet.Repository
 	Channels    channel.Repository
 	Memberships membership.Repository
+	Budgets     budget.Repository
 
 	// Services
 	Charger *billing.Charger
@@ -117,6 +119,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.Wallets = wallet.NewPostgresRepository(pool)
 	a.Channels = channel.NewPostgresRepository(pool)
 	a.Memberships = membership.NewPostgresRepository(pool)
+	a.Budgets = budget.NewPostgresRepository(pool)
 	billingSyncRepo := billingpersistence.NewPostgresRepository(pool, []byte(cfg.Encryption.Key))
 	a.BillingSyncRepo = billingSyncRepo
 	a.BillingSync = billingsync.NewService(billingSyncRepo,

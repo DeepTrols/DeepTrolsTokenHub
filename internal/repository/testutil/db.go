@@ -117,6 +117,8 @@ func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 		"billing_records",
 		"billing_sync_runs",
 		"billing_connectors",
+		"budget_requests",
+		"budgets",
 		"guardrail_policy_bindings",
 		"guardrail_detection_items",
 		"guardrail_policies",

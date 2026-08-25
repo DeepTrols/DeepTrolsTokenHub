@@ -1471,3 +1471,37 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 - 当前按估算 token 预留、不做结算回填（实际用量与估算的差额会在下一分钟桶体现）；
   精确 settle 列入 Phase 2 收尾。
 - 下一步：项目/团队预算 + 审批流，Guardrails Admin 策略编辑器。
+
+## 四十二、2026-08-25 Phase 1（第三部分）：租户预算 + 审批流
+
+> 蓝图 Step 4 Phase 1 治理的第三部分：企业预算管理与平台审批。
+
+### 42.1 变更
+
+- 迁移 `000019_budgets`：`budgets`（tenant+period 唯一，limit/spent/status）与
+  `budget_requests`（pending/approved/rejected + reviewer/reviewed_at）。
+- `internal/domain/budget.go`：Budget / BudgetRequest 模型与常量。
+- `internal/repository/budget/`：pgx 实现（按租户列表、请求列表、创建请求、
+  审批=请求置 approved 并给租户月度预算累加上限（无则建）、拒绝）。
+- `internal/handler/console/budget.go`：
+  - Admin：`GET /api/admin/budgets`、`GET /api/admin/budgets/requests`、
+    `POST /api/admin/budgets/requests/{id}/approve|reject`；
+  - 企业：`GET /team/budget`、`POST /team/budget/requests`（租户管理员）。
+- `internal/app/app.go`：装配 `Budgets` 仓储。
+
+### 42.2 测试
+
+- `repository/budget/postgres_test.go`：真实 PG——创建请求→审批（首次建预算、
+  二次累加 1000+500=1500）→拒绝（状态统计 2 approved + 1 rejected）。
+- `console/budget_test.go`：`TestBudgetApproveFlow`（企业创建申请→平台审批→
+  企业可见 limit 800）。
+
+### 42.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）连续两轮全绿
+  （首轮出现过一次测试库并发 provisioning 偶发竞态，复跑稳定）。
+
+### 42.4 后续
+
+- 预算网关强制（spent 累加 + 超预算 429）与分钟桶精确 settle；
+- Guardrails Admin 策略编辑器（前端）；Phase 2 强路由。
