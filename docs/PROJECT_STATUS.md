@@ -2137,3 +2137,29 @@ cd web && npm run test:e2e
 - Go `build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
 - 前端 `npm test`（205/205，27 文件）、`lint`（0/0）、`build` 全绿；
 - 已将最新后端构建重启到 8080。
+
+## 六十五、2026-08-25 DeepSeek 模型目录对齐上游 V4 三模型
+
+> 上游 `https://api.deepseek.com/models` 目前返回 3 个模型（V4 系列），
+> 项目里的 DeepSeek 占位/过期模型名（`deepseek-chat` / `deepseek-reasoner` /
+> `deepseek-v3`）与真实目录不一致，统一对齐。`deepseek-chat` / `deepseek-reasoner`
+> 已于 2026-07-24 停用，分别对应 `deepseek-v4-flash` 的非思考/思考模式。
+
+### 65.1 变更
+
+- **模型目录（种子）**：`scripts/seed_providers.sql`、`scripts/seed_providers.go`
+  新增第 3 个 DeepSeek 模型 `deepseek-v4-flash-vision-exp`（DeepSeek V4 Flash Vision，
+  视觉增强模型），并补齐其 `model_pricing`（input/output）、`channels`、
+  `channel_instances`（`//api.deepseek.com`，route `deepseek-v4-flash-vision-exp`）。
+- **登录页示例**：`web/src/pages/Login.tsx` 的 curl 示例由 `deepseek-chat` 改为
+  `deepseek-v4-flash`；「切换任意模型」示例由 `deepseek-v3` 改为 `deepseek-v4-pro`。
+- **provider 模板**：`internal/provider/registry.go` DeepSeek `BaseURL` 维持
+  `https://api.deepseek.com`，能力包含 `chat/chat_stream/models/probe`，无需改动；
+  通道 sync（`HandleSyncProviderModels`）会自动发现 3 个真实模型 ID。
+
+### 65.2 验证
+
+- 用已配置的 DeepSeek 通道调用 `/api/admin/providers/{id}/test`，上游真实返回：
+  `model_codes = ["deepseek-v4-flash","deepseek-v4-pro","deepseek-v4-flash-vision-exp"]`，
+  `models = 3`，`ok = true`。
+- Go `build/vet/gofmt` + `go test ./... -count=1` 全绿；前端 `npm test`/`lint`/`build` 全绿。

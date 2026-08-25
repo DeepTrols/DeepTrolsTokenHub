@@ -6,6 +6,7 @@
 INSERT INTO models (id, code, provider, category, display_name, description, context_window, max_output_tokens, status, release_stage, created_at, updated_at) VALUES
 ('a0000001-0001-0001-0001-000000000001', 'deepseek-v4-flash', 'deepseek', 'chat', 'DeepSeek V4 Flash', 'DeepSeek 快速模型', 131072, 32768, 'active', 'GA', NOW(), NOW()),
 ('a0000001-0001-0001-0001-000000000002', 'deepseek-v4-pro',   'deepseek', 'chat', 'DeepSeek V4 Pro',   'DeepSeek 旗舰推理模型', 131072, 65536, 'active', 'GA', NOW(), NOW()),
+('a0000001-0001-0001-0001-000000000007', 'deepseek-v4-flash-vision-exp', 'deepseek', 'chat', 'DeepSeek V4 Flash Vision', 'DeepSeek 视觉增强模型', 131072, 32768, 'active', 'GA', NOW(), NOW()),
 ('a0000001-0001-0001-0001-000000000003', 'qwen3.5-plus',      'qwen',     'chat', 'Qwen 3.5 Plus',      '通义千问 3.5 Plus', 131072, 16384, 'active', 'GA', NOW(), NOW()),
 ('a0000001-0001-0001-0001-000000000004', 'qwen3.5-flash',     'qwen',     'chat', 'Qwen 3.5 Flash',     '通义千问 3.5 Flash 轻量', 131072, 8192, 'active', 'GA', NOW(), NOW()),
 ('a0000001-0001-0001-0001-000000000005', 'qwen3.7-plus',      'qwen',     'chat', 'Qwen 3.7 Plus',      '通义千问 3.7 Plus', 131072, 16384, 'active', 'GA', NOW(), NOW()),
@@ -18,6 +19,8 @@ INSERT INTO model_pricing (id, model_id, tenant_id, pricing_dimension, unit_name
 (uuid_generate_v4(), 'a0000001-0001-0001-0001-000000000001', NULL, 'output', '1K tokens', '0.006',  '0.006',  'CNY', NOW(), NOW()),
 (uuid_generate_v4(), 'a0000001-0001-0001-0001-000000000002', NULL, 'input',  '1K tokens', '0.004',  '0.004',  'CNY', NOW(), NOW()),
 (uuid_generate_v4(), 'a0000001-0001-0001-0001-000000000002', NULL, 'output', '1K tokens', '0.012',  '0.012',  'CNY', NOW(), NOW()),
+(uuid_generate_v4(), 'a0000001-0001-0001-0001-000000000007', NULL, 'input',  '1K tokens', '0.002',  '0.002',  'CNY', NOW(), NOW()),
+(uuid_generate_v4(), 'a0000001-0001-0001-0001-000000000007', NULL, 'output', '1K tokens', '0.006',  '0.006',  'CNY', NOW(), NOW()),
 (uuid_generate_v4(), 'a0000001-0001-0001-0001-000000000003', NULL, 'input',  '1K tokens', '0.001',  '0.001',  'CNY', NOW(), NOW()),
 (uuid_generate_v4(), 'a0000001-0001-0001-0001-000000000003', NULL, 'output', '1K tokens', '0.003',  '0.003',  'CNY', NOW(), NOW()),
 (uuid_generate_v4(), 'a0000001-0001-0001-0001-000000000004', NULL, 'input',  '1K tokens', '0.0005', '0.0005', 'CNY', NOW(), NOW()),
@@ -32,6 +35,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO channels (id, name, model_id, pool_type, health_score, health_status, status, weight, max_concurrency, created_at, updated_at) VALUES
 ('b0000001-0001-0001-0001-000000000001', 'deepseek-flash', 'a0000001-0001-0001-0001-000000000001', 'shared', 100, 'healthy', 'active', 100, 10, NOW(), NOW()),
 ('b0000001-0001-0001-0001-000000000002', 'deepseek-pro',   'a0000001-0001-0001-0001-000000000002', 'shared', 100, 'healthy', 'active', 100, 10, NOW(), NOW()),
+('b0000001-0001-0001-0001-000000000007', 'deepseek-vision', 'a0000001-0001-0001-0001-000000000007', 'shared', 100, 'healthy', 'active', 100, 10, NOW(), NOW()),
 ('b0000001-0001-0001-0001-000000000003', 'qwen35-plus',    'a0000001-0001-0001-0001-000000000003', 'shared', 100, 'healthy', 'active', 100, 10, NOW(), NOW()),
 ('b0000001-0001-0001-0001-000000000004', 'qwen35-flash',   'a0000001-0001-0001-0001-000000000004', 'shared', 100, 'healthy', 'active', 100, 10, NOW(), NOW()),
 ('b0000001-0001-0001-0001-000000000005', 'qwen37-plus',    'a0000001-0001-0001-0001-000000000005', 'shared', 100, 'healthy', 'active', 100, 10, NOW(), NOW()),
@@ -46,6 +50,9 @@ INSERT INTO channel_instances (id, channel_id, instance_type, base_url, provider
  '{"api_key":"REPLACE_WITH_DEEPSEEK_API_KEY"}', 'active', NOW(), NOW()),
 ('c0000001-0001-0001-0001-000000000002', 'b0000001-0001-0001-0001-000000000002', 'serverless',
  'https://api.deepseek.com', 'deepseek-v4-pro', 0, 10,
+ '{"api_key":"REPLACE_WITH_DEEPSEEK_API_KEY"}', 'active', NOW(), NOW()),
+('c0000001-0001-0001-0001-000000000007', 'b0000001-0001-0001-0001-000000000007', 'serverless',
+ 'https://api.deepseek.com', 'deepseek-v4-flash-vision-exp', 0, 10,
  '{"api_key":"REPLACE_WITH_DEEPSEEK_API_KEY"}', 'active', NOW(), NOW()),
 -- Qwen (Aliyun)
 ('c0000001-0001-0001-0001-000000000003', 'b0000001-0001-0001-0001-000000000003', 'serverless',

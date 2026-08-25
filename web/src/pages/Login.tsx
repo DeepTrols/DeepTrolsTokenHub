@@ -137,11 +137,11 @@ export default function Login() {
                 <span className="text-[#5C6472]">-H</span> <span className="text-[#0FA88B]">"Authorization: Bearer sk-dt-••••••"</span>
               </div>
               <div className="pl-4">
-                <span className="text-[#5C6472]">-d</span> <span className="text-[#C9A96A]">{'{"model": "deepseek-chat"}'}</span>
+                <span className="text-[#5C6472]">-d</span> <span className="text-[#C9A96A]">{'{"model": "deepseek-v4-flash"}'}</span>
               </div>
               <div className="pt-2 border-t border-black/5 text-[#5C6472]"># 同一把密钥，切换任意模型</div>
               <div>
-                <span className="text-[#0FA88B]">deepseek-v3</span>
+                <span className="text-[#0FA88B]">deepseek-v4-pro</span>
                 <span className="text-[#5C6472]"> · </span>
                 <span className="text-[#E5484D]">qwen-max</span>
                 <span className="text-[#5C6472]"> · </span>
