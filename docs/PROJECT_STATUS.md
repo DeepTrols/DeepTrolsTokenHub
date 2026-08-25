@@ -2021,6 +2021,7 @@ cd web && npm run test:e2e
 - Go：`build/vet/gofmt` + `go test ./... -count=1`（真实 PG）全绿；
 - 前端：`npm test` 260/260、`lint` 0/0、`build` 全绿；
 - E2E：Playwright 冒烟通过（真实 DB + 本地 echo 闭环）；
+- 迁移：000017–000020 在独立 schema 验证 `down→up` 回环；
 - 真实链路：DeepSeek 线上调用、guardrails 拦截 400、预算 403、
   路由模拟、连通性探测、自定义头透传、multipart 转写/编辑、视频异步任务
   均在真实进程验证。
