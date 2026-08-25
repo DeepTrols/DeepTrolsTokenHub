@@ -64,10 +64,11 @@ type App struct {
 	Budgets     budget.Repository
 
 	// Services
-	Charger *billing.Charger
-	Logger  *billing.Logger
-	Pricer  *billing.Pricer
-	Router  *gateway.Router
+	Charger       *billing.Charger
+	Logger        *billing.Logger
+	Pricer        *billing.Pricer
+	BudgetChecker *billing.BudgetChecker
+	Router        *gateway.Router
 	// BillingSync synchronizes external provider billing (OneAPI/NewAPI/Aliyun)
 	// into billing_records for reconciliation L3.
 	BillingSync     *billingsync.Service
@@ -132,6 +133,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.Charger = billing.NewCharger(a.Wallets)
 	a.Logger = billing.NewLoggerWithPool(a.Usage, a.Pool)
 	a.Pricer = billing.NewPricer(a.Models.(model.PricingRepository))
+	a.BudgetChecker = billing.NewBudgetChecker(a.Budgets)
 	a.Router = gateway.NewRouter(a.Models, a.Channels)
 	a.Executor = provider.NewOpenAICompatAdapter()
 	a.HttpClient = &http.Client{Timeout: 120 * time.Second}

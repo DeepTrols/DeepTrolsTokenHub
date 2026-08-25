@@ -1505,3 +1505,37 @@ Phase 2 团队/企业代码经 **security-reviewer** 全面审计：授权模型
 
 - 预算网关强制（spent 累加 + 超预算 429）与分钟桶精确 settle；
 - Guardrails Admin 策略编辑器（前端）；Phase 2 强路由。
+
+## 四十三、2026-08-25 Phase 1（完成）：预算网关强制
+
+> 蓝图 Step 4 Phase 1 治理收尾：租户预算在网关主链路强制生效。
+
+### 43.1 变更
+
+- `internal/repository/budget`：新增 `FindMonthly`（取租户 active 月度预算，无则
+  ErrNotFound）与 `AccrueSpend`（月度预算 spent 累加）。
+- 新 `internal/service/billing/budget.go`：`BudgetChecker`——
+  - `Check`：估算成本 + spent > limit → `ErrBudgetExceeded`；无预算/非租户/查询
+    故障均 fail-open（日志）；
+  - `Accrue`：成功后按真实 finalCost 累加（best-effort）。
+- `internal/app/app.go`：装配 `BudgetChecker`。
+- 网关接线（chat 流式/非流式 + embeddings/images/audio 两个执行器）：
+  - 上游调用前 Check（超预算 → **429 `budget_exceeded`**）；
+  - 结算成功后 Accrue（真实 finalCost 计入租户月度预算）。
+
+### 43.2 测试
+
+- `service/billing/budget_test.go`：无预算/非租户放行、超限拒绝、临界放行、
+  Accrue 累加；
+- `handler/gateway/chat_test.go`：`TestHandleChatCompletions_BudgetExceeded`
+  （预算上限极小 → 429 budget_exceeded，钱包/上游未触达）。
+
+### 43.3 验证
+
+- `go build/vet/gofmt` 全绿；`go test ./... -count=1`（真实 PG）全绿；前端未改动。
+
+### 43.4 Phase 1 收尾状态
+
+- ✅ Guardrails 出站拦截、RPM/TPM 分钟桶、租户预算 + 审批、预算网关强制；
+- 待办（后续批次）：分钟桶精确 settle（估算→实际差额回填）、Guardrails Admin
+  策略编辑器（前端）、预算超限告警。

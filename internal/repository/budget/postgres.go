@@ -146,6 +146,33 @@ func (r *PostgresRepository) RejectRequest(ctx context.Context, requestID, revie
 	return nil
 }
 
+func (r *PostgresRepository) FindMonthly(ctx context.Context, tenantID uuid.UUID) (*domain.Budget, error) {
+	var b domain.Budget
+	var limitStr, spentStr string
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, tenant_id, period, limit_amount::text, spent_amount::text, status, created_at, updated_at
+		 FROM budgets WHERE tenant_id = $1 AND period = 'monthly' AND status = 'active'`,
+		tenantID).Scan(&b.ID, &b.TenantID, &b.Period, &limitStr, &spentStr,
+		&b.Status, &b.CreatedAt, &b.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	b.LimitAmount = mustDecimal(limitStr)
+	b.SpentAmount = mustDecimal(spentStr)
+	return &b, nil
+}
+
+func (r *PostgresRepository) AccrueSpend(ctx context.Context, tenantID uuid.UUID, amount decimal.Decimal) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE budgets SET spent_amount = spent_amount + $2, updated_at = NOW()
+		 WHERE tenant_id = $1 AND period = 'monthly' AND status = 'active'`,
+		tenantID, amount)
+	return err
+}
+
 func mustDecimal(s string) decimal.Decimal {
 	d, err := decimal.NewFromString(s)
 	if err != nil {
