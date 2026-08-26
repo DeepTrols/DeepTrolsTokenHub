@@ -19,7 +19,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const apiKeyPrefix = "dt-sk-"
+const apiKeyPrefix = "sk-"
 
 type apiKeyResponse struct {
 	ID              string   `json:"id"`

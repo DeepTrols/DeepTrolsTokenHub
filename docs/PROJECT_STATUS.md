@@ -2253,3 +2253,28 @@ cd web && npm run test:e2e
 - 前端 `npm test`（206/206，27 文件）、`lint`（0/0）、`build` 全绿；
 - 实测 `/api/console/models` 返回 3 个模型（`deepseek-v4-flash` /
   `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro`），下拉以真实目录为准。
+
+## 七十、2026-08-26 API Key 前缀统一为 `sk-`（去掉 `dt-`）
+
+> API key 由 `dt-sk-<hex>` 改为 `sk-<hex>`，与业界/OpenAI 风格对齐，去掉 `dt-` 品牌前缀。
+
+### 70.1 变更
+
+- **后端**：`internal/handler/console/apikeys.go` 的 `apiKeyPrefix` 由 `dt-sk-` 改为 `sk-`；
+  影响新建 key 明文、掩码（`sk-xxxx****yyyy`）与 `key_prefix`。生成逻辑（32 字节随机 →
+  HMAC-SHA256 哈希 → AES-256-GCM 加密）不变。
+- **存量 key 迁移**：开发库中 `key_prefix` 为 `dt-sk-`/`dt-` 的 14 个 key 已重新生成
+  为 `sk-`（新随机明文 + 新哈希 + 新掩码 + 重加密），保证「列表掩码」与「查看明文」一致，
+  内部明文不再出现 `dt-`。旧明文即刻失效，需重新复制 key。
+- **同步**：Go 测试（`apikeys_test.go` / `ledger_test.go` / `usage_test.go`）、前端测试
+  （`APIKeys.test.tsx` / `Playground.test.tsx`）的 `dt-sk-` 夹具改为 `sk-`；
+  `README.md` 示例、`scripts/seed_usage_demo.sql`、`Login.tsx` 前端示例（`sk-dt-`→`sk-`）。
+- 保留：`docs/2026-07-29-work-log.md` 为历史工作日志，按原样保留不作改写。
+
+### 70.2 验证
+
+- 实测：管理员 key `masked=sk-8bbe****b6dd`、`key_prefix=sk-`，查看明文以 `sk-` 开头、长度 67、可正常解密；
+- `go build/vet/gofmt` + `go test ./... -count=1` 全绿（`TestHandleVideoGenerations_SyncSettles`
+  单独/包内跑均通过，仅在极端并行下的全量首跑偶发，与本改动无关）；
+- 前端 `npm test`（206/206）、`lint`、`build` 全绿；
+- 已重建并重启 `bin/api.exe` 到 8080。

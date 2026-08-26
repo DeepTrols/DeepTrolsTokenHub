@@ -29,8 +29,8 @@ function createMockKey(overrides: Record<string, unknown> = {}) {
   return {
     id: "key-001",
     name: "sso_default",
-    masked_key: "dt-sk-aw6wG****neDQ",
-    key_prefix: "dt-sk-",
+    masked_key: "sk-aw6wG****neDQ",
+    key_prefix: "sk-",
     status: "active",
     allowed_models: ["deepseek-v4-flash"],
     source_whitelist: [],
@@ -50,7 +50,7 @@ function createMockKey(overrides: Record<string, unknown> = {}) {
 function mockListKeys(keys: unknown[]) {
   mockApiGet.mockImplementation((path: string) => {
     if (path === "/api-keys") return Promise.resolve({ data: keys });
-    if (path === "/api-keys/key-001/secret") return Promise.resolve({ plaintext: "dt-sk-plain-secret-1234" });
+    if (path === "/api-keys/key-001/secret") return Promise.resolve({ plaintext: "sk-plain-secret-1234" });
     return Promise.resolve({});
   });
 }
@@ -119,7 +119,7 @@ describe("APIKeys（API keys）", () => {
     renderWithProviders(<APIKeys />);
 
     expect(await screen.findByText("sso_default")).toBeInTheDocument();
-    expect(screen.getByText("dt-sk-aw6wG****neDQ")).toBeInTheDocument();
+    expect(screen.getByText("sk-aw6wG****neDQ")).toBeInTheDocument();
     // 2026-08-20T03:55:13Z → GMT+8 2026-08-20 11:55:13
     // 创建日期与最新使用日期在 mock 中相同，因此出现两次
     expect(screen.getAllByText("2026-08-20 11:55:13")).toHaveLength(2);
@@ -148,7 +148,7 @@ describe("APIKeys（API keys）", () => {
   it("creates a key through the create dialog", async () => {
     const user = userEvent.setup();
     mockListKeys([]);
-    mockApiPost.mockResolvedValueOnce({ id: "new-1", plaintext: "dt-sk-new-secret", warning: "只显示一次" });
+    mockApiPost.mockResolvedValueOnce({ id: "new-1", plaintext: "sk-new-secret", warning: "只显示一次" });
 
     renderWithProviders(<APIKeys />);
 
@@ -162,13 +162,13 @@ describe("APIKeys（API keys）", () => {
         over_limit_action: "block",
       });
     });
-    expect(await screen.findByText("dt-sk-new-secret")).toBeInTheDocument();
+    expect(await screen.findByText("sk-new-secret")).toBeInTheDocument();
   });
 
   it("sends RPM/TPM when creating a key", async () => {
     const user = userEvent.setup();
     mockListKeys([]);
-    mockApiPost.mockResolvedValueOnce({ id: "new-2", plaintext: "dt-sk-rpm-secret", warning: "只显示一次" });
+    mockApiPost.mockResolvedValueOnce({ id: "new-2", plaintext: "sk-rpm-secret", warning: "只显示一次" });
 
     renderWithProviders(<APIKeys />);
 
@@ -196,7 +196,7 @@ describe("APIKeys（API keys）", () => {
 
     await user.click(await screen.findByText("查看key"));
 
-    expect(await screen.findByText("dt-sk-plain-secret-1234")).toBeInTheDocument();
+    expect(await screen.findByText("sk-plain-secret-1234")).toBeInTheDocument();
     expect(mockApiGet).toHaveBeenCalledWith("/api-keys/key-001/secret");
   });
 

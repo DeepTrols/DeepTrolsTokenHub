@@ -83,9 +83,9 @@ func seedAPIKeyForUsage(t *testing.T, a *app.App, userID uuid.UUID) *domain.APIK
 	key := domain.APIKey{
 		ID:              uuid.New(),
 		UserID:          userID,
-		KeyPrefix:       "dt-sk-",
+		KeyPrefix:       "sk-",
 		KeyHash:         "hash-usage-test-" + uuid.New().String()[:8],
-		MaskedKey:       "dt-sk-****test",
+		MaskedKey:       "sk-****test",
 		Name:            "Usage Test Key",
 		Status:          domain.APIKeyStatusActive,
 		OverLimitAction: domain.OverLimitBlock,

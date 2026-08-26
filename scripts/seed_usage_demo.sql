@@ -25,9 +25,9 @@ INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key, name, statu
 SELECT
   uuid_generate_v4(),
   u.id,
-  'dt-sk-',
+  'sk-',
   'demo-hash-' || u.id::text,
-  'dt-sk-****demo',
+  'sk-****demo',
   CASE WHEN u.email = 'deeptrols@admin.com' THEN '演示密钥（管理员）' ELSE '演示密钥（测试）' END,
   'active',
   CASE WHEN u.email = 'deeptrols@admin.com'

@@ -136,9 +136,9 @@ func TestHandleListAPIKeys_ReturnsUserKeys(t *testing.T) {
 	key1 := domain.APIKey{
 		ID:              uuid.New(),
 		UserID:          seedUser.ID,
-		KeyPrefix:       "dt-sk-",
+		KeyPrefix:       "sk-",
 		KeyHash:         "hash1",
-		MaskedKey:       "dt-sk-****abc1",
+		MaskedKey:       "sk-****abc1",
 		Name:            "Key One",
 		Status:          domain.APIKeyStatusActive,
 		OverLimitAction: domain.OverLimitBlock,
@@ -148,9 +148,9 @@ func TestHandleListAPIKeys_ReturnsUserKeys(t *testing.T) {
 	key2 := domain.APIKey{
 		ID:              uuid.New(),
 		UserID:          seedUser.ID,
-		KeyPrefix:       "dt-sk-",
+		KeyPrefix:       "sk-",
 		KeyHash:         "hash2",
-		MaskedKey:       "dt-sk-****def2",
+		MaskedKey:       "sk-****def2",
 		Name:            "Key Two",
 		Status:          domain.APIKeyStatusDisabled,
 		OverLimitAction: domain.OverLimitBlock,
@@ -228,9 +228,9 @@ func TestHandleListAPIKeys_OnlyReturnsOwnKeys(t *testing.T) {
 	keyA := domain.APIKey{
 		ID:              uuid.New(),
 		UserID:          userA.ID,
-		KeyPrefix:       "dt-sk-",
+		KeyPrefix:       "sk-",
 		KeyHash:         "hash-user-a",
-		MaskedKey:       "dt-sk-****aaaa",
+		MaskedKey:       "sk-****aaaa",
 		Name:            "A's Key",
 		Status:          domain.APIKeyStatusActive,
 		OverLimitAction: domain.OverLimitBlock,
@@ -240,9 +240,9 @@ func TestHandleListAPIKeys_OnlyReturnsOwnKeys(t *testing.T) {
 	keyB := domain.APIKey{
 		ID:              uuid.New(),
 		UserID:          userB.ID,
-		KeyPrefix:       "dt-sk-",
+		KeyPrefix:       "sk-",
 		KeyHash:         "hash-user-b",
-		MaskedKey:       "dt-sk-****bbbb",
+		MaskedKey:       "sk-****bbbb",
 		Name:            "B's Key",
 		Status:          domain.APIKeyStatusActive,
 		OverLimitAction: domain.OverLimitBlock,
@@ -365,8 +365,8 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	if resp.Plaintext == "" {
 		t.Fatal("plaintext is empty")
 	}
-	if !bytes.HasPrefix([]byte(resp.Plaintext), []byte("dt-sk-")) {
-		t.Errorf("plaintext does not start with 'dt-sk-': %s", resp.Plaintext)
+	if !bytes.HasPrefix([]byte(resp.Plaintext), []byte("sk-")) {
+		t.Errorf("plaintext does not start with 'sk-': %s", resp.Plaintext)
 	}
 	if resp.MaskedKey == "" {
 		t.Fatal("masked_key is empty")
@@ -374,8 +374,8 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	if resp.Warning == "" {
 		t.Fatal("warning is empty")
 	}
-	if resp.KeyPrefix != "dt-sk-" {
-		t.Errorf("key_prefix = %s, want 'dt-sk-'", resp.KeyPrefix)
+	if resp.KeyPrefix != "sk-" {
+		t.Errorf("key_prefix = %s, want 'sk-'", resp.KeyPrefix)
 	}
 
 	// Verify the plaintext is NOT stored in DB (only HMAC-SHA256 hash is stored)
@@ -509,9 +509,9 @@ func TestHandleUpdateAPIKey_WrongOwner(t *testing.T) {
 	key := domain.APIKey{
 		ID:              uuid.New(),
 		UserID:          userA.ID,
-		KeyPrefix:       "dt-sk-",
+		KeyPrefix:       "sk-",
 		KeyHash:         "hash-owner-a",
-		MaskedKey:       "dt-sk-****owner",
+		MaskedKey:       "sk-****owner",
 		Name:            "A's Key",
 		Status:          domain.APIKeyStatusActive,
 		OverLimitAction: domain.OverLimitBlock,
@@ -548,9 +548,9 @@ func TestHandleUpdateAPIKey_Success(t *testing.T) {
 	key := domain.APIKey{
 		ID:              uuid.New(),
 		UserID:          seedUser.ID,
-		KeyPrefix:       "dt-sk-",
+		KeyPrefix:       "sk-",
 		KeyHash:         "hash-update-success",
-		MaskedKey:       "dt-sk-****orig",
+		MaskedKey:       "sk-****orig",
 		Name:            "Original Name",
 		Status:          domain.APIKeyStatusActive,
 		OverLimitAction: domain.OverLimitBlock,
@@ -638,9 +638,9 @@ func TestHandleDeleteAPIKey_WrongOwner(t *testing.T) {
 	key := domain.APIKey{
 		ID:              uuid.New(),
 		UserID:          userA.ID,
-		KeyPrefix:       "dt-sk-",
+		KeyPrefix:       "sk-",
 		KeyHash:         "hash-delete-owner",
-		MaskedKey:       "dt-sk-****del",
+		MaskedKey:       "sk-****del",
 		Name:            "A's Delete Key",
 		Status:          domain.APIKeyStatusActive,
 		OverLimitAction: domain.OverLimitBlock,
@@ -671,9 +671,9 @@ func TestHandleDeleteAPIKey_Success_SoftDelete(t *testing.T) {
 	key := domain.APIKey{
 		ID:              uuid.New(),
 		UserID:          seedUser.ID,
-		KeyPrefix:       "dt-sk-",
+		KeyPrefix:       "sk-",
 		KeyHash:         "hash-delete-success",
-		MaskedKey:       "dt-sk-****sd",
+		MaskedKey:       "sk-****sd",
 		Name:            "To Be Deleted",
 		Status:          domain.APIKeyStatusActive,
 		OverLimitAction: domain.OverLimitBlock,

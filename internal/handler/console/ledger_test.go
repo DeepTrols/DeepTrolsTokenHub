@@ -211,8 +211,8 @@ func seedUsageLogForLedgerTest(t *testing.T, a *app.App, userID uuid.UUID, model
 	now := time.Now().UTC()
 	if _, err := a.Pool.Exec(context.Background(),
 		`INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key, name, created_at, updated_at)
-		 VALUES ($1, $2, 'dt-sk-', $3, $4, 'ledger key', $5, $5)`,
-		keyID, userID, "hash-ledger-"+uuid.New().String()[:8], "dt-sk-****ledger", now); err != nil {
+		 VALUES ($1, $2, 'sk-', $3, $4, 'ledger key', $5, $5)`,
+		keyID, userID, "hash-ledger-"+uuid.New().String()[:8], "sk-****ledger", now); err != nil {
 		t.Fatalf("seedUsageLogForLedgerTest: api key: %v", err)
 	}
 	if _, err := a.Pool.Exec(context.Background(),

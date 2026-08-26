@@ -226,7 +226,7 @@ curl -b /tmp/cookies.txt -X POST http://localhost:8080/api/console/auth/logout
 
 ```bash
 curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer dt-sk-<your-key>" \
+  -H "Authorization: Bearer sk-<your-key>" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}'
 ```

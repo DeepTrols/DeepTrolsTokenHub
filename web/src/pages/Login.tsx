@@ -103,7 +103,7 @@ export default function Login() {
               <span className="grid w-6 h-6 place-items-center rounded-lg bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white shadow-[0_4px_12px_rgba(79,107,237,0.4)]">
                 <KeyRound size={13} strokeWidth={2.5} />
               </span>
-              <span className="font-mono text-[13px] font-bold text-[#161A23]">sk-dt-••••••</span>
+              <span className="font-mono text-[13px] font-bold text-[#161A23]">sk-••••••</span>
               <span className="ml-auto text-[11px] font-semibold text-[#5C6472]">一个密钥 · N 个模型</span>
             </div>
             <div className="flex items-center gap-[10px]">
@@ -134,7 +134,7 @@ export default function Login() {
                 <span className="text-[#4F6BED]">https://api.deeptrols.ai/v1/chat/completions</span>
               </div>
               <div className="pl-4">
-                <span className="text-[#5C6472]">-H</span> <span className="text-[#0FA88B]">"Authorization: Bearer sk-dt-••••••"</span>
+                <span className="text-[#5C6472]">-H</span> <span className="text-[#0FA88B]">"Authorization: Bearer sk-••••••"</span>
               </div>
               <div className="pl-4">
                 <span className="text-[#5C6472]">-d</span> <span className="text-[#C9A96A]">{'{"model": "deepseek-v4-flash"}'}</span>

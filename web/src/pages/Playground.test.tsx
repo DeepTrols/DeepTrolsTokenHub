@@ -38,7 +38,7 @@ function createFetchMock() {
 // Real key plaintext the secret endpoint returns. The gateway rejects the key
 // ID (UUID) with "Invalid API key", so models/chat requests must use this
 // plaintext rather than the selected key's id.
-const MOCK_PLAINTEXT = "dt-sk-testsecret1234567890abcdef";
+const MOCK_PLAINTEXT = "sk-testsecret1234567890abcdef";
 
 // Set up api.get to return the keys list for /api-keys and the plaintext for
 // any /secret call, so the playground's models/chat requests carry a real key.
@@ -179,7 +179,7 @@ describe("Playground", () => {
       expect(mockFetch).toHaveBeenCalledWith("/v1/models", {
         headers: {
           "Content-Type": "application/json",
-          Authorization: "Bearer dt-sk-testsecret1234567890abcdef",
+          Authorization: "Bearer sk-testsecret1234567890abcdef",
         },
       });
     });
@@ -273,7 +273,7 @@ describe("Playground", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer dt-sk-testsecret1234567890abcdef",
+        Authorization: "Bearer sk-testsecret1234567890abcdef",
       },
     });
 
