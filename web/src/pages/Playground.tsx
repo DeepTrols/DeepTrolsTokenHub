@@ -49,6 +49,8 @@ export default function Playground() {
     queryKey: ["gateway", "models", apiKeyText],
     queryFn: () => fetchGatewayModels(apiKeyText),
     enabled: !!selectedKeyId && !!apiKeyText,
+    // 模型列表必须实时反映上游状态，禁止复用旧的缓存结果。
+    staleTime: 0,
   });
   const availableModels = useMemo(
     () => (gatewayModels ?? []).map((m) => ({ code: m.id, display_name: m.id })),
@@ -77,6 +79,9 @@ export default function Playground() {
     if (!selectedKeyId) return;
     setApiKeyText("");
     setModelsLoadError("");
+    setResponse("");
+    setUsageInfo("");
+    setError("");
     const cached = getKeySecret(selectedKeyId);
     if (cached) setApiKeyText(cached);
   }, [selectedKeyId]);

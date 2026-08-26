@@ -77,6 +77,13 @@ func main() {
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(middleware.GatewayAuth(application))
 		r.Use(middleware.GatewayRateLimit(application.RateLimiter, 100, 1*time.Minute))
+		// 网关响应一律禁止缓存，避免浏览器/代理把旧的模型列表或结果当新数据展示。
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Cache-Control", "no-store")
+				next.ServeHTTP(w, r)
+			})
+		})
 		r.Get("/models", gateway.HandleListModels(application))
 		r.Post("/chat/completions", gateway.HandleChatCompletions(application))
 		r.Post("/embeddings", gateway.HandleEmbeddings(application))
