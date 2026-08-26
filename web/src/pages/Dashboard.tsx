@@ -442,7 +442,7 @@ export default function Dashboard() {
 
       {/* 底部：按模型细分 */}
       {modelList.length > 0 && selectedModel ? (
-        <div className="glass rounded-2xl p-5">
+        <div className="glass rounded-2xl p-6">
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-[13px] font-semibold text-[#5C6472]">按模型查看</span>
             <SelectMenu
@@ -453,12 +453,12 @@ export default function Dashboard() {
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <div className="glass-soft rounded-xl p-4">
+            <div className="glass-soft rounded-xl p-5">
               <h4 className="text-[13px] font-semibold text-[#5C6472]">
                 API 请求次数{" "}
                 <span className="ml-1 font-mono text-[#161A23]">{modelStats.requests.toLocaleString("en-US")}</span>
               </h4>
-              <ResponsiveContainer width="100%" height={170}>
+              <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={modelDaily} margin={{ top: 8, right: 4, left: -18, bottom: 0 }}>
                   <defs>
                     <linearGradient id="reqGrad" x1="0" y1="0" x2="0" y2="1">
@@ -482,12 +482,12 @@ export default function Dashboard() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-            <div className="glass-soft rounded-xl p-4">
+            <div className="glass-soft rounded-xl p-5">
               <h4 className="text-[13px] font-semibold text-[#5C6472]">
                 Tokens{" "}
                 <span className="ml-1 font-mono text-[#161A23]">{modelStats.tokens.toLocaleString("en-US")}</span>
               </h4>
-              <ResponsiveContainer width="100%" height={170}>
+              <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={modelDaily} margin={{ top: 8, right: 4, left: -18, bottom: 0 }}>
                   <CartesianGrid stroke="rgba(22,26,35,0.08)" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5C6472" }} axisLine={false} tickLine={false} />
