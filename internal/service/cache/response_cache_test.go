@@ -87,6 +87,36 @@ func TestService_DefaultTTLWhenUnset(t *testing.T) {
 	}
 }
 
+func TestService_Purge(t *testing.T) {
+	s, _ := newTestService(t, ServiceConfig{TTL: time.Minute})
+	ctx := context.Background()
+	for _, k := range []string{"cache:response:1", "cache:response:2"} {
+		if err := s.Set(ctx, k, &CachedResponse{Body: "{}"}); err != nil {
+			t.Fatalf("Set %s: %v", k, err)
+		}
+	}
+	// 非 response 前缀的 key 不应被清。
+	if err := s.Set(ctx, "other:key", &CachedResponse{Body: "{}"}); err != nil {
+		t.Fatalf("Set other: %v", err)
+	}
+
+	n, err := s.Purge(ctx)
+	if err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("Purge deleted = %d, want 2", n)
+	}
+	for _, k := range []string{"cache:response:1", "cache:response:2"} {
+		if got, _ := s.Get(ctx, k); got != nil {
+			t.Errorf("key %s still present after purge", k)
+		}
+	}
+	if got, _ := s.Get(ctx, "other:key"); got == nil {
+		t.Error("non-response key must survive purge")
+	}
+}
+
 func TestService_IsModelAccepted(t *testing.T) {
 	s := New(nil, ServiceConfig{})
 	if !s.IsModelAccepted("anything") {

@@ -810,6 +810,18 @@ func HandleUpdateProvider(a *app.App) http.HandlerFunc {
 			return
 		}
 
+		// 凭据变更会令旧响应失效：清空 Redis 响应缓存，避免缓存命中继续
+		// 掩盖“上游 key 已失效”的真实状态。
+		if req.APIKey != "" || req.BaseURL != "" || req.CustomHeaders != nil {
+			if rc := a.ResponseCache; rc != nil && rc.IsEnabled() {
+				if n, err := rc.Purge(dbCtx); err != nil {
+					log.Printf("provider: purge response cache after credential update: %v", err)
+				} else if n > 0 {
+					log.Printf("provider: purged %d cached responses after credential update", n)
+				}
+			}
+		}
+
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"status": "updated",
 			"id":     representativeID.String(),

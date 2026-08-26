@@ -114,3 +114,28 @@ func (s *Service) Set(ctx context.Context, key string, cr *CachedResponse) error
 	}
 	return s.client.Set(ctx, key, raw, ttl).Err()
 }
+
+// Purge deletes every cached response (cache:response:*). Used when an
+// upstream credential changes so stale successful responses can never mask a
+// now-broken channel. Returns the number of keys removed.
+func (s *Service) Purge(ctx context.Context) (int64, error) {
+	if !s.IsEnabled() {
+		return 0, nil
+	}
+	var keys []string
+	iter := s.client.Scan(ctx, 0, "cache:response:*", 500).Iterator()
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return 0, fmt.Errorf("cache purge scan: %w", err)
+	}
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	n, err := s.client.Del(ctx, keys...).Result()
+	if err != nil {
+		return 0, fmt.Errorf("cache purge del: %w", err)
+	}
+	return n, nil
+}
