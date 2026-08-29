@@ -3009,6 +3009,43 @@ cd web && npm run test:e2e
   写（门控生效）；web 容器未重启即自动加载新 Profile 代码（轮询生效）；
   探针数据与 Redis 键已清理。
 
+## 九十六、2026-08-30 new-api 特性对齐审计 + gzip 响应压缩
+
+> 对照本地 new-api 源码路由清单做逐项审计，产出对齐矩阵；补齐审计发现的
+> 低成本真实缺口——gzip 响应压缩（new-api 全局启用）。
+
+### 96.1 对齐矩阵
+
+| new-api 能力 | 我方状态 |
+|---|---|
+| 控制台：登录/注册/自管理/API Key/钱包/充值/兑换码/签到/订阅/会话 | ✅ 全部实现（含会话管理，见九十四节） |
+| 网关：chat/completions / embeddings / images / audio / videos / messages / responses / count_tokens | ✅ 全部实现 |
+| 渠道/模型/令牌/用户/定价/设置管理 | ✅ 全部实现 |
+| OAuth：GitHub / WeChat / Google | ✅ 实现（new-api 其余 OAuth 源为可选扩展） |
+| i18n 双语 | ✅ 全覆盖 |
+| gzip 响应压缩 | ✅ 本轮实现 |
+| 对账 L0–L3 / 分组倍率 / 用量折扣 / 余额预警 / 月度账单 | ✅ 我方增强（new-api 无或更弱） |
+| 2FA/TOTP、Passkey | ⚠️ 明确不做（2026-08-11 移除的产品决策） |
+| Stripe/Creem/Waffo 支付 | ⚠️ 非 CNY 场景，保留易支付 + 开发充值 |
+| Midjourney/Suno/Kling/Jimeng/WebSocket 中继 | ⚠️ 非企业计费平台核心，不做 |
+| 邮件验证/找回密码、Telegram OAuth、旧版 dashboard API | ⚠️ 依赖外部 SMTP/场景有限，不做 |
+
+### 96.2 变更
+
+- `internal/handler/middleware/gzip.go`（新）：`Accept-Encoding: gzip` 时压缩
+  响应（`Vary` + `Content-Encoding`），跳过 `/uploads` 二进制；实现
+  `Flush`/`Unwrap`，SSE 流式响应不受影响；
+- `cmd/api/main.go`：全局挂载 `middleware.Gzip`；
+- 测试：`gzip_test.go` 3 组（压缩/透传/跳过 uploads）。
+
+### 96.3 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- e2e 6 passed（浏览器自动携带 gzip，代理链路含网关调用全部正常）；
+- 实机：`Accept-Encoding: gzip` 请求 `/api/public/site` →
+  `Content-Encoding: gzip`，`curl --compressed` 解压内容正确；`/uploads`
+  不压缩；探针无残留。
+
 ## 八十六、2026-08-30 POST /v1/messages/count_tokens（Anthropic token 预估）
 
 > 补上功能清单遗留的 Anthropic `count_tokens` 端点：鉴权后免费预估

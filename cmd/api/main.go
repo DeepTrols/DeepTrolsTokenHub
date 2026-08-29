@@ -65,6 +65,7 @@ func main() {
 		MaxAge:           300,
 	}))
 	r.Use(middleware.RequestLogger(application.Slog))
+	r.Use(middleware.Gzip)
 
 	// Register app-level routes (health, etc.).
 	application.RegisterRoutes(r)
