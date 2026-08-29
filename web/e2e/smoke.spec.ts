@@ -1,20 +1,46 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+import os from "node:os";
+import path from "node:path";
 
 // Requires a local stack:
 //   - API on 127.0.0.1:8082 (CORS_ORIGIN=http://localhost:3000)
 //   - vite dev server on :3000 with PROXY_TARGET=http://127.0.0.1:8082
 //   - echo upstream on 127.0.0.1:8090 (go run ./scripts/echo_upstream)
 const ECHO = "http://127.0.0.1:8090";
+const AUTH_STATE = path.join(os.tmpdir(), "deeptrols-e2e-auth.json");
 
 test.describe.configure({ mode: "serial" });
 
-test("核心链路冒烟：登录→建渠道→模型目录→网关调用→账单/审计", async ({ page, context }) => {
+// 登录一次并保存会话（登录接口有 IP 限流 5 次/分钟，串行复跑时逐条登录会
+// 被 429 限流；改用 storageState 共享同一会话）。
+test("登录并保存会话", async ({ page }) => {
+  await page.context().clearCookies();
+  let ok = false;
+  for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+    await page.goto("/login");
+    await page.locator("#email").fill("deeptrols@admin.com");
+    await page.locator("#password").fill("deeptrols@2026");
+    await page.getByRole("button", { name: "登 录" }).click();
+    try {
+      await page.waitForURL(/dashboard/, { timeout: 10_000 });
+      ok = true;
+    } catch {
+      await page.waitForTimeout(15_000);
+    }
+  }
+  if (!ok) {
+    throw new Error("登录失败（可能被限流或凭据错误）");
+  }
+  await page.context().storageState({ path: AUTH_STATE });
+});
+
+test.describe("已登录", () => {
+  test.use({ storageState: AUTH_STATE });
+
+test("核心链路冒烟：建渠道→模型目录→网关调用→账单/审计", async ({ page, context }) => {
   // 1) 登录
-  await page.goto("/login");
-  await page.locator("#email").fill("deeptrols@admin.com");
-  await page.locator("#password").fill("deeptrols@2026");
-  await page.getByRole("button", { name: "登 录" }).click();
-  await page.waitForURL(/dashboard/, { timeout: 20_000 });
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "用量信息" })).toBeVisible({ timeout: 10_000 });
 
   // 幂等清理上次运行残留（同一 admin 会话）
   const staleKeys = await context.request.get("/api/console/api-keys");
@@ -87,11 +113,8 @@ test("核心链路冒烟：登录→建渠道→模型目录→网关调用→�
 });
 
 test("i18n 语言切换 + 余额预警阈值", async ({ page, context }) => {
-  await page.goto("/login");
-  await page.locator("#email").fill("deeptrols@admin.com");
-  await page.locator("#password").fill("deeptrols@2026");
-  await page.getByRole("button", { name: "登 录" }).click();
-  await page.waitForURL(/dashboard/, { timeout: 20_000 });
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "用量信息" })).toBeVisible({ timeout: 10_000 });
 
   // 切换到英文：导航与用量页标题联动。
   await page.getByRole("button", { name: "Switch language" }).click();
@@ -109,4 +132,41 @@ test("i18n 语言切换 + 余额预警阈值", async ({ page, context }) => {
     data: { threshold: "0" },
   });
   expect(reset.ok()).toBeTruthy();
+});
+
+test("分组与折扣档位管理（Billing 设置）", async ({ page, context }) => {
+  await page.goto("/admin/settings/billing");
+  await expect(page.getByRole("heading", { name: "计费与支付" })).toBeVisible({ timeout: 10_000 });
+
+  // 分组：添加 enterprise 分组（倍率 0.6）。
+  await page.getByRole("tab", { name: "分组" }).click();
+  await page.getByRole("button", { name: "添加分组" }).click();
+  const groupNames = page.getByLabel("分组名称");
+  await groupNames.last().fill("enterprise");
+  await page.getByLabel("倍率").last().fill("0.6");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(groupNames.last()).toHaveValue("enterprise", { timeout: 10_000 });
+
+  // 折扣：添加 500 万 tokens 档（0.9）。
+  await page.getByRole("tab", { name: "折扣" }).click();
+  await page.getByRole("button", { name: "添加档位" }).click();
+  const minTokens = page.getByLabel("最低 tokens");
+  await minTokens.last().fill("5000000");
+  await page.getByLabel("折扣率 (0-1)").last().fill("0.9");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(minTokens.last()).toHaveValue("5000000", { timeout: 10_000 });
+
+  // 清理：恢复空配置。
+  const reset = await context.request.put("/api/admin/settings/site", {
+    data: { user_groups: "[]", discount_tiers: "[]" },
+  });
+  expect(reset.ok()).toBeTruthy();
+});
+
+test("月度账单卡片可见", async ({ page }) => {
+  await page.goto("/bills");
+  await expect(page.getByRole("heading", { name: "月度账单" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("本月消费", { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByLabel("选择月份")).toBeVisible();
+});
 });
