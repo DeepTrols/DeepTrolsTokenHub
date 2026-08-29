@@ -2898,6 +2898,51 @@ cd web && npm run test:e2e
   验证后已清理探针 usage/evidence/charges/API key/设置/Redis 键并恢复
   echo 探针。
 
+## 九十二、2026-08-30 大版本重构收尾提交
+
+> 把积累多轮的前后端重构一次性落地：`7b2a90d`，259 文件
+> +26836/−1294，工作区清零。涵盖 i18n 全覆盖、计费增强（分级定价/
+> 分组倍率/用量折扣/余额预警/月度账单）、网关（count_tokens、原生渠道
+> 适配器、Responses/Claude 转换）、运营（Google OAuth、Logo 上传、
+> 对账 L2）、迁移 000021-000035 与全套测试。
+
+### 92.1 变更
+
+- 提交范围：后端 `internal/`、迁移 `migrations/`、前端 `web/src/`、
+  文档 `docs/`、e2e `web/e2e/` 与基础设施配置（Dockerfile/dev compose、
+  vite proxy、uploads 卷）；
+- 提交信息按功能域分节记录，便于后续按需拆分回看；
+- 工作区清理：无 cookies/login.json/临时 SQL 等产物入提交；
+  `node_modules`/`dist`/`test-results`/`.env` 均保持 gitignore。
+
+### 92.2 验证
+
+- 提交即当前已全绿状态（Go 全量 + 前端 42/272 + e2e 2 passed）；
+- `git status --porcelain` 为空；
+- 建议后续以功能为单位继续小步提交。
+
+## 九十三、2026-08-30 e2e 冒烟扩展 + 登录会话共享
+
+> 把近期新功能纳入端到端回归，并修复串行复跑时登录 IP 限流导致的偶发失败。
+
+### 93.1 变更
+
+- `web/e2e/smoke.spec.ts`：
+  - 登录改为「登录一次 + storageState 共享会话」（临时目录，不入库），
+    登录步骤带 3 次重试——登录接口 IP 限流 5 次/分钟，逐条用例各自登录
+    在复跑时会被 429 限流；
+  - 新增用例：i18n 语言切换（Dashboard 变 "Usage"）、余额预警阈值保存、
+    Billing 设置分组/折扣档位 CRUD（含 API 清理还原空配置）、月度账单
+    卡片可见；
+  - 既有核心链路冒烟（建渠道→模型目录→网关调用→账单/审计）保持通过。
+- 提交：`7f93c77`（web/e2e/smoke.spec.ts）。
+
+### 93.2 验证
+
+- `npx playwright test e2e/smoke.spec.ts`：5 passed（5.6s）；
+- 审计确认 Worker 分布式选主（Redis lease）此前已接线（health_checker /
+  reconciler / billing_sync / 订阅 expirer+renewer），本项闭环无需改动。
+
 ## 八十六、2026-08-30 POST /v1/messages/count_tokens（Anthropic token 预估）
 
 > 补上功能清单遗留的 Anthropic `count_tokens` 端点：鉴权后免费预估
