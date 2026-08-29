@@ -2983,6 +2983,32 @@ cd web && npm run test:e2e
   已清理，echo 探针已恢复；
 - 迁移 000036 已应用到 dev DB。
 
+## 九十五、2026-08-30 Vite 轮询热更新 + 会话最近活跃时间
+
+> 两个收尾项：根治 web 容器热更新不生效的反复问题；会话卡片补
+> last_seen_at 活跃时间（限频写入，避免每请求落库）。
+
+### 95.1 变更
+
+- `web/vite.config.ts`：`server.watch.usePolling=true`（interval 1s）——
+  Windows 宿主机 bind mount 不向容器推送 inotify，Vite 默认监听不到源码
+  变更；改轮询后 web 容器内 dev server 自动热更新，不再需要每次改前端
+  都重启容器（已实测：touch About.tsx 后模块自动重转）。
+- `middleware.ConsoleAuth`：认证通过后对当前会话做
+  `last_seen_at=NOW()` 更新，用 Redis `SetNX`（`deeptrols:auth:seen:{hash}`，
+  60s TTL）门控——同一会话每分钟至多写一次 DB；Redis 不可用时跳过。
+- `Profile.tsx`：会话卡片新增「最近活跃」列（`last_seen_at`，空显示 —），
+  i18n 补 `profile.sessionsLastSeen`。
+
+### 95.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 42 文件 / 273 用例全绿；
+- e2e 6 passed（6.0s）；
+- 真实进程：登录后首个认证请求写入 `last_seen_at`，60s 内再次请求不重复
+  写（门控生效）；web 容器未重启即自动加载新 Profile 代码（轮询生效）；
+  探针数据与 Redis 键已清理。
+
 ## 八十六、2026-08-30 POST /v1/messages/count_tokens（Anthropic token 预估）
 
 > 补上功能清单遗留的 Anthropic `count_tokens` 端点：鉴权后免费预估

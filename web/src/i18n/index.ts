@@ -523,6 +523,7 @@ const resources = {
         sessionsDevice: "设备",
         sessionsIp: "IP",
         sessionsTime: "登录时间",
+        sessionsLastSeen: "最近活跃",
       },
       pricing: {
         title: "模型定价",
@@ -1769,6 +1770,7 @@ const resources = {
         sessionsDevice: "Device",
         sessionsIp: "IP",
         sessionsTime: "Signed in",
+        sessionsLastSeen: "Last active",
       },
       pricing: {
         title: "Model Pricing",

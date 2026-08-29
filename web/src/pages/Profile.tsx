@@ -16,7 +16,7 @@ interface MemberItem { id: string; name: string; email: string; role: string; }
 interface EnterpriseInfo { tenant_id: string; tenant_name: string; credit_code: string; members: MemberItem[]; }
 interface ProfileData { user: { id: string; email: string; name: string; role: string; status: string; user_type: string; phone: string; avatar_url: string; tenant_id: string; tenant_name: string; tenant_role: string; }; enterprise: EnterpriseInfo | null; }
 interface LoginHistoryEntry { ip_address: string; user_agent: string; success: boolean; created_at: string; }
-interface SessionRow { id: string; ip_address: string; user_agent: string; created_at: string; expires_at: string; current: boolean; }
+interface SessionRow { id: string; ip_address: string; user_agent: string; created_at: string; expires_at: string; last_seen_at?: string; current: boolean; }
 
 function fmtTime(iso: string): string { try { return new Date(iso).toLocaleString("zh-CN", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }); } catch { return iso; } }
 function trunc(s: string): string { return s && s.length > 40 ? s.slice(0,40)+"..." : s; }
@@ -133,6 +133,7 @@ export function ProfileContent() {
                       <TableHead>{t("profile.sessionsDevice")}</TableHead>
                       <TableHead>{t("profile.sessionsIp")}</TableHead>
                       <TableHead>{t("profile.sessionsTime")}</TableHead>
+                      <TableHead>{t("profile.sessionsLastSeen")}</TableHead>
                       <TableHead />
                     </TableRow>
                   </TableHeader>
@@ -142,6 +143,7 @@ export function ProfileContent() {
                         <TableCell className="text-xs max-w-48 truncate">{s.user_agent || "—"}</TableCell>
                         <TableCell className="font-mono text-xs">{s.ip_address || "—"}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{fmtTime(s.created_at)}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{s.last_seen_at ? fmtTime(s.last_seen_at) : "—"}</TableCell>
                         <TableCell className="text-right">
                           {s.current ? (
                             <Badge variant="success">{t("profile.sessionsCurrent")}</Badge>

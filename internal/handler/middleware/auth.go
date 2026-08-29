@@ -202,6 +202,18 @@ func ConsoleAuth(application *app.App) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Best-effort last_seen_at refresh, throttled by Redis (once per
+			// minute per session) so every authenticated request does not
+			// write to the DB.
+			if application.Redis != nil && application.Pool != nil {
+				gate := "deeptrols:auth:seen:" + tokenHash
+				if ok, err := application.Redis.SetNX(r.Context(), gate, "1", time.Minute).Result(); err == nil && ok {
+					_, _ = application.Pool.Exec(r.Context(),
+						`UPDATE auth_sessions SET last_seen_at = NOW()
+						 WHERE token_hash = $1 AND revoked_at IS NULL`, tokenHash)
+				}
+			}
+
 			// Live account check: reject deleted/disabled users immediately
 			// even though their JWT is still technically valid.
 			userID, err := uuid.Parse(claims.Subject)
