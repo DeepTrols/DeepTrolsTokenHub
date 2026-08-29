@@ -49,6 +49,7 @@ func GenerateToken(userID uuid.UUID, email, name, role, userType, tenantID, tena
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
+			ID:        uuid.NewString(), // per-login nonce: tokens are unique even within the same second
 			ExpiresAt: jwt.NewNumericDate(expiry),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},

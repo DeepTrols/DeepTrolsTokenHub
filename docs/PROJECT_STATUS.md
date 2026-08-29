@@ -2943,6 +2943,46 @@ cd web && npm run test:e2e
 - 审计确认 Worker 分布式选主（Redis lease）此前已接线（health_checker /
   reconciler / billing_sync / 订阅 expirer+renewer），本项闭环无需改动。
 
+## 九十四、2026-08-30 登录会话管理（new-api /user/sessions 对齐）
+
+> 用户可查看当前与历史登录会话、标记当前会话、单条撤销或一键撤销其他
+> 会话；撤销即时生效（Redis 吊销名单 + auth_sessions.revoked_at 兜底）。
+
+### 94.1 变更
+
+- **迁移** `000036_auth_sessions`：auth_sessions（user_id / token_hash 唯一 /
+  ip / user_agent / expires_at / last_seen_at / revoked_at），含 down；
+- **JWT** `jwtutil.GenerateToken`：补随机 `jti`——此前同一秒内两次登录会
+  生成相同 token，导致 token_hash 唯一约束冲突、第二会话无法落库（实机
+  验证时发现并修复）；
+- **后端**：
+  - `sessions.go`（新）：`recordAuthSession`（登录/注册/OAuth 登录时记录，
+    best-effort）、`HandleListSessions`（当前会话标记）、
+    `HandleRevokeSession`（按 id）、`HandleRevokeOtherSessions`；
+    撤销 = 置 `revoked_at` + Redis `deeptrols:auth:revoked:{hash}`（TTL 至
+    过期 + 缓冲）；
+  - `middleware.ConsoleAuth`：解析 token 后检查吊销名单（Redis 优先，DB
+    兜底；迁移前的旧 token 无会话行不误杀），并把当前会话 hash 放入
+    context；
+  - `HandleLogout`：登出即撤销当前会话；
+  - `main.go` 注册 `/api/console/sessions`、`/sessions/{id}`；
+- **前端** `Profile.tsx`：安全 tab 新增「登录会话」卡片（设备/IP/时间、
+  当前会话徽标、单条撤销、「撤销其他会话」），i18n 补
+  `profile.sessions*` 词条；
+- **测试**：console 登录建会话/列表/撤销/撤销其他 4 组、middleware 吊销
+  拒绝 1 组（真实 PG）；前端 UserCenter 会话列表+撤销 1 个用例；e2e 新增
+  「登录会话卡片可见」。
+
+### 94.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 42 文件 / 273 用例全绿；
+- e2e 6 passed（6.0s）；
+- 真实进程：两次登录 → 会话列表 2 条（含当前标记）；撤销另一会话后，该
+  token 调 `/api/console/me` 立即 401、当前会话 200；探针会话/吊销名单
+  已清理，echo 探针已恢复；
+- 迁移 000036 已应用到 dev DB。
+
 ## 八十六、2026-08-30 POST /v1/messages/count_tokens（Anthropic token 预估）
 
 > 补上功能清单遗留的 Anthropic `count_tokens` 端点：鉴权后免费预估

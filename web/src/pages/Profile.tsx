@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { History, CheckCircle, XCircle, User, Building2, Gift, Copy } from "lucide-react";
+import { History, CheckCircle, XCircle, User, Building2, Gift, Copy, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useConsoleMutation, useConsoleQuery } from "../lib/hooks/use-api";
 import { useAuth } from "../lib/auth";
@@ -16,6 +16,7 @@ interface MemberItem { id: string; name: string; email: string; role: string; }
 interface EnterpriseInfo { tenant_id: string; tenant_name: string; credit_code: string; members: MemberItem[]; }
 interface ProfileData { user: { id: string; email: string; name: string; role: string; status: string; user_type: string; phone: string; avatar_url: string; tenant_id: string; tenant_name: string; tenant_role: string; }; enterprise: EnterpriseInfo | null; }
 interface LoginHistoryEntry { ip_address: string; user_agent: string; success: boolean; created_at: string; }
+interface SessionRow { id: string; ip_address: string; user_agent: string; created_at: string; expires_at: string; current: boolean; }
 
 function fmtTime(iso: string): string { try { return new Date(iso).toLocaleString("zh-CN", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }); } catch { return iso; } }
 function trunc(s: string): string { return s && s.length > 40 ? s.slice(0,40)+"..." : s; }
@@ -27,6 +28,13 @@ export function ProfileContent() {
   const { data: profileData, isLoading: isLoadingProfile } = useConsoleQuery<ProfileData>("/profile");
   const { data: historyData, isLoading: isLoadingHistory } = useConsoleQuery<{ data: LoginHistoryEntry[] }>("/security/login-history");
   const { data: inviteData } = useConsoleQuery<{ invite_code: string; invited_count: number; invite_link: string }>("/invite");
+  const sessionsQuery = useConsoleQuery<{ data: SessionRow[] }>("/sessions");
+  const revokeSession = useConsoleMutation<{ ok: boolean }, { id: string }>("delete", (v) => `/sessions/${v.id}`, "/sessions");
+  const revokeOthers = useConsoleMutation<{ ok: boolean }, void>("delete", "/sessions", "/sessions", {
+    onSuccess: () => toast.success(t("profile.sessionsRevokedOthers")),
+    onError: (e) => toast.error(e instanceof Error ? e.message : t("profile.sessionsRevokeFailed")),
+  });
+  const sessions = sessionsQuery.data?.data ?? [];
 
   const profile = profileData?.user;
   const enterprise = profileData?.enterprise;
@@ -101,6 +109,52 @@ export function ProfileContent() {
               ) : (
                 <Table><TableHeader><TableRow><TableHead>{t("profile.thIp")}</TableHead><TableHead>{t("profile.thClient")}</TableHead><TableHead>{t("profile.thStatus")}</TableHead><TableHead>{t("profile.thTime")}</TableHead></TableRow></TableHeader>
                 <TableBody>{loginHistory.map((h,i)=><TableRow key={i}><TableCell className="font-mono text-xs">{h.ip_address}</TableCell><TableCell className="text-xs text-muted-foreground max-w-40 truncate">{trunc(h.user_agent)}</TableCell><TableCell><Badge variant={h.success ? "success" : "destructive"}>{h.success ? <><CheckCircle size={12} className="mr-1"/>{t("profile.success")}</> : <><XCircle size={12} className="mr-1"/>{t("profile.failed")}</>}</Badge></TableCell><TableCell className="text-xs text-muted-foreground">{fmtTime(h.created_at)}</TableCell></TableRow>)}</TableBody></Table>
+              )}
+            </CardContent></Card>
+            <Card><CardContent className="p-5">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-muted rounded-lg"><KeyRound size={20} /></div>
+                <div>
+                  <h3 className="font-semibold">{t("profile.sessionsTitle")}</h3>
+                  <p className="text-xs text-muted-foreground">{t("profile.sessionsDesc")}</p>
+                </div>
+                {sessions.length > 1 && (
+                  <Button variant="outline" size="sm" className="ml-auto" onClick={() => revokeOthers.mutate()} disabled={revokeOthers.isPending}>
+                    {t("profile.sessionsRevokeOthers")}
+                  </Button>
+                )}
+              </div>
+              {sessions.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">{t("profile.sessionsEmpty")}</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t("profile.sessionsDevice")}</TableHead>
+                      <TableHead>{t("profile.sessionsIp")}</TableHead>
+                      <TableHead>{t("profile.sessionsTime")}</TableHead>
+                      <TableHead />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sessions.map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell className="text-xs max-w-48 truncate">{s.user_agent || "—"}</TableCell>
+                        <TableCell className="font-mono text-xs">{s.ip_address || "—"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{fmtTime(s.created_at)}</TableCell>
+                        <TableCell className="text-right">
+                          {s.current ? (
+                            <Badge variant="success">{t("profile.sessionsCurrent")}</Badge>
+                          ) : (
+                            <Button variant="ghost" size="sm" onClick={() => revokeSession.mutate({ id: s.id })} disabled={revokeSession.isPending}>
+                              {t("profile.sessionsRevoke")}
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               )}
             </CardContent></Card>
           </div>

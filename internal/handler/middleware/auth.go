@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -23,6 +25,9 @@ const (
 	CtxTenantID    contextKey = "tenant_id"
 	CtxRequestID   contextKey = "request_id"
 	CtxRequestType contextKey = "request_type"
+	// SessionHashCtxKey carries the current console session's token hash so
+	// session-list handlers can flag the current session.
+	SessionHashCtxKey contextKey = "session_hash"
 )
 
 // Re-export jwtutil context keys for convenience.
@@ -178,6 +183,25 @@ func ConsoleAuth(application *app.App) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Session revocation: Redis denylist when available, DB fallback
+			// otherwise. Tokens issued before the sessions migration have no
+			// row and remain valid until expiry (no row ≠ revoked).
+			tokenHash := sessionTokenHash(token)
+			revoked := false
+			if application.Redis != nil {
+				if n, err := application.Redis.Exists(r.Context(), "deeptrols:auth:revoked:"+tokenHash).Result(); err == nil && n > 0 {
+					revoked = true
+				}
+			} else if application.Pool != nil {
+				_ = application.Pool.QueryRow(r.Context(),
+					`SELECT EXISTS(SELECT 1 FROM auth_sessions WHERE token_hash = $1 AND revoked_at IS NOT NULL)`,
+					tokenHash).Scan(&revoked)
+			}
+			if revoked {
+				writeAuthError(w, http.StatusUnauthorized, "Session has been revoked")
+				return
+			}
+
 			// Live account check: reject deleted/disabled users immediately
 			// even though their JWT is still technically valid.
 			userID, err := uuid.Parse(claims.Subject)
@@ -193,6 +217,7 @@ func ConsoleAuth(application *app.App) func(http.Handler) http.Handler {
 
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, CtxUserID, dbUser.ID.String())
+			ctx = context.WithValue(ctx, SessionHashCtxKey, tokenHash)
 			ctx = context.WithValue(ctx, CtxEmail, dbUser.Email)
 			ctx = context.WithValue(ctx, CtxUserName, dbUser.DisplayName)
 			// Role always comes from the DB (live), never from the token.
@@ -213,6 +238,12 @@ func ConsoleAuth(application *app.App) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// sessionTokenHash returns the SHA-256 hex of a JWT used as the session key.
+func sessionTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func writeAuthError(w http.ResponseWriter, status int, message string) {

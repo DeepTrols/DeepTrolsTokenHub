@@ -15,6 +15,7 @@ import (
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	"github.com/deeptrols/api/internal/pkg/keyhash"
+	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/user"
 	"github.com/google/uuid"
 )
@@ -1292,5 +1293,63 @@ func TestConsoleAuth_RoleFromDBOverridesToken(t *testing.T) {
 	}
 	if gotRole != "user" {
 		t.Errorf("role from context = %q, want %q (DB role must override token)", gotRole, "user")
+	}
+}
+
+func TestConsoleAuth_RejectsRevokedSession(t *testing.T) {
+	pool := testutil.SetupPool(t)
+	testutil.TruncateAll(t, pool)
+	ctx := context.Background()
+
+	u := &domain.User{
+		ID: uuid.New(), Email: "sess@test.local", Role: "user",
+		UserType: domain.UserTypePersonal, Status: domain.UserStatusActive,
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO users (id, email, password_hash, status, created_at, updated_at)
+		 VALUES ($1, $2, 'x', 'active', NOW(), NOW())`, u.ID, u.Email); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	cfg := configWithJWTSecret("test-jwt-secret-32-bytes-for-sessions")
+	cfg.Cookie = config.CookieConfig{Name: "dt_session", Secure: false, MaxAgeSeconds: 86400}
+	a := &app.App{
+		Config: cfg,
+		Pool:   pool,
+		Users: &mockUserRepo{
+			findByIDFn: func(c context.Context, id uuid.UUID) (*domain.User, error) { return u, nil },
+		},
+	}
+
+	revokedToken := generateTestJWT(t, u.ID, u.Email, "Revoked", cfg.JWT.Secret)
+	activeToken := generateTestJWT(t, u.ID, u.Email, "Active", cfg.JWT.Secret)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO auth_sessions (id, user_id, token_hash, expires_at, revoked_at)
+		 VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour', NOW())`,
+		uuid.New(), u.ID, sessionTokenHash(revokedToken)); err != nil {
+		t.Fatalf("seed revoked session: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO auth_sessions (id, user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')`,
+		uuid.New(), u.ID, sessionTokenHash(activeToken)); err != nil {
+		t.Fatalf("seed active session: %v", err)
+	}
+
+	call := func(token string) int {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.AddCookie(&http.Cookie{Name: cfg.Cookie.Name, Value: token})
+		w := httptest.NewRecorder()
+		ConsoleAuth(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(w, req)
+		return w.Code
+	}
+
+	if code := call(revokedToken); code != http.StatusUnauthorized {
+		t.Fatalf("revoked token status = %d, want 401", code)
+	}
+	if code := call(activeToken); code != http.StatusOK {
+		t.Fatalf("active token status = %d, want 200", code)
 	}
 }

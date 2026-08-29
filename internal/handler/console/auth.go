@@ -110,7 +110,7 @@ func HandleLogin(a *app.App) http.HandlerFunc {
 
 			recordLoginHistory(ctx, a, dbUser.ID, ipAddress, userAgent, true)
 
-			setAuthCookie(w, token, a.Config)
+			completeConsoleLogin(a, w, r, dbUser.ID, token)
 			writeJSON(w, http.StatusOK, loginResponse{
 				Token: token, Expiry: expiry,
 				UserID: dbUser.ID.String(), Email: dbUser.Email, Name: dbUser.DisplayName,
@@ -134,7 +134,7 @@ func HandleLogin(a *app.App) http.HandlerFunc {
 				return
 			}
 			recordLoginHistory(ctx, a, bootstrapID, ipAddress, userAgent, true)
-			setAuthCookie(w, token, a.Config)
+			completeConsoleLogin(a, w, r, bootstrapID, token)
 			writeJSON(w, http.StatusOK, loginResponse{
 				Token: token, Expiry: expiry,
 				UserID: bootstrapID.String(), Email: a.Config.Bootstrap.AdminEmail, Name: "Administrator",
@@ -293,7 +293,7 @@ func HandleRegister(a *app.App) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate token"})
 			return
 		}
-		setAuthCookie(w, token, a.Config)
+		completeConsoleLogin(a, w, r, u.ID, token)
 		writeJSON(w, http.StatusCreated, registerResponse{
 			Token: token,
 			User:  userProfile{ID: u.ID.String(), Email: u.Email, Name: u.DisplayName},
@@ -329,9 +329,18 @@ func settingBool(a *app.App, r *http.Request, key string) bool {
 // HandleLogout clears the auth cookie and returns a success message.
 func HandleLogout(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if cookie, err := r.Cookie(a.Config.Cookie.Name); err == nil {
+			revokeSessionToken(a, r, cookie.Value)
+		}
 		clearAuthCookie(w, a.Config)
 		writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 	}
+}
+
+// completeConsoleLogin sets the auth cookie and records the login session.
+func completeConsoleLogin(a *app.App, w http.ResponseWriter, r *http.Request, userID uuid.UUID, token string) {
+	setAuthCookie(w, token, a.Config)
+	recordAuthSession(a, r, userID, token)
 }
 
 // Helper functions

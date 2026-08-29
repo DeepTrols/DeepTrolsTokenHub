@@ -169,4 +169,11 @@ test("月度账单卡片可见", async ({ page }) => {
   await expect(page.getByText("本月消费", { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByLabel("选择月份")).toBeVisible();
 });
+
+test("登录会话卡片可见", async ({ page }) => {
+  await page.goto("/account");
+  await page.getByRole("tab", { name: "登录记录" }).click();
+  await expect(page.getByRole("heading", { name: "登录会话" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("当前会话", { exact: true })).toBeVisible({ timeout: 10_000 });
+});
 });

@@ -109,7 +109,7 @@ func HandleOAuthCallback(a *app.App) http.HandlerFunc {
 			fail("login_failed")
 			return
 		}
-		setAuthCookie(w, jwtToken, a.Config)
+		completeConsoleLogin(a, w, r, u.ID, jwtToken)
 		http.Redirect(w, r, oauthLoginURL(r, cfg, a, "oauth", "success"), http.StatusFound)
 	}
 }
@@ -462,7 +462,7 @@ func HandleWechatCallback(a *app.App) http.HandlerFunc {
 			fail("login_failed")
 			return
 		}
-		setAuthCookie(w, jwtToken, a.Config)
+		completeConsoleLogin(a, w, r, u.ID, jwtToken)
 		http.Redirect(w, r, oauthLoginURL(r, oauthSettings{RedirectBase: cfg.RedirectBase}, a, "oauth", "success"), http.StatusFound)
 	}
 }
@@ -633,7 +633,7 @@ func HandleGoogleCallback(a *app.App) http.HandlerFunc {
 			fail("login_failed")
 			return
 		}
-		setAuthCookie(w, jwtToken, a.Config)
+		completeConsoleLogin(a, w, r, u.ID, jwtToken)
 		http.Redirect(w, r, oauthLoginURL(r, oauthSettings{RedirectBase: cfg.RedirectBase}, a, "oauth", "success"), http.StatusFound)
 	}
 }
