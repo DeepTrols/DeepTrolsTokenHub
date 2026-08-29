@@ -2278,3 +2278,648 @@ cd web && npm run test:e2e
   单独/包内跑均通过，仅在极端并行下的全量首跑偶发，与本改动无关）；
 - 前端 `npm test`（206/206）、`lint`、`build` 全绿；
 - 已重建并重启 `bin/api.exe` 到 8080。
+
+## 七十一、2026-08-30 前端 i18n 双语 + 分层定价控制台编辑入口
+
+> 对齐 new-api 的国际化与分级定价体验：导航/登录/注册双语切换，控制台可
+> 直接维护 `model_pricing.conditions` 分级档位（此前只能手改数据库）。
+
+### 71.1 前端 i18n
+
+- 引入 `i18next` / `react-i18next`，新增 `web/src/i18n/index.ts`（zh-CN/en
+  双语资源、`localStorage.language` 持久化、`setLanguage` 切换）；
+- `main.tsx` 挂载 i18n；`ShellLayout.tsx` 导航项改 `labelKey` + 底部 EN/中
+  切换按钮，管理员/用户角色文案一并双语化；
+- `Login.tsx` / `Register.tsx` 全部可见文案接入 `t()`（表单、OAuth、快速接入、
+  能力/统计、协议与排行榜/定价链接），默认 zh-CN 文案零变化；
+- i18n 初始化与 `setLanguage` 做防御式 localStorage 读写，隐私模式/测试
+  环境（jsdom localStorage 方法缺失）不崩。
+
+### 71.2 分层定价 conditions 控制台闭环
+
+- **后端** `internal/handler/console/models.go`：
+  - `pricingRow` / `createModelPricingReq` 增加 `conditions`（list/get 透出、
+    create/update 写入 jsonb）；
+  - `pricingConditionsForInsert` / `validatePricingConditions`：空条件存 NULL
+    （保持平台唯一索引对无条件行的约束），非法条件（未知键、非负整数校验、
+    min>max）400 早退，防止拼错条件静默关档；
+- **前端** `web/src/pages/ModelManagement.tsx`：定价维度行增加「最小/最大
+  total tokens」输入，提交时带 `conditions`（空则省略）；模型卡档位标签
+  展示 `≥ n` / `≤ n`；
+- **回归测试**：`models_test.go` 新增创建/更新 conditions 往返（真实 PG）、
+  非法条件 400、清除档位后回退 `{}`；`ModelManagement.test.tsx` 新增档位
+  展示与编辑提交断言。
+
+### 71.3 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build`（tsc + vite）全绿；`npm test` 40 文件 / 253 用例全绿；
+- 重启 dev API 容器（Air watcher 对 Windows bind mount 不触发重建），
+  新二进制已构建，`/api/public/site`、`/healthz` 200；echo 探针已恢复。
+
+## 七十二、2026-08-30 Google OAuth 登录（new-api 多登录源对齐）
+
+> GitHub / 微信扫码之后补齐 Google 登录源：授权 → 回调 → 找或建账号 →
+> JWT 落地，与既有 OAuth 共用 HMAC state（CSRF + 10 分钟过期，无服务端存储）。
+
+### 72.1 变更
+
+- **后端**：
+  - `internal/service/setting/service.go`：新增
+    `oauth_google_enabled/client_id/client_secret/authorize_url/token_url/
+    userinfo_url` 键与默认值（Google 官方端点），`PublicSite.oauth_providers`
+    在启用时追加 `google`；
+  - `internal/handler/console/oauth.go`：新增 `HandleGoogleAuthorize`
+    （`openid email profile` scope + HMAC state）、`HandleGoogleCallback`
+    （state 校验 → code 换 token（带 redirect_uri）→ userinfo →
+    find-or-create 按邮箱）、`resolveGoogleSettings` / `exchangeGoogleToken` /
+    `fetchGoogleUser`；
+  - `cmd/api/main.go`：注册 `/api/oauth/google/authorize`、`/callback`
+    （IP 限流与 GitHub/WeChat 一致）。
+- **前端**：
+  - `Login.tsx`：`oauth_providers` 含 `google` 时展示「使用 Google 登录」
+    按钮（lucide Chrome 图标）；i18n 补 `login.google` 中英词条；
+  - `SecuritySettingsSection.tsx`：新增 Google OAuth 配置卡（启用开关、
+    Client ID/Secret、回调地址提示）。
+- **测试**：`oauth_test.go` 新增 Google 授权重定向、回调建号 + cookie、
+  invalid_state 重定向 4 组（mock token/userinfo 服务器，真实 PG）；
+  `setting/service_test.go` 断言 providers 含 google；前端新增
+  Login Google 按钮与安全设置 Google 保存/回调提示用例。
+
+### 72.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 40 文件 / 261 用例全绿；
+- 真实进程：dev DB 临时启用 Google 设置后
+  `/api/oauth/google/authorize` → 302 到 Google 授权页（client_id /
+  redirect_uri / scope / state 正确），`/api/public/site` 的
+  `oauth_providers` 含 `google`；验证后已删除临时设置还原环境，
+  echo 探针已恢复。
+
+## 七十三、2026-08-30 公开定价页展示分级档位（定价端到端闭环收尾）
+
+> 上一轮控制台可编辑 `model_pricing.conditions` 后，公开定价接口已透出
+> conditions；本轮把 `/pricing` 页的明细表补上「档位」列，分级定价从前台
+> 编辑到公开展示形成完整闭环。
+
+### 73.1 变更
+
+- **后端**（仅测试）：新增 `public_pricing_test.go`
+  - `TestHandlePublicPricing_IncludesTierConditions`：锁定公开契约——
+    `/api/public/pricing` 返回 sell 行的 `min/max_total_tokens` conditions，
+    不泄漏 cost 行；
+  - `TestHandlePublicPricing_HiddenWhenDisabled`：`models_public_visible=false`
+    返回空目录。
+- **前端** `web/src/pages/Pricing.tsx`：
+  - `PricingRow` 增加 `conditions`；明细表新增「档位」列，展示
+    `≥ n` / `≤ n` / `n · m`；
+  - 测试：展开明细后断言 `≤ 200000` / `≥ 200001` 与表头出现
+    （既有「输入」断言改为 findAll 以兼容双档）。
+
+### 73.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 40 文件 / 262 用例全绿；
+- 真实进程：dev DB 临时插入 `deepseek-v4-flash` 输入档
+  （`max_total_tokens:100000` @ ¥1.50）后，`/api/public/pricing` 实时返回
+  conditions 档位行；验证后删除临时行还原环境。
+
+## 七十四、2026-08-30 站点品牌 Logo/Favicon 上传（new-api 品牌设置对齐）
+
+> 品牌设置此前只支持填 URL；本轮补齐管理员本地上传，上传后自动回填地址，
+> 由 API 进程静态托管 `/uploads/*`。
+
+### 74.1 变更
+
+- **后端**：
+  - `internal/config/config.go`：新增 `UploadDir`（env `UPLOAD_DIR`，
+    默认 `./uploads`）；
+  - `internal/handler/console/uploads.go`（新）：`POST /api/admin/settings/upload`
+    —— multipart 上传，白名单 png/jpg/webp/gif/ico、≤ 2MiB、内容嗅探
+    （`http.DetectContentType` 必须 image/*）、文件名替换为随机 UUID
+    （杜绝路径穿越）、SVG 明确排除（防存储型 XSS）；
+  - `cmd/api/main.go`：admin 路由组注册 `/settings/upload`，并静态托管
+    `/uploads/*`；
+  - `docker-compose.dev.yml`：api 服务挂载 `./uploads:/app/uploads`。
+- **前端**：
+  - `SiteSettingsSection.tsx`：Logo / Favicon 由纯 URL 输入改为
+    「地址输入 + 上传图片」组合，上传成功自动回填 `logo_url` /
+    `favicon_url`；
+  - `vite.config.ts`：dev 代理补 `/uploads`。
+- **测试**：
+  - `uploads_test.go`（新）：成功落盘、路径穿越文件名被消毒、非图片内容 /
+    不支持的扩展 / SVG 拒绝、超限 400、非管理员 403 / 匿名 401；
+  - `SiteSettingsSection.test.tsx`（新）：渲染上传按钮、上传成功回填地址、
+    失败不回写。
+
+### 74.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 41 文件 / 265 用例全绿；
+- 真实进程：管理员登录后上传 1x1 PNG → 200 返回
+  `/uploads/<uuid>.png`，GET 该地址 200；上传 .txt → 400
+  「仅支持 png/jpg/webp/gif/ico」；探针文件已清理，echo 探针已恢复。
+
+## 七十五、2026-08-30 i18n 扩展到用户主页面（Dashboard / Bills / Recharge / APIKeys）
+
+> 在导航/登录/注册双语化基础上，把用户日常最常用的四个页面全部接入
+> `t()`：用量信息、账单、充值、API keys（含创建/编辑/查看密钥全部表单与
+> 弹窗），默认 zh-CN 文案零变化，切 EN 后整体切换。
+
+### 75.1 变更
+
+- `web/src/i18n/index.ts`：新增 `dashboard` / `bills` / `recharge` / `apikeys`
+  四个分区的中英文案（约 120 键，含插值 `{{amount}}` / `{{name}}`）；
+- `Dashboard.tsx`：标题/副标题、充值余额/累计消费卡、筛选工具栏、统计卡、
+  消费图、按模型细分、加载/错误/空态与 CSV 导出的表头/文件名全部 `t()`；
+- `Bills.tsx`：标题、加载/错误态、充值记录与 CSV 表头；
+- `Recharge.tsx`：标题、在线支付/兑换码两个卡片、金额与支付方式选择、
+  成功/失败提示（含 `兑换成功，已到账 X 元`）；
+- `APIKeys.tsx`：密钥列表（表头/状态/操作）、创建/编辑/查看三个弹窗、
+  KeyFields 全部字段标签与占位符、删除确认（含密钥名插值）；
+- 各页面引入 `"../i18n"` 副作用初始化（测试环境无 localStorage 也可用）。
+
+### 75.2 测试
+
+- 既有断言全部保持（zh-CN 默认文案与原文一致）；
+- `Dashboard.test.tsx` 新增 `switches the dashboard to English via setLanguage`
+  回归用例：切 EN 后断言「Wallet Balance / Total Spent」渲染，测试内复位中文。
+
+### 75.3 验证
+
+- 前端 `npm run build`（tsc + vite）全绿；
+- `npm test` 41 文件 / 266 用例全绿；
+- 本轮纯前端改动，Go 侧未触碰。
+
+## 七十六、2026-08-30 i18n 扩展到模型广场 / 在线体验 / 用户中心 / 订阅
+
+> 第二批用户页面双语化：模型广场、在线体验（Playground）、用户中心、订阅
+> 套餐页全部接入 `t()`，默认 zh-CN 文案零变化。
+
+### 76.1 变更
+
+- `web/src/i18n/index.ts`：新增 `modelmarket` / `playground` / `usercenter` /
+  `subscriptions` 四个分区中英文案（约 100 键，含 `{{name}}` / `{{date}}` /
+  `{{price}}` / `{{duration}}` / `{{n}}` 等插值）；
+- `ModelMarket.tsx`：标题/搜索/服务商与排序下拉、空态、分类与定价维度标签、
+  「免费」全部 `t()`（厂商名保留专有名词）；
+- `Playground.tsx`：标题、密钥/模型选择、提示词、发送/停止/重置、响应区
+  （流式/思考过程/空态）、密钥缺失提示；模块级 `fetchGatewayModels` 经
+  `i18n.t` 使用 `requestFailed` 后备文案；
+- `UserCenter.tsx`：标题与副标题；
+- `Subscriptions.tsx`：标题、当前套餐/有效期/余额、自动续费、套餐卡
+  （时长标签 `durationLabel` 改为带 t、含分组/免费额度）、订阅记录表、
+  购买确认弹窗与全部 toast（成功/失败）。
+
+### 76.2 验证
+
+- 前端 `npm run build`（tsc + vite）全绿；
+- `npm test` 41 文件 / 266 用例全绿（既有 zh 断言保持不变；
+  Dashboard 的 `setLanguage("en")` 回归用例继续覆盖切换机制）；
+- 本轮纯前端改动，Go 侧未触碰。
+
+## 七十七、2026-08-30 i18n 收口用户端：聊天/文档/兑换码/Profile + 定价/排行/用量/关于/法律
+
+> 最后一轮用户端页面双语化。至此**全部用户可见页面**（登录、注册、用量信息、
+> API keys、充值、账单、模型广场、在线体验、聊天、开发文档、用户中心、
+> 订阅、兑换码（管理端）、定价、排行榜、用量记录、关于、法律条款）均已接入
+> `t()`；剩余中文仅为代码注释、厂商专有名词与数据兜底标签。
+
+### 77.1 变更
+
+- `web/src/i18n/index.ts`：新增 `chat` / `docs` / `redemption` / `profile` /
+  `pricing` / `rankings` / `usagehistory` / `legal` / `about` 九个分区中英文案
+  （约 220 键）；
+- `Chat.tsx`：标题/副标题、返回/新窗口/等待密钥、预设卡（类型/自动注入）、
+  空态与错误态；
+- `Docs.tsx`：整体重写为格式化 JSX 并全量 `t()`（快速开始/API 参考/计费说明
+  三个 tab 的全部小节、错误码表、计费维度表、钱包说明）；
+- `RedemptionCodes.tsx`：标题、生成/复制按钮、状态标签、表格表头、弹窗表单、
+  toast（含 `已复制 {{text}}` 与 `已生成 {{count}} 个` 插值）；
+- `Profile.tsx`（用户中心内部组件）：四个 tab、个人资料表单、登录记录表、
+  邀请奖励、企业信息与成员表、角色标签（`roleKey` + t）；
+- `Pricing.tsx`：标题/筛选/卡片/明细表全量 `t()`（分类值改 `all`/`other`
+  键，显示层翻译；维度标签复用 modelmarket 键）；
+- `Rankings.tsx`：标题、周期按钮、模型榜/厂商份额/走势/升降榜全部标题与
+  表头；
+- `UsageHistory.tsx`：标题、表头、分页、CSV 表头与文件名；
+- `Legal.tsx` / `About.tsx`：标题与缺省文案。
+
+### 77.2 验证
+
+- 前端 `npm run build`（tsc + vite）全绿；
+- `npm test` 41 文件 / 266 用例全绿（既有 zh 断言保持不变）；
+- 用户端 CJK 扫描剩余项均为注释/专有名词/数据兜底，可见 UI 文案已全覆盖；
+- 本轮纯前端改动，Go 侧未触碰。
+
+## 七十八、2026-08-30 i18n 管理后台：系统设置 8 分区 + 设置侧边栏
+
+> 管理后台第一块：系统设置枢纽（站点与品牌、计费与支付、安全、操作、内容、
+> 模型、请求限制、系统信息）全部接入 `t()`，并新增 `common.save/saved/
+> saving/saveFailed/generate/loading` 等通用键。
+
+### 78.1 变更
+
+- `web/src/i18n/index.ts`：新增 `settings` 分区（约 150 键）与 `common`
+  通用操作键（中英）；
+- `AdminSettingsLayout.tsx`：8 个分区导航 labelKey + aria-label；
+- `SiteSettingsSection.tsx`：4 个 tab、基本信息/公告/导航/法律全部字段、
+  Logo/Favicon 上传按钮与提示；
+- `SecuritySettingsSection.tsx`：注册开关、GitHub/Google OAuth 配置卡全部
+  文案（含回调地址提示）；
+- `BillingSettingsSection.tsx`：通道配置/支付订单/兑换码三个 tab、订单表与
+  补单、CSV 表头、RedemptionPanel；
+- `OperationsSettingsSection.tsx`：渠道与对账、每日签到两卡；
+- `ChatPresetsSection.tsx`：聊天预设卡（占位符说明、名称/URL 模板、删除
+  aria、添加/保存）；
+- `ModelsSettingsSection.tsx`：目录与同步（公开可见性、默认状态）；
+- `RequestLimitsSettingsSection.tsx`：网关限流；
+- `SystemInfoSection.tsx`：运行时与数据量（COUNT_LABELS 改键 + t）。
+
+### 78.2 验证
+
+- 前端 `npm run build`（tsc + vite）全绿；
+- `npm test` 41 文件 / 266 用例全绿（设置分区既有断言保持不变）；
+- 系统设置 8 分区 CJK 扫描仅剩注释；管理后台剩余：渠道 77、模型管理 74、
+  租户 57、用户 38、套餐/订阅 58、网关健康 16、审计 11、对账 10 等
+  （合计约 340 处，留待后续轮次）；
+- 本轮纯前端改动，Go 侧未触碰。
+
+## 七十九、2026-08-30 i18n 管理后台：渠道管理 + 模型管理
+
+> 管理后台最大两页完成双语化：渠道管理（77 处 → 11 处残留）与模型管理
+> （74 处 → 10 处残留），残留均为代码注释与厂商专有名词。
+
+### 79.1 变更
+
+- `web/src/i18n/index.ts`：新增 `channels` / `modelmgmt` 两个分区约 140 键
+  （含 `{{count}}` / `{{name}}` / `{{provider}}` / `{{ms}}` / `{{detail}}`
+  插值）；
+- `Channels.tsx`：
+  - 标题/批量测试/添加渠道、渠道卡（状态/模型数/测试/同步/编辑/启停）、
+    测试结果与删除确认；
+  - 编辑弹窗两个 tab：服务商/名称/Base URL/API Key/轮询模式、池类型/优先级/
+    权重/最大并发/自动禁用/标签/分组/模型映射/参数覆盖/自定义请求头/上游格式/
+    custom_override 全部字段与提示；
+  - 上游格式选项（OpenAI/Gemini/Anthropic/Ollama/Azure/Custom）改键 + t；
+  - 批量测试 toast、探测结果/失败文案。
+- `ModelManagement.tsx`：
+  - 标题/同步/添加/加载与错误态、模型卡（状态徽章/定价维度/成本说明）、
+    删除确认；
+  - 编辑表单全部字段（编码/提供商/类别/显示名称/上下文/最大输出/描述）、
+    定价维度行（维度/单位/单价/高峰/最小最大 tokens）、搜索与筛选下拉、
+    空态；
+  - `priceTypeLabel` / `periodLabel` 改返回键 + 渲染 t。
+
+### 79.2 验证
+
+- 前端 `npm run build`（tsc + vite）全绿（修复了 `channels.add` 重复键：
+  按钮键改 `addChannel`）；
+- `npm test` 41 文件 / 266 用例全绿（Channels/ModelManagement 既有断言
+  保持不变）；
+- 本轮纯前端改动，Go 侧未触碰。
+
+## 八十、2026-08-30 i18n 管理后台：租户管理 + 用户管理
+
+> 租户管理（57 处 → 9 处残留）与用户管理（38 处 → 4 处残留）双语化，
+> 残留均为代码注释。
+
+### 80.1 变更
+
+- `web/src/i18n/index.ts`：新增 `tenants` / `users` 两个分区约 90 键
+  （含 `{{count}}` / `{{name}}` / `{{action}}` / `{{email}}` 插值）；
+- `Tenants.tsx`：标题/总数、搜索、表格表头、状态徽章（`STATUS_META` 改键）、
+  生命周期操作（审核/拒绝/停用/启用/删除，`ACTION_LABEL` 改键）、确认弹窗
+  （原因/删除警告）、创建企业弹窗全部字段与提示；
+- `Users.tsx`：标题/总数、搜索、表格表头、角色/状态徽章（`statusLabel`
+  改键）、编辑弹窗（角色/状态）、创建弹窗全部字段、删除确认。
+- 修复：Tenants 表格 map 参数 `t` 遮蔽翻译函数，改用 `tr`。
+
+### 80.2 验证
+
+- 前端 `npm run build`（tsc + vite）全绿；
+- `npm test` 41 文件 / 266 用例全绿（Tenants/Users 既有断言保持不变）；
+- 本轮纯前端改动，Go 侧未触碰。
+
+## 八十一、2026-08-30 i18n 全覆盖：剩余管理页 + 全部共享组件 + lib 文案
+
+> 收口管理后台剩余 5 页（套餐/订阅/网关健康/审计/对账）、全部 12 个共享组件
+> 与 lib 层可见文案。至此前端全部可见 UI 文案中英双语，非 i18n 文件中的中文
+> 仅剩注释、厂商专有名词与数据兜底标签。
+
+### 81.1 变更
+
+- `web/src/i18n/index.ts`：新增 `adminplans` / `adminsubs` / `gatewayhealth` /
+  `auditlogs` / `reconciliation` / `components` / `lib` 七个分区约 240 键；
+- 管理页：`AdminSubscriptionPlans.tsx`（套餐表格/新建编辑弹窗/toast）、
+  `AdminSubscriptions.tsx`（订阅记录表/取消）、`GatewayHealth.tsx`（健康表/
+  策略/冷却）、`AuditLogs.tsx`（搜索/表头/空态）、`Reconciliation.tsx`
+  （统计卡/汇总提示/对账表，`ll`/`sl` 改键）；
+- 组件：`RangePicker`（预设/星期/年月/取消确定，`PRESETS` 改键 + t、
+  星期数组 returnObjects）、`CheckinCard`、`TopupTable`、`ProviderSyncDialog`、
+  `ChannelModelList`、`PaymentQrDialog`、`WalletSummary`、`ErrorBoundary`
+  （类组件改用 `i18n.t`）、`StateViews`（默认文案按当前语言解析）、
+  `SelectMenu`、`PendingReviewBanner`、`ShellLayout`（导航 aria）；
+- lib：`domain/apiKey.ts`（RPM/TPM 校验错误、`不限`）、`auth.tsx`
+  （登录/注册/网络错误）、`streaming.ts`（网络/请求/流式不支持错误）
+  改经 `i18n.t`，跟随语言切换。
+
+### 81.2 验证
+
+- 前端 `npm run build`（tsc + vite）全绿；
+- `npm test` 41 文件 / 266 用例全绿（含 `formatRateLimit` 返回「不限」的
+  zh 断言保持不变）；
+- 非 i18n 文件的 CJK 扫描仅剩注释/专有名词/兜底标签；
+- 本轮纯前端改动，Go 侧未触碰。
+
+## 八十二、2026-08-30 余额预警（低余额阈值 + 用量页横幅）
+
+> 落地文档承诺过的「钱包账单页可设置预警阈值」：每用户阈值（CNY，decimal），
+> 钱包接口实时返回 `below_threshold`，用量信息页低于阈值时显示提醒横幅。
+
+### 82.1 变更
+
+- **迁移** `000035_balance_alert`：`users.balance_alert_threshold
+  NUMERIC(20,2) NOT NULL DEFAULT 0`（0 = 关闭），含 down；
+- **后端** `internal/handler/console/wallet.go`：
+  - `walletResponse` 新增 `balance_alert_threshold` / `below_threshold`
+    （decimal 比较，阈值 > 0 且可用余额低于阈值时为 true）；
+  - `GET /api/console/wallet/alert`、`PUT /api/console/wallet/alert`
+    （非负 decimal 校验，返回统一 `trimDecimalPrice` 格式）；
+  - `cmd/api/main.go` 注册两个路由；
+- **前端**：
+  - `lib/api.ts`：`WalletData` 增加两字段；
+  - `Bills.tsx`：新增「余额预警」卡片（当前阈值 + 输入 + 保存）；
+  - `Dashboard.tsx`：`below_threshold` 时显示琥珀色横幅，链接到 /bills
+    设置阈值；
+  - i18n 补 `dashboard.balanceAlert*` / `bills.alert*` 中英文案。
+- **测试**：后端 `wallet_test.go` 新增阈值设置/关闭/非法输入/鉴权 4 组
+  （真实 PG）；前端 Bills 保存阈值、Dashboard 横幅 2 个用例。
+
+### 82.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 41 文件 / 268 用例全绿；
+- 迁移 000035 已应用到 dev DB（schema_migrations 记录）；
+- 真实进程：管理员登录后 PUT 阈值 5000 → `below_threshold=false`
+  （余额约 10094）；PUT 999999 → `below_threshold=true`；重置 0 →
+  `false` 且 threshold=0.00；探针已清理，echo 探针已恢复。
+
+## 八十三、2026-08-30 月度账单（按 GMT+8 自然月汇总消费/充值/按模型）
+
+> 新增月度账单：用户可查看任意 GMT+8 自然月的模型消费总额、充值总额、
+> 计费调用次数与按模型明细，账单页提供月份选择。
+
+### 83.1 变更
+
+- **后端** `internal/handler/console/statement.go`（新）：
+  - `GET /api/console/billing/statement?year=&month=`（缺省当前 GMT+8 月；
+    year/month 范围校验）；
+  - 聚合 `usage_logs`（status=completed、GMT+8 月界）的
+    `SUM(final_cost)` / `COUNT(*)` 与按 `public_model_code` 分组明细；
+  - 聚合 `wallet_transactions`（tx_type='topup'）本月充值；
+  - 金额全部为 decimal 字符串，展示统一 `trimDecimalPrice` 格式；
+  - `cmd/api/main.go` 注册路由。
+- **前端** `Bills.tsx`：新增「月度账单」卡片——月份选择（type=month）、
+  本月消费/充值/计费调用三张统计卡、按模型明细表；i18n 补
+  `bills.statement*` 中英文案。
+- **测试**：`statement_test.go` 新增聚合（含跨月排除）、空月、非法参数与
+  鉴权 3 组（真实 PG）；前端 Bills 月度账单渲染 1 个用例。
+
+### 83.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 41 文件 / 269 用例全绿；
+- 真实进程：管理员登录后临时插入 2 条 usage_logs（3.5 + 8），
+  `/api/console/billing/statement` 返回当月
+  `total_cost=11.500171`（含既有数据）与
+  `deepseek-v4-pro=8.00x1 / deepseek-v4-flash=3.500171x21` 按模型明细；
+  验证后已删除探针行并清理 cookie，echo 探针已恢复。
+
+## 八十四、2026-08-30 用户分组倍率（new-api group_ratio 定价对齐）
+
+> API Key 所属分组的定价倍率：管理员在系统设置配置 `user_groups`（名称 +
+> 倍率），网关计费时把售价乘以分组倍率（如 VIP 0.8），上游真实成本不受影响，
+> 证据快照记录 `group_ratio`。
+
+### 84.1 变更
+
+- **设置键** `user_groups`（JSON 数组 `[{"name":"vip","ratio":"0.8"}]`，
+  默认 `[]`，无需迁移）；
+- **计费** `internal/service/billing/pricer.go`：
+  - 新增 `CalculateWithRatio` / `CalculateAtWithRatio`（倍率为正数校验，
+    非正数 fail-closed 报错）；`Calculate` / `CalculateAt` 保持原签名
+    （ratio=1），既有调用与测试零改动；
+  - 售价（含成本派生）乘以倍率，上游成本不变；`PriceSnapshot` 顶层与每行
+    记录 `group_ratio`；
+- **网关** `internal/handler/gateway/group_ratio.go`（新）：
+  `apiKeyGroup(r)` + `user_groups` 设置解析倍率（未知/未命中/非法回退 1），
+  `priceWithGroup` 统一计费入口；10 处 `Pricer.Calculate` 调用点全部替换
+  （`calculateActualCosts` 改为接收 `*http.Request`）；
+- **前端** `BillingSettingsSection.tsx`：新增「分组」tab——`user_groups`
+  JSON 编辑器 + 保存；i18n 补 `settings.tabGroups/groups*` 中英文案。
+- **测试**：pricer 倍率缩放 + 非正数拒绝 2 组；gateway `groupRatio` 解析
+  （命中/缺省/未知/非法）2 组；前端分组设置保存 1 个用例。
+
+### 84.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 42 文件 / 270 用例全绿；
+- 端到端真实进程：dev 库配置 `user_groups=[{"name":"vip","ratio":"0.5"}]`，
+  创建 vip 分组 API Key 后真实调用 `/v1/chat/completions`（echo 渠道），
+  `price_snapshot` 出现 `group_ratio=0.5` 且
+  `input unit_price=0.05`（基价 0.10×0.5）、`output=0.10`（0.20×0.5）；
+  验证后已删除探针 usage/charge/evidence/API key/设置并恢复 echo 探针。
+
+## 八十五、2026-08-30 用户分组管理 CRUD 界面（替代 JSON 编辑器）
+
+> 把上一轮的分组倍率 JSON 文本编辑器升级为结构化管理界面：分组名称/倍率
+> 逐行编辑、添加/移除、保存前校验（名称必填、倍率为正数、名称唯一）。
+
+### 85.1 变更
+
+- `web/src/pages/settings/BillingSettingsSection.tsx`：
+  - 「分组」tab 由 textarea 改为行式编辑器：每行「分组名称 + 倍率」输入与
+    移除按钮，「添加分组」追加默认 `{name:"", ratio:"1"}` 行；
+  - `saveGroups` 校验：名称为空 / 倍率非正数 / 名称重复均 toast 拦截，
+    通过后序列化 `user_groups` 保存；
+  - 从设置值 JSON.parse 回填，解析失败回退空列表；
+- i18n 补 `settings.groupsName/Ratio/Add/Remove/InvalidName/InvalidRatio/
+  Duplicate/Empty` 中英文案；
+- 测试：`BillingSettingsSection.test.tsx` 改为新增 enterprise 分组（0.6）
+  后断言 PUT 载荷包含两组 JSON。
+
+### 85.2 验证
+
+- 前端 `npm run build`（tsc + vite）全绿；
+- `npm test` 42 文件 / 270 用例全绿；
+- 本轮纯前端改动，Go 侧未触碰。
+
+## 八十七、2026-08-30 阶梯用量折扣（volume-based discount + 月度计数器）
+
+> 功能清单遗留项落地：按用户当月累计 completed tokens 命中折扣档，售价乘
+> 以档位倍率，与分组倍率叠加；证据快照记录 `price_ratio`。
+
+### 87.1 变更
+
+- **设置键** `discount_tiers`（JSON 数组
+  `[{"min_tokens":1000000,"ratio":"0.95"}]`，默认 `[]`，无需迁移）；
+- **计费** `pricer.go`：证据快照字段 `group_ratio` 改名为 `price_ratio`
+  （更准确反映「售价倍率」，含分组与用量折扣的合并结果）；
+- **网关** `group_ratio.go`：
+  - `volumeRatio`：从 context 读 user_id（直接读 `CtxUserID`，避免
+    **bootstrap 管理员 uuid.Nil 被误判为无身份**——真实进程验证时发现并
+    修复），SUM 当月 `usage_normalized->>'total_tokens'`，按 `min_tokens`
+    升序命中最高已达标档（未命中/非法回退 1）；
+  - `priceWithAdjustments`（原 `priceWithGroup` 改名）：合并
+    `groupRatio × volumeRatio` 后统一计费入口，10 处调用点同步；
+- **前端** `BillingSettingsSection.tsx`：新增「折扣」tab——档位编辑器
+  （min_tokens + 倍率 逐行增删改 + 校验：非负整数 tokens、正数倍率、
+  不重复），i18n 补 `settings.tabDiscounts/discounts*` 词条；
+- **测试**：`group_ratio_test.go` 新增 volumeRatio 集成 3 组（当月用量命中
+  档位、无档位回退、**nil-UUID 管理员仍命中**）；pricer 快照键断言同步；
+  前端折扣 tab 新增档位并保存 1 个用例。
+
+### 87.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 42 文件 / 271 用例全绿；
+- 端到端真实进程：dev 库配置
+  `discount_tiers=[{"min_tokens":1000000,"ratio":"0.5"}]` 并给管理员种入
+  当月 150 万 tokens 用量后，真实调用 `/v1/chat/completions` →
+  `price_snapshot.price_ratio=0.5`、`input unit_price=0.05`（基价 0.10×0.5）；
+  验证后已按 FK 顺序清理全部探针数据（usage/evidence/charges/diffs/
+  API keys/设置）并恢复 echo 探针。
+
+## 八十八、2026-08-30 对账 L2（L0↔L1 内部交叉校验）
+
+> 审计发现 L0/L1/L3 对账早已实现，缺口是清单中的 L2（内部交叉校验）。
+> 本轮补齐：把「有 charge_lines（L0）」与「有 provider_evidence（L1）」
+> 的覆盖情况按 completed usage 做象限统计，写入对账报告。
+
+### 88.1 变更
+
+- `internal/worker/reconciliation/reconciler.go`：
+  - 新增 `l2Quadrants`（usage_logs / with_charge / with_evidence /
+    both_missing）与 `runL2`：一次 SQL 用 EXISTS 子查询统计象限，
+    排除非 completed 行；
+  - `Run` 每次周期执行 `runL2`（失败仅记日志、不影响 run 完成），报告
+    新增 `L2` 段（含 `balanced`：charge 与 evidence 覆盖均等于 usage 数）；
+- 测试：`reconciler_test.go` 新增 `TestRunL2_InternalCrossCheck`（真实 PG）：
+  both（charge+evidence）/ charge-only / neither / failed 四类行，断言
+  usage=3、with_charge=2、with_evidence=1、both_missing=1；
+  `TestRun_L3_BillingDiffs` 全量 Run 回归通过（含新 L2 段）。
+
+### 88.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- L2 查询与完整 Run 周期在真实 PostgreSQL 上验证（真实种子数据 + 真实
+  reconciliation_diffs 落库）；
+- 前端无改动；worker 镜像为构建期产物，L2 需在下次
+  `docker compose build worker` 后生效（与其它 worker 改动一致）。
+
+## 八十九、2026-08-30 对账管理页展示 L2 摘要
+
+> 把上一轮写入对账报告的 L2 交叉校验结果透出到管理端：summary 接口读取
+> 最近一次 completed run 报告的 `L2` 段，对账页新增 L2 摘要行。
+
+### 89.1 变更
+
+- **后端** `internal/handler/console/reconciliation.go`：
+  `HandleReconciliationSummary` 新增 `l2` 对象——读取最近 completed run
+  报告的 `report->'L2'`（usage_logs / with_charge / with_evidence /
+  both_missing / balanced），`available` 表示是否存在 completed run；
+  无运行或查询失败时返回安全的空值（不因 L2 查询失败而整体报错）；
+- **前端** `Reconciliation.tsx`：汇总区新增 L2 行——可用时展示
+  charge/evidence 覆盖与双缺失数及平衡状态（绿色/红色），否则显示
+  「暂无 L2 对账数据」；i18n 补 `reconciliation.l2*` 词条；
+- **测试**：`reconciliation_handler_test.go` 新增带 L2 报告的 completed run
+  与无运行两组（真实 PG）；前端 Reconciliation 新增 L2 摘要渲染用例。
+
+### 89.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 前端 `npm run build` 全绿；`npm test` 42 文件 / 272 用例全绿；
+- 真实进程：dev 库种入带 `L2` 报告的 completed run 后，
+  `/api/admin/reconciliation/summary` 返回
+  `l2={usage_logs:3, with_charge:2, with_evidence:1, both_missing:1,
+  balanced:false, available:true}`；验证后已删除探针 run 并清理 cookie，
+  echo 探针已恢复。
+
+## 九十、2026-08-30 Playwright e2e 回归 + web 容器依赖/热更新修复
+
+> 大改动后的质量收口：跑通既有核心链路冒烟，并新增 i18n 切换与余额预警
+> 的端到端用例。过程中发现并修复两个环境问题——web 容器缺 react-i18next
+> 依赖、Vite 因 Windows bind mount 无 inotify 一直服务旧转换缓存。
+
+### 90.1 变更
+
+- `web/e2e/smoke.spec.ts`：
+  - 既有「核心链路冒烟」（登录→建渠道→模型目录→网关调用→账单/审计）保持
+    通过；
+  - 新增「i18n 语言切换 + 余额预警阈值」：登录后切 EN（侧边栏
+    Switch language）→ Dashboard 标题变 "Usage"；/bills 出现
+    "Balance Alert" 卡并保存阈值 10 → 输入框回显；最后经 API 重置阈值 0。
+- **环境修复**：
+  - web 容器 `node_modules` 卷补装 `i18next` / `react-i18next`（此前只在
+    宿主机安装，容器内 import 解析失败）；
+  - 重启 web 容器：Vite 重新转换全部源码——之前因 Windows bind mount 无
+    inotify，容器一直提供启动时的旧转换缓存，前端 i18n/新功能在容器内并非
+    实时生效；重启后按当前源码服务。
+
+### 90.2 验证
+
+- `npx playwright test e2e/smoke.spec.ts`：2 passed（3.7s）；
+- 核心链路与 i18n/余额预警均在真实浏览器 + 真实前后端 + echo 上游上通过；
+- 前端单测 `npm test` 42 文件 / 272 用例、Go 全量（真实 PG）保持全绿。
+
+## 九十一、2026-08-30 阶梯折扣月度计数器 Redis 缓存（降低每请求 DB 负载）
+
+> 生产性收尾：`volumeRatio` 原先每次计费都聚合当月 usage_logs，改为 Redis
+> 缓存月度累计 tokens（5 分钟 TTL，键 `deeptrols:usage:month:{user}:{yyyyMM}`），
+> 命中即跳过 DB 查询；Redis 不可用时回退直查。
+
+### 91.1 变更
+
+- `internal/handler/gateway/group_ratio.go`：
+  - `volumeRatio` 先查 Redis（`application.Redis`，nil 时跳过）；命中直接
+    用缓存值（显式 miss 标记，缓存的 0 不会被误判为 miss）；
+  - miss 时执行原有聚合查询并写入 Redis（TTL 5 分钟）；DB 查询失败仍回退
+    倍率 1（fail-closed）；
+  - 语义：档位边界变更最多滞后一个 TTL，属可接受的折扣生效延迟。
+- 测试：既有 volumeRatio 3 组（无 Redis → DB 路径）保持全绿。
+
+### 91.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 真实进程：配置 100 万 tokens → 0.5 折扣并种入当月 150 万 tokens 后真实
+  调用网关，`price_snapshot.price_ratio=0.5`；同时 Redis 出现
+  `deeptrols:usage:month:...:202608` = 1500565（缓存命中路径）；
+  验证后已清理探针 usage/evidence/charges/API key/设置/Redis 键并恢复
+  echo 探针。
+
+## 八十六、2026-08-30 POST /v1/messages/count_tokens（Anthropic token 预估）
+
+> 补上功能清单遗留的 Anthropic `count_tokens` 端点：鉴权后免费预估
+> messages 载荷的输入 token 数，不路由、不计费（new-api / Anthropic 兼容）。
+
+### 86.1 变更
+
+- `internal/handler/gateway/count_tokens.go`（新）：
+  - `POST /v1/messages/count_tokens`：1 MiB 请求体上限，非法 JSON 400；
+  - `countAnthropicTokens`：统计 system（字符串或 text 块数组）与
+    messages 各条 content（字符串或 text 块）的 `EstimateTextTokens`，
+    并把 tools 定义的序列化长度计入；空载荷兜底返回 1；
+  - 响应 `{"input_tokens": N}`（Anthropic v1 形态）；
+- `cmd/api/main.go`：在 `/v1/messages` 之后注册，复用 GatewayAuth +
+  GatewayRateLimit 中间件。
+- **测试**：`count_tokens_test.go` 新增预估纯函数（CJK 逐字、system/块/tools
+  累计、空载荷）、handler 200 + input_tokens、非法 JSON 400 3 组。
+
+### 86.2 验证
+
+- Go `build/vet/gofmt` + `go test ./...`（真实 PG）全绿；
+- 真实进程：创建临时 API Key 后
+  `POST /v1/messages/count_tokens`（`你好世界你好世界`，8 个中文字符）
+  → 200 `{"input_tokens":8}`；无 key → 401（GatewayAuth 生效）；
+  验证后已删除探针 key 并清理 cookie，echo 探针已恢复。

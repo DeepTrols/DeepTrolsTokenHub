@@ -1,6 +1,7 @@
 package console
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,11 +18,13 @@ import (
 )
 
 type walletResponse struct {
-	Balance      string `json:"balance"`
-	Frozen       string `json:"frozen"`
-	Available    string `json:"available"`
-	Currency     string `json:"currency"`
-	TotalCharged string `json:"total_charged"`
+	Balance               string `json:"balance"`
+	Frozen                string `json:"frozen"`
+	Available             string `json:"available"`
+	Currency              string `json:"currency"`
+	TotalCharged          string `json:"total_charged"`
+	BalanceAlertThreshold string `json:"balance_alert_threshold"`
+	BelowThreshold        bool   `json:"below_threshold"`
 }
 
 type transactionResponse struct {
@@ -47,8 +50,10 @@ func HandleGetWallet(a *app.App) http.HandlerFunc {
 		wallet, err := a.Wallets.FindByUser(r.Context(), userID, nil)
 		if err != nil {
 			if errors.Is(err, walletRepo.ErrNotFound) {
+				threshold, _ := fetchBalanceAlertThreshold(r.Context(), a, userID)
 				writeJSON(w, http.StatusOK, walletResponse{
 					Balance: "0", Frozen: "0", Available: "0", Currency: "CNY",
+					BalanceAlertThreshold: threshold,
 				})
 				return
 			}
@@ -68,13 +73,78 @@ func HandleGetWallet(a *app.App) http.HandlerFunc {
 			totalCharged = "0"
 		}
 
+		threshold, _ := fetchBalanceAlertThreshold(r.Context(), a, userID)
+		th, _ := decimal.NewFromString(threshold)
 		writeJSON(w, http.StatusOK, walletResponse{
-			Balance:      wallet.Balance.String(),
-			Frozen:       wallet.Frozen.String(),
-			Available:    wallet.Available().String(),
-			Currency:     wallet.Currency,
-			TotalCharged: totalCharged,
+			Balance:               wallet.Balance.String(),
+			Frozen:                wallet.Frozen.String(),
+			Available:             wallet.Available().String(),
+			Currency:              wallet.Currency,
+			TotalCharged:          totalCharged,
+			BalanceAlertThreshold: threshold,
+			BelowThreshold:        th.IsPositive() && wallet.Available().LessThan(th),
 		})
+	}
+}
+
+// fetchBalanceAlertThreshold reads the user's low-balance alert threshold
+// (0 = disabled), returned as a decimal string.
+func fetchBalanceAlertThreshold(ctx context.Context, a *app.App, userID uuid.UUID) (string, error) {
+	var th string
+	if err := a.Pool.QueryRow(ctx,
+		`SELECT COALESCE(balance_alert_threshold, 0)::text FROM users WHERE id = $1`, userID,
+	).Scan(&th); err != nil {
+		return "0", err
+	}
+	return trimDecimalPrice(th), nil
+}
+
+// HandleGetBalanceAlert returns the authenticated user's low-balance threshold.
+func HandleGetBalanceAlert(a *app.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, err := jwtutil.UserIDFromContext(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+			return
+		}
+		threshold, err := fetchBalanceAlertThreshold(r.Context(), a, userID)
+		if err != nil {
+			log.Printf("console: balance alert threshold: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to load balance alert"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"threshold": trimDecimalPrice(threshold)})
+	}
+}
+
+// HandleSetBalanceAlert persists the user's low-balance threshold (0 disables).
+func HandleSetBalanceAlert(a *app.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, err := jwtutil.UserIDFromContext(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+			return
+		}
+		var req struct {
+			Threshold string `json:"threshold"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+			return
+		}
+		threshold, err := decimal.NewFromString(req.Threshold)
+		if err != nil || threshold.IsNegative() {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Threshold must be a non-negative number"})
+			return
+		}
+		if _, err := a.Pool.Exec(r.Context(),
+			`UPDATE users SET balance_alert_threshold = $1, updated_at = NOW() WHERE id = $2`,
+			threshold.String(), userID); err != nil {
+			log.Printf("console: set balance alert: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save balance alert"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"threshold": trimDecimalPrice(threshold.String())})
 	}
 }
 

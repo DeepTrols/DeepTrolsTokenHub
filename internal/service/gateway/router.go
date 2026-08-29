@@ -30,6 +30,22 @@ type RouteResult struct {
 	UpstreamModel string
 }
 
+// FilterByGroup restricts candidates to channels whose group matches the
+// caller's group. A caller group of "" imposes no restriction, and a channel
+// with no group is always eligible (backward compatible).
+func FilterByGroup(candidates []RouteResult, callerGroup string) []RouteResult {
+	if callerGroup == "" {
+		return candidates
+	}
+	out := make([]RouteResult, 0, len(candidates))
+	for _, c := range candidates {
+		if c.Channel == nil || c.Channel.GroupName == "" || c.Channel.GroupName == callerGroup {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // LoadSource supplies real-time in-flight counts per channel instance. The
 // database current_load column is never maintained at runtime, so routing
 // falls back to it only when no live source is wired or Redis errors out.
@@ -41,6 +57,7 @@ type Router struct {
 	models   model.Repository
 	channels channel.Repository
 	loads    LoadSource
+	affinity AffinityStore
 }
 
 // loadFallbackLog throttle prevents a Redis outage from flooding the logs on
@@ -58,6 +75,20 @@ func NewRouter(models model.Repository, channels channel.Repository) *Router {
 // Nil or disabled sources leave routing on the database current_load column.
 func (r *Router) SetLoadSource(loads LoadSource) {
 	r.loads = loads
+}
+
+// EnableAffinity wires the channel-affinity store (Redis or in-memory).
+func (r *Router) EnableAffinity(store AffinityStore) {
+	r.affinity = store
+}
+
+// RecordAffinity remembers the channel chosen for a user + model so the next
+// request prefers the same upstream (cache-hit parity with new-api).
+func (r *Router) RecordAffinity(ctx context.Context, userID, model, channelID string) {
+	if r.affinity == nil || userID == "" || model == "" || channelID == "" {
+		return
+	}
+	_ = r.affinity.Set(ctx, affinityKey(userID, model), channelID, affinityTTL)
 }
 
 func (r *Router) Route(ctx context.Context, identity *domain.RequestIdentity, publicModelCode string) (*RouteResult, error) {
@@ -126,6 +157,9 @@ func (r *Router) RouteCandidates(ctx context.Context, identity *domain.RequestId
 		routingKey = identity.UserID.String() + publicModelCode
 	}
 	candidates = orderChannels(candidates, routingKey)
+	if r.affinity != nil && identity != nil && identity.UserID != uuid.Nil {
+		candidates = applyAffinity(ctx, r.affinity, identity.UserID.String(), publicModelCode, candidates)
+	}
 	if len(candidates) > max {
 		candidates = candidates[:max]
 	}
@@ -167,6 +201,11 @@ func (r *Router) RouteCandidates(ctx context.Context, identity *domain.RequestId
 	}
 	if len(results) == 0 {
 		return nil, ErrNoChannelAvailable
+	}
+	// Remember the preferred channel so the next request from the same
+	// user + model stays on the same upstream (best-effort, TTL-bounded).
+	if r.affinity != nil && identity != nil && identity.UserID != uuid.Nil {
+		r.RecordAffinity(ctx, identity.UserID.String(), publicModelCode, results[0].Channel.ID.String())
 	}
 	return results, nil
 }

@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Copy, Plus } from "lucide-react";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 const GMT8_MS = 8 * 60 * 60 * 1000;
 
@@ -31,6 +33,8 @@ interface KeyFormState {
   rateLimitTpm: string;
   overLimitAction: string;
   status: string;
+  expires_at: string;
+  groupName: string;
 }
 
 const emptyForm = (): KeyFormState => ({
@@ -44,6 +48,8 @@ const emptyForm = (): KeyFormState => ({
   rateLimitTpm: "",
   overLimitAction: "block",
   status: "active",
+  expires_at: "",
+  groupName: "",
 });
 
 const formFromKey = (k: APIKeyData): KeyFormState => ({
@@ -57,6 +63,8 @@ const formFromKey = (k: APIKeyData): KeyFormState => ({
   rateLimitTpm: k.rate_limit_tpm ? String(k.rate_limit_tpm) : "",
   overLimitAction: k.over_limit_action || "block",
   status: k.status || "active",
+  expires_at: k.expires_at || "",
+  groupName: k.group_name || "",
 });
 
 function KeyFields({
@@ -68,53 +76,54 @@ function KeyFields({
   onChange: (f: KeyFormState) => void;
   showStatus?: boolean;
 }) {
+  const { t } = useTranslation();
   const set = (patch: Partial<KeyFormState>) => onChange({ ...form, ...patch });
   return (
     <div className="space-y-4">
       <div>
         <Label htmlFor="key-name" className="text-[12px] font-semibold text-[#5C6472]">
-          密钥名称
+          {t("apikeys.name")}
         </Label>
         <Input
           id="key-name"
           type="text"
           value={form.name}
           onChange={(e) => set({ name: e.target.value })}
-          placeholder="例如：生产环境、测试环境"
+          placeholder={t("apikeys.namePlaceholder")}
         />
       </div>
       <div>
         <Label htmlFor="key-models" className="text-[12px] font-semibold text-[#5C6472]">
-          模型白名单
+          {t("apikeys.models")}
         </Label>
         <Input
           id="key-models"
           type="text"
           value={form.allowedModels}
           onChange={(e) => set({ allowedModels: e.target.value })}
-          placeholder="例如: gpt-4o, deepseek-v4-flash"
+          placeholder={t("apikeys.modelsPlaceholder")}
           className="font-mono"
         />
-        <p className="text-xs text-[#5C6472]/80 mt-1">用逗号分隔，留空表示不限制</p>
+        <p className="text-xs text-[#5C6472]/80 mt-1">{t("apikeys.modelsHint")}</p>
       </div>
       <div>
         <Label htmlFor="key-ips" className="text-[12px] font-semibold text-[#5C6472]">
-          IP 白名单
+          {t("apikeys.ips")}
         </Label>
         <Input
           id="key-ips"
           type="text"
           value={form.sourceWhitelist}
           onChange={(e) => set({ sourceWhitelist: e.target.value })}
-          placeholder="例如: 192.168.1.0/24, 10.0.0.0/8"
+          placeholder={t("apikeys.ipsPlaceholder")}
           className="font-mono"
         />
-        <p className="text-xs text-[#5C6472]/80 mt-1">支持 CIDR 格式，用逗号分隔，留空表示不限制</p>
+        <p className="text-xs text-[#5C6472]/80 mt-1">{t("apikeys.ipsHint")}</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <Label htmlFor="key-monthly" className="text-xs font-medium text-[#5C6472] mb-1 block">
-            月度限额 (CNY/月)
+            {t("apikeys.monthlyLabel")}
           </Label>
           <Input
             id="key-monthly"
@@ -123,12 +132,12 @@ function KeyFields({
             step="0.01"
             value={form.monthlyLimit}
             onChange={(e) => set({ monthlyLimit: e.target.value })}
-            placeholder="月度消费上限"
+            placeholder={t("apikeys.monthlyPlaceholder")}
           />
         </div>
         <div>
           <Label htmlFor="key-weekly" className="text-xs font-medium text-[#5C6472] mb-1 block">
-            周限额 (CNY/周)
+            {t("apikeys.weeklyLabel")}
           </Label>
           <Input
             id="key-weekly"
@@ -137,12 +146,12 @@ function KeyFields({
             step="0.01"
             value={form.weeklyLimit}
             onChange={(e) => set({ weeklyLimit: e.target.value })}
-            placeholder="周消费上限"
+            placeholder={t("apikeys.weeklyPlaceholder")}
           />
         </div>
         <div>
           <Label htmlFor="key-cumulative" className="text-xs font-medium text-[#5C6472] mb-1 block">
-            累计限额 (CNY 总计)
+            {t("apikeys.cumulativeLabel")}
           </Label>
           <Input
             id="key-cumulative"
@@ -151,14 +160,14 @@ function KeyFields({
             step="0.01"
             value={form.cumulativeLimit}
             onChange={(e) => set({ cumulativeLimit: e.target.value })}
-            placeholder="累计消费上限"
+            placeholder={t("apikeys.cumulativePlaceholder")}
           />
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <Label htmlFor="key-rpm" className="text-xs font-medium text-[#5C6472] mb-1 block">
-            RPM 限流 (请求/分钟)
+            {t("apikeys.rpmLabel")}
           </Label>
           <Input
             id="key-rpm"
@@ -167,12 +176,12 @@ function KeyFields({
             step="1"
             value={form.rateLimitRpm}
             onChange={(e) => set({ rateLimitRpm: e.target.value })}
-            placeholder="每分钟请求上限，0 或留空=不限"
+            placeholder={t("apikeys.rpmPlaceholder")}
           />
         </div>
         <div>
           <Label htmlFor="key-tpm" className="text-xs font-medium text-[#5C6472] mb-1 block">
-            TPM 限流 (Token/分钟)
+            {t("apikeys.tpmLabel")}
           </Label>
           <Input
             id="key-tpm"
@@ -181,13 +190,37 @@ function KeyFields({
             step="1"
             value={form.rateLimitTpm}
             onChange={(e) => set({ rateLimitTpm: e.target.value })}
-            placeholder="每分钟 Token 上限，0 或留空=不限"
+            placeholder={t("apikeys.tpmPlaceholder")}
           />
         </div>
+        <div>
+          <Label htmlFor="key-expiry" className="text-xs font-medium text-[#5C6472] mb-1 block">
+            {t("apikeys.expiryLabel")}
+          </Label>
+          <Input
+            id="key-expiry"
+            type="datetime-local"
+            value={form.expires_at}
+            onChange={(e) => set({ expires_at: e.target.value })}
+            placeholder={t("apikeys.expiryPlaceholder")}
+          />
+        </div>
+        <div>
+          <Label htmlFor="key-group" className="text-xs font-medium text-[#5C6472] mb-1 block">
+            {t("apikeys.groupLabel")}
+          </Label>
+          <Input
+            id="key-group"
+            value={form.groupName}
+            onChange={(e) => set({ groupName: e.target.value })}
+            placeholder={t("apikeys.groupPlaceholder")}
+          />
+          <p className="mt-1 text-[11px] text-[#8C93A1]">{t("apikeys.groupHint")}</p>
+        </div>
       </div>
-      <p className="text-xs text-[#5C6472]/80">RPM/TPM 按分钟桶执行，超限返回 429 并附带 X-RateLimit-* 响应头</p>
+      <p className="text-xs text-[#5C6472]/80">{t("apikeys.rateHint")}</p>
       <div>
-        <span className="block text-sm font-medium text-[#161A23] mb-2">超限动作</span>
+        <span className="block text-sm font-medium text-[#161A23] mb-2">{t("apikeys.overLimitAction")}</span>
         <div className="flex gap-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -197,9 +230,9 @@ function KeyFields({
               checked={form.overLimitAction === "block"}
               onChange={(e) => set({ overLimitAction: e.target.value })}
               className="accent-[#4F6BED]"
-              aria-label="阻止 (block)"
+              aria-label={t("apikeys.block")}
             />
-            <span className="text-sm text-[#161A23]">阻止 (block)</span>
+            <span className="text-sm text-[#161A23]">{t("apikeys.block")}</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -209,16 +242,16 @@ function KeyFields({
               checked={form.overLimitAction === "warn"}
               onChange={(e) => set({ overLimitAction: e.target.value })}
               className="accent-[#4F6BED]"
-              aria-label="警告 (warn)"
+              aria-label={t("apikeys.warn")}
             />
-            <span className="text-sm text-[#161A23]">警告 (warn)</span>
+            <span className="text-sm text-[#161A23]">{t("apikeys.warn")}</span>
           </label>
         </div>
       </div>
       {showStatus && (
         <div>
           <Label htmlFor="key-status" className="text-[12px] font-semibold text-[#5C6472]">
-            状态
+            {t("apikeys.status")}
           </Label>
           <select
             id="key-status"
@@ -226,8 +259,8 @@ function KeyFields({
             onChange={(e) => set({ status: e.target.value })}
             className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F6BED]/25"
           >
-            <option value="active">启用</option>
-            <option value="disabled">停用</option>
+            <option value="active">{t("apikeys.active")}</option>
+            <option value="disabled">{t("apikeys.disabled")}</option>
           </select>
         </div>
       )}
@@ -240,6 +273,7 @@ const blackButton =
 const outlineButton = "rounded-lg border border-black/10 bg-white text-sm font-semibold px-4 py-2 hover:bg-black/5";
 
 export default function APIKeys() {
+  const { t } = useTranslation();
   const { data: keyData, isLoading, isError, refetch } = useConsoleQuery<{ data: APIKeyData[] }>("/api-keys");
   const keys = keyData?.data ?? [];
 
@@ -277,6 +311,8 @@ export default function APIKeys() {
     }
     Object.assign(body, limits);
     body.over_limit_action = createForm.overLimitAction;
+    if (createForm.expires_at) body.expires_at = new Date(createForm.expires_at).toISOString();
+    if (createForm.groupName) body.group_name = createForm.groupName;
 
     const res = await createMutation.mutateAsync(body);
     if (res.plaintext && res.id) setKeySecret(String(res.id), String(res.plaintext));
@@ -310,7 +346,7 @@ export default function APIKeys() {
   };
 
   const handleDelete = async (k: APIKeyData) => {
-    if (!confirm(`确定要删除 API key「${k.name || k.masked_key}」吗？删除后立即失效。`)) return;
+    if (!confirm(t("apikeys.deleteConfirm", { name: k.name || k.masked_key }))) return;
     await deleteMutation.mutateAsync({ id: k.id });
   };
 
@@ -324,7 +360,7 @@ export default function APIKeys() {
       setViewPlaintext(res.plaintext);
       setKeySecret(k.id, res.plaintext);
     } catch (e) {
-      setViewError(e instanceof Error ? e.message : "获取失败");
+      setViewError(e instanceof Error ? e.message : t("apikeys.fetchFailed"));
     } finally {
       setViewLoading(false);
     }
@@ -349,30 +385,30 @@ export default function APIKeys() {
             API keys
           </h2>
           <p className="text-[13px] text-[#5C6472] mt-2 leading-relaxed max-w-[720px]">
-            列表内是你的全部 API key，API key 请妥善保存。不要与他人共享你的 API key，或将其暴露在浏览器或其他客户端代码中。为了保护你的帐户安全，我们可能会自动禁用我们发现已公开泄露的 API key。
+            {t("apikeys.description")}
           </p>
         </div>
         <button className={blackButton} onClick={() => setCreateOpen(true)}>
           <Plus size={15} />
-          创建密钥
+          {t("apikeys.create")}
         </button>
       </div>
 
-      {isLoading && <div className="py-12 text-center text-[#5C6472]">加载 API keys...</div>}
+      {isLoading && <div className="py-12 text-center text-[#5C6472]">{t("apikeys.loading")}</div>}
 
       {!isLoading && isError && (
         <div className="glass rounded-2xl border-[#E5484D]/25 p-5 text-[#C4372C] text-sm mb-4">
-          <p className="font-medium">加载失败</p>
+          <p className="font-medium">{t("apikeys.loadFailed")}</p>
           <button onClick={() => refetch()} className="mt-2 rounded-lg bg-[#E5484D] px-4 py-2 text-sm font-semibold text-white hover:brightness-110">
-            重试
+            {t("apikeys.retry")}
           </button>
         </div>
       )}
 
       {!isLoading && keys.length === 0 && (
         <div className="glass rounded-2xl py-12 text-center">
-          <p className="text-[#5C6472] font-medium">暂无 API key</p>
-          <p className="text-sm mt-1 text-[#5C6472]/80">点击右上角"创建密钥"创建第一个 key</p>
+          <p className="text-[#5C6472] font-medium">{t("apikeys.empty")}</p>
+          <p className="text-sm mt-1 text-[#5C6472]/80">{t("apikeys.emptyHint")}</p>
         </div>
       )}
 
@@ -381,12 +417,14 @@ export default function APIKeys() {
           <table className="w-full text-sm">
             <thead>
               <tr className="divide-x divide-black/10 bg-white/55">
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">名称</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">key</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">创建日期</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">最新使用日期</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">限流</th>
-                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">操作</th>
+                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">{t("apikeys.thName")}</th>
+                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">{t("apikeys.thKey")}</th>
+                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">{t("apikeys.thCreated")}</th>
+                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">{t("apikeys.thLastUsed")}</th>
+                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">{t("apikeys.thExpires")}</th>
+                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">{t("apikeys.thGroup")}</th>
+                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">{t("apikeys.thRateLimit")}</th>
+                <th className="px-4 py-3 text-left text-[13px] font-bold text-[#161A23]">{t("apikeys.thActions")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black/10">
@@ -395,17 +433,19 @@ export default function APIKeys() {
                   <td className="px-4 py-3 text-[#161A23]">{k.name}</td>
                   <td className="px-4 py-3 font-mono text-[13px] text-[#161A23]">{k.masked_key}</td>
                   <td className="px-4 py-3 text-[#161A23]">{gmt8DateTime(k.created_at)}</td>
-                  <td className="px-4 py-3 text-[#161A23]">{k.last_used_at ? gmt8DateTime(k.last_used_at) : "从未使用"}</td>
+                  <td className="px-4 py-3 text-[#161A23]">{k.last_used_at ? gmt8DateTime(k.last_used_at) : t("apikeys.neverUsed")}</td>
+                  <td className="px-4 py-3 text-[#161A23]">{k.expires_at ? gmt8DateTime(k.expires_at) : t("apikeys.neverExpires")}</td>
+                  <td className="px-4 py-3 text-[#161A23]">{k.group_name || "-"}</td>
                   <td className="px-4 py-3 text-[13px] text-[#161A23]">{formatRateLimit(k.rate_limit_rpm, k.rate_limit_tpm)}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-[13px]">
                     <button className="text-[#4F6BED] hover:underline" onClick={() => openView(k)}>
-                      查看key
+                      {t("apikeys.viewKey")}
                     </button>
                     <button className="text-[#4F6BED] hover:underline ml-3" onClick={() => openEdit(k)}>
-                      编辑
+                      {t("apikeys.edit")}
                     </button>
                     <button className="text-[#4F6BED] hover:underline ml-3" onClick={() => handleDelete(k)}>
-                      删除
+                      {t("apikeys.delete")}
                     </button>
                   </td>
                 </tr>
@@ -419,15 +459,15 @@ export default function APIKeys() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>创建新密钥</DialogTitle>
+            <DialogTitle>{t("apikeys.createTitle")}</DialogTitle>
           </DialogHeader>
           <KeyFields form={createForm} onChange={setCreateForm} />
           <DialogFooter>
             <button className={outlineButton} onClick={() => setCreateOpen(false)}>
-              取消
+              {t("apikeys.cancel")}
             </button>
             <button className={blackButton} onClick={handleCreate}>
-              确认创建
+              {t("apikeys.confirmCreate")}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -437,25 +477,25 @@ export default function APIKeys() {
       <Dialog open={newKey !== null} onOpenChange={(o) => !o && setNewKey(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>新 key 已创建</DialogTitle>
+            <DialogTitle>{t("apikeys.createdTitle")}</DialogTitle>
           </DialogHeader>
           {newKey?.plaintext && (
             <>
               <code className="block bg-black/[0.04] border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono break-all">
                 {newKey.plaintext}
               </code>
-              <p className="text-xs text-[#A06B12]">{newKey.warning || "请立即复制并安全保存，此 key 仅显示一次"}</p>
+              <p className="text-xs text-[#A06B12]">{newKey.warning || t("apikeys.copyWarning")}</p>
             </>
           )}
           <DialogFooter>
             {newKey?.plaintext && (
               <button className={blackButton} onClick={() => copyText(newKey.plaintext as string)}>
                 <Copy size={14} />
-                复制
+                {t("apikeys.copy")}
               </button>
             )}
             <button className={outlineButton} onClick={() => setNewKey(null)}>
-              我已保存，关闭
+              {t("apikeys.savedClose")}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -465,15 +505,15 @@ export default function APIKeys() {
       <Dialog open={editKey !== null} onOpenChange={(o) => !o && setEditKey(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>编辑 key</DialogTitle>
+            <DialogTitle>{t("apikeys.editTitle")}</DialogTitle>
           </DialogHeader>
           <KeyFields form={editForm} onChange={setEditForm} showStatus />
           <DialogFooter>
             <button className={outlineButton} onClick={() => setEditKey(null)}>
-              取消
+              {t("apikeys.cancel")}
             </button>
             <button className={blackButton} onClick={handleSaveEdit}>
-              保存更改
+              {t("apikeys.save")}
             </button>
           </DialogFooter>
         </DialogContent>
@@ -483,28 +523,28 @@ export default function APIKeys() {
       <Dialog open={viewKey !== null} onOpenChange={(o) => !o && setViewKey(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>查看 key</DialogTitle>
+            <DialogTitle>{t("apikeys.viewTitle")}</DialogTitle>
           </DialogHeader>
           <div className="text-sm text-[#5C6472]">{viewKey?.name}</div>
-          {viewLoading && <p className="text-sm text-[#5C6472]">正在获取...</p>}
+          {viewLoading && <p className="text-sm text-[#5C6472]">{t("apikeys.fetching")}</p>}
           {viewError && <p className="text-sm text-[#C4372C]">{viewError}</p>}
           {viewPlaintext && (
             <>
               <code className="block bg-black/[0.04] border border-black/10 rounded-lg px-3 py-2.5 text-sm font-mono break-all">
                 {viewPlaintext}
               </code>
-              <p className="text-xs text-[#C4372C]">请勿与他人共享此 key，也不要在浏览器或其他客户端代码中暴露。</p>
+              <p className="text-xs text-[#C4372C]">{t("apikeys.shareWarning")}</p>
             </>
           )}
           <DialogFooter>
             {viewPlaintext && (
               <button className={blackButton} onClick={() => copyText(viewPlaintext)}>
                 <Copy size={14} />
-                复制
+                {t("apikeys.copy")}
               </button>
             )}
             <button className={outlineButton} onClick={() => setViewKey(null)}>
-              关闭
+              {t("apikeys.close")}
             </button>
           </DialogFooter>
         </DialogContent>

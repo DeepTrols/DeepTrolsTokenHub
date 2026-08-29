@@ -1,6 +1,7 @@
 package console
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -37,6 +38,8 @@ type apiKeyResponse struct {
 	RateLimitTPM    int64    `json:"rate_limit_tpm,omitempty"`
 	LastUsedAt      string   `json:"last_used_at,omitempty"`
 	Last7dActive    bool     `json:"last_7d_active"`
+	ExpiresAt       string   `json:"expires_at,omitempty"`
+	GroupName       string   `json:"group_name,omitempty"`
 	CreatedAt       string   `json:"created_at"`
 }
 
@@ -50,6 +53,8 @@ type createAPIKeyRequest struct {
 	OverLimitAction string   `json:"over_limit_action,omitempty"`
 	RateLimitRPM    int      `json:"rate_limit_rpm,omitempty"`
 	RateLimitTPM    int64    `json:"rate_limit_tpm,omitempty"`
+	ExpiresAt       string   `json:"expires_at,omitempty"`
+	GroupName       string   `json:"group_name,omitempty"`
 }
 
 type createAPIKeyResponse struct {
@@ -92,6 +97,7 @@ func HandleListAPIKeys(a *app.App) http.HandlerFunc {
 				RateLimitRPM:    k.RateLimitRPM,
 				RateLimitTPM:    k.RateLimitTPM,
 				Last7dActive:    k.Last7dActive,
+				GroupName:       k.GroupName,
 				CreatedAt:       k.CreatedAt.Format(time.RFC3339),
 			}
 			if k.KeyPrefix != "" {
@@ -111,6 +117,9 @@ func HandleListAPIKeys(a *app.App) http.HandlerFunc {
 			}
 			if k.LastUsedAt != nil {
 				item.LastUsedAt = k.LastUsedAt.Format(time.RFC3339)
+			}
+			if k.ExpiresAt != nil {
+				item.ExpiresAt = k.ExpiresAt.Format(time.RFC3339)
 			}
 			response = append(response, item)
 		}
@@ -204,6 +213,19 @@ func HandleCreateAPIKey(a *app.App) http.HandlerFunc {
 		}
 		key.RateLimitRPM = req.RateLimitRPM
 		key.RateLimitTPM = req.RateLimitTPM
+		if req.ExpiresAt != "" {
+			exp, err := time.Parse(time.RFC3339, req.ExpiresAt)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid expires_at"})
+				return
+			}
+			key.ExpiresAt = &exp
+		}
+		key.GroupName = req.GroupName
+		if req.GroupName != "" && !userMayUseGroup(r.Context(), a, userID, req.GroupName) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "分组 " + req.GroupName + " 需要有效的订阅套餐，或由管理员创建"})
+			return
+		}
 
 		if err := a.APIKeys.Create(r.Context(), &key); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create API key"})
@@ -357,6 +379,27 @@ func HandleUpdateAPIKey(a *app.App) http.HandlerFunc {
 			"id":     key.ID.String(),
 		})
 	}
+}
+
+// userMayUseGroup reports whether the caller may bind an API key to a channel
+// group: admins always may; regular users need an active subscription whose
+// plan grants the group (subscription-benefit parity with new-api).
+func userMayUseGroup(ctx context.Context, a *app.App, userID uuid.UUID, groupName string) bool {
+	if role, err := jwtutil.RoleFromContext(ctx); err == nil && role == "admin" {
+		return true
+	}
+	var exists bool
+	err := a.Pool.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM user_subscriptions us
+			JOIN subscription_plans p ON p.id = us.plan_id
+			WHERE us.user_id = $1 AND us.status = 'active' AND us.expires_at > NOW()
+			  AND p.group_name = $2
+		)`, userID, groupName).Scan(&exists)
+	if err != nil {
+		return false
+	}
+	return exists
 }
 
 // HandleGetAPIKeySecret returns the plaintext for a key (decrypted from storage).

@@ -1,17 +1,23 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function Register() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const auth = useAuth();
+  const [searchParams] = useSearchParams();
+  const prefillInvite = searchParams.get("invite") || "";
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState(prefillInvite);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -20,10 +26,10 @@ export default function Register() {
     setError("");
     setLoading(true);
     try {
-      await auth.register(email, password, name);
+      await auth.register(email, password, name, inviteCode.trim() || undefined);
       navigate("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "注册失败，请稍后重试");
+      setError(err instanceof Error ? err.message : t("register.fail"));
     }
     setLoading(false);
   };
@@ -37,26 +43,31 @@ export default function Register() {
       <div className="relative z-10 glass rounded-[22px] w-full max-w-md p-10">
         <div className="text-center pb-2">
           <img src="/brand-logo.png" alt="DEEPTROLS" className="mx-auto mb-5 w-[196px] h-auto" />
-          <p className="text-[13px] text-[#5C6472] mt-1">AI 模型聚合平台 · 创建账号</p>
+          <p className="text-[13px] text-[#5C6472] mt-1">{t("register.desc")}</p>
         </div>
         <div>
           <form onSubmit={handleSubmit} className="space-y-4 mt-6">
             <div className="space-y-2">
-              <Label htmlFor="name" className="text-[12px] font-semibold text-[#5C6472]">昵称</Label>
-              <Input id="name" value={name} onChange={e => setName(e.target.value)} placeholder="请输入昵称" required />
+              <Label htmlFor="name" className="text-[12px] font-semibold text-[#5C6472]">{t("register.name")}</Label>
+              <Input id="name" value={name} onChange={e => setName(e.target.value)} placeholder={t("register.namePlaceholder")} required />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-[12px] font-semibold text-[#5C6472]">邮箱</Label>
-              <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="请输入邮箱" required />
+              <Label htmlFor="email" className="text-[12px] font-semibold text-[#5C6472]">{t("register.email")}</Label>
+              <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t("register.emailPlaceholder")} required />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-[12px] font-semibold text-[#5C6472]">密码</Label>
-              <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="至少8位" required minLength={8} />
+              <Label htmlFor="password" className="text-[12px] font-semibold text-[#5C6472]">{t("register.password")}</Label>
+              <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={t("register.passwordPlaceholder")} required minLength={8} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invite" className="text-[12px] font-semibold text-[#5C6472]">{t("register.invite")}</Label>
+              <Input id="invite" value={inviteCode} onChange={e => setInviteCode(e.target.value)} placeholder="DTPxxxxxxxx" />
+              <p className="text-xs text-[#5C6472]">{t("register.inviteHint")}</p>
             </div>
             {error && <div className="p-3 bg-[#E5484D]/10 border border-[#E5484D]/20 rounded-xl text-[#C4372C] text-sm">{error}</div>}
-            <Button type="submit" disabled={loading} className="w-full" size="lg">{loading ? "注册中..." : "注 册"}</Button>
+            <Button type="submit" disabled={loading} className="w-full" size="lg">{loading ? t("register.submitting") : t("register.submit")}</Button>
           </form>
-          <p className="text-center text-xs text-[#5C6472] mt-6">已有账号？ <Link to="/login" className="text-[#4F6BED] font-semibold hover:underline">立即登录</Link></p>
+          <p className="text-center text-xs text-[#5C6472] mt-6">{t("register.hasAccount")} <Link to="/login" className="text-[#4F6BED] font-semibold hover:underline">{t("register.loginNow")}</Link></p>
         </div>
       </div>
     </div>

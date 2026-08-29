@@ -23,6 +23,8 @@ type User struct {
 	Status       UserStatus
 	Phone        string
 	AvatarURL    string
+	InviteCode   string
+	InvitedBy    *uuid.UUID
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

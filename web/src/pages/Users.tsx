@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 interface UserRow {
   id: string;
@@ -29,12 +31,13 @@ function statusVariant(s: string): "success" | "destructive" | "secondary" {
   return "secondary";
 }
 function statusLabel(s: string): string {
-  if (s === "active") return "正常";
-  if (s === "banned") return "已封禁";
+  if (s === "active") return "users.statusActive";
+  if (s === "banned") return "users.statusBanned";
   return s;
 }
 
 export default function Users() {
+  const { t } = useTranslation();
   const { data, isLoading, isError, error, refetch } = useAdminQuery<{ data: UserRow[]; total: number }>(QUERY);
   const all = useMemo(() => data?.data ?? [], [data]);
   const total = data?.total ?? 0;
@@ -74,7 +77,7 @@ export default function Users() {
     }
   };
   const handleDelete = async (u: UserRow) => {
-    if (!window.confirm("确定删除用户 " + u.email + " 吗？")) return;
+    if (!window.confirm(t("users.deleteConfirm", { email: u.email }))) return;
     try {
       await dm.mutateAsync({ id: u.id });
     } catch {
@@ -108,11 +111,11 @@ export default function Users() {
       <SectionPageLayout>
         <SectionPageLayout.Header>
           <SectionPageLayout.HeaderBlock>
-            <SectionPageLayout.Title>用户管理</SectionPageLayout.Title>
+            <SectionPageLayout.Title>{t("users.title")}</SectionPageLayout.Title>
           </SectionPageLayout.HeaderBlock>
         </SectionPageLayout.Header>
         <SectionPageLayout.Content>
-          <LoadingState message="加载个人账号..." />
+          <LoadingState message={t("users.loading")} />
         </SectionPageLayout.Content>
       </SectionPageLayout>
     );
@@ -122,8 +125,8 @@ export default function Users() {
     <SectionPageLayout>
       <SectionPageLayout.Header>
         <SectionPageLayout.HeaderBlock>
-          <SectionPageLayout.Title>用户管理</SectionPageLayout.Title>
-          <SectionPageLayout.Description>共 {total} 个个人账号</SectionPageLayout.Description>
+          <SectionPageLayout.Title>{t("users.title")}</SectionPageLayout.Title>
+          <SectionPageLayout.Description>{t("users.totalCount", { count: total })}</SectionPageLayout.Description>
         </SectionPageLayout.HeaderBlock>
         <SectionPageLayout.Actions>
           <Button
@@ -136,7 +139,7 @@ export default function Users() {
             }}
           >
             <Plus size={16} className="mr-1.5" />
-            创建个人用户
+            {t("users.createUser")}
           </Button>
         </SectionPageLayout.Actions>
       </SectionPageLayout.Header>
@@ -145,7 +148,7 @@ export default function Users() {
         <div className="mb-4 flex items-center gap-2">
           <div className="relative max-w-sm flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索邮箱 / 名称" className="pl-9 h-9 text-sm" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("users.searchPlaceholder")} className="pl-9 h-9 text-sm" />
             {q && (
               <Button variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setQ("")}>
                 <X size={14} />
@@ -160,18 +163,18 @@ export default function Users() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>用户</TableHead>
-                <TableHead>角色</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>创建时间</TableHead>
-                <TableHead className="text-right">操作</TableHead>
+                <TableHead>{t("users.thUser")}</TableHead>
+                <TableHead>{t("users.thRole")}</TableHead>
+                <TableHead>{t("users.thStatus")}</TableHead>
+                <TableHead>{t("users.thCreated")}</TableHead>
+                <TableHead className="text-right">{t("users.thActions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {users.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5}>
-                    <EmptyState icon={UsersIcon} title={q ? "未找到" : "暂无个人账号"} />
+                    <EmptyState icon={UsersIcon} title={q ? t("users.notFound") : t("users.empty")} />
                   </TableCell>
                 </TableRow>
               )}
@@ -183,11 +186,11 @@ export default function Users() {
                   </TableCell>
                   <TableCell>
                     <Badge variant={u.role === "admin" ? "default" : "secondary"}>
-                      {u.role === "admin" ? "管理员" : "用户"}
+                      {u.role === "admin" ? t("users.roleAdmin") : t("users.roleUser")}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={statusVariant(u.status)}>{statusLabel(u.status)}</Badge>
+                    <Badge variant={statusVariant(u.status)}>{t(statusLabel(u.status))}</Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
@@ -196,7 +199,7 @@ export default function Users() {
                     <div className="flex gap-1 justify-end">
                       <Button variant="outline" size="sm" onClick={() => openEdit(u)}>
                         <Edit size={12} className="mr-1" />
-                        编辑
+                        {t("users.edit")}
                       </Button>
                       <Button variant="outline" size="sm" className="hover:text-destructive" onClick={() => handleDelete(u)}>
                         <Trash2 size={12} />
@@ -213,7 +216,7 @@ export default function Users() {
         <Dialog open={ed !== null} onOpenChange={() => setEd(null)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>编辑个人用户</DialogTitle>
+              <DialogTitle>{t("users.editTitle")}</DialogTitle>
             </DialogHeader>
             {ed && (
               <div className="space-y-4">
@@ -221,9 +224,9 @@ export default function Users() {
                   <p className="font-medium">{ed.email}</p>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">角色</label>
+                  <label className="text-sm font-medium">{t("users.role")}</label>
                   <div className="flex gap-2">
-                    {[{ v: "user", l: "用户" }, { v: "admin", l: "管理员" }].map((o) => (
+                    {[{ v: "user", l: t("users.roleUser") }, { v: "admin", l: t("users.roleAdmin") }].map((o) => (
                       <Button key={o.v} variant={er === o.v ? "default" : "outline"} size="sm" onClick={() => setEr(o.v)}>
                         {o.l}
                       </Button>
@@ -231,9 +234,9 @@ export default function Users() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">状态</label>
+                  <label className="text-sm font-medium">{t("users.status")}</label>
                   <div className="flex gap-2">
-                    {[{ v: "active", l: "启用" }, { v: "banned", l: "封禁" }].map((o) => (
+                    {[{ v: "active", l: t("users.enable") }, { v: "banned", l: t("users.ban") }].map((o) => (
                       <Button
                         key={o.v}
                         variant={es === o.v ? (o.v === "active" ? "default" : "destructive") : "outline"}
@@ -249,9 +252,9 @@ export default function Users() {
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setEd(null)}>
-                取消
+              {t("users.cancel")}
               </Button>
-              <Button onClick={saveEdit}>保存</Button>
+              <Button onClick={saveEdit}>{t("users.save")}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -260,25 +263,25 @@ export default function Users() {
         <Dialog open={sc} onOpenChange={setSc}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>创建个人用户</DialogTitle>
+              <DialogTitle>{t("users.createTitle")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>邮箱 *</Label>
+                <Label>{t("users.email")}</Label>
                 <Input value={em} onChange={(e) => setEm(e.target.value)} type="email" placeholder="user@example.com" />
               </div>
               <div className="space-y-2">
-                <Label>密码 *</Label>
-                <Input value={pw} onChange={(e) => setPw(e.target.value)} type="password" placeholder="至少 8 位" />
+                <Label>{t("users.password")}</Label>
+                <Input value={pw} onChange={(e) => setPw(e.target.value)} type="password" placeholder={t("users.passwordPlaceholder")} />
               </div>
               <div className="space-y-2">
-                <Label>显示名称</Label>
-                <Input value={nm} onChange={(e) => setNm(e.target.value)} placeholder="留空使用邮箱" />
+                <Label>{t("users.displayName")}</Label>
+                <Input value={nm} onChange={(e) => setNm(e.target.value)} placeholder={t("users.displayNamePlaceholder")} />
               </div>
               <div className="space-y-2">
-                <Label>角色</Label>
+                <Label>{t("users.role")}</Label>
                 <div className="flex gap-2">
-                  {[{ v: "user", l: "用户" }, { v: "admin", l: "管理员" }].map((o) => (
+                  {[{ v: "user", l: t("users.roleUser") }, { v: "admin", l: t("users.roleAdmin") }].map((o) => (
                     <Button key={o.v} variant={cr === o.v ? "default" : "outline"} size="sm" onClick={() => setCr(o.v)}>
                       {o.l}
                     </Button>
@@ -288,10 +291,10 @@ export default function Users() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setSc(false)}>
-                取消
+              {t("users.cancel")}
               </Button>
               <Button onClick={handleCreate} disabled={cm.isPending}>
-                {cm.isPending ? "创建中..." : "创建"}
+                {cm.isPending ? t("users.creating") : t("users.create")}
               </Button>
             </DialogFooter>
           </DialogContent>

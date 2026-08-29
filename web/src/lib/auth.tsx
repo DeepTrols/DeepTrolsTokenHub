@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import i18n from "../i18n";
 
 export interface AuthUser {
   id: string;
@@ -28,7 +29,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<LoginResult>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, name: string, inviteCode?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -70,31 +71,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         credentials: "include",
       });
     } catch {
-      return { success: false, error: "网络错误，请稍后重试" };
+    return { success: false, error: i18n.t("lib.networkError") };
     }
 
     if (res.status === 401) {
-      return { success: false, error: "登录失败，请检查账号和密码" };
+    return { success: false, error: i18n.t("lib.loginFailed") };
     }
 
     if (!res.ok) {
-      return { success: false, error: "登录失败，请稍后重试" };
+    return { success: false, error: i18n.t("lib.loginFailedRetry") };
     }
 
     await fetchMe();
     return { success: true, error: null };
   }, [fetchMe]);
 
-  const register = useCallback(async (email: string, password: string, name: string) => {
+  const register = useCallback(async (email: string, password: string, name: string, inviteCode?: string) => {
     const res = await fetch("/api/console/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, invite_code: inviteCode || undefined }),
       credentials: "include",
     });
 
     if (!res.ok) {
-      let message = "注册失败，请稍后重试";
+  let message = i18n.t("lib.registerFailed");
       try {
         const data = (await res.json()) as { error?: string };
         if (data.error) message = data.error;

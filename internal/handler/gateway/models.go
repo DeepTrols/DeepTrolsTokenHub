@@ -7,6 +7,8 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/handler/middleware"
+	providerpkg "github.com/deeptrols/api/internal/provider"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
@@ -87,6 +89,9 @@ func HandleListModels(application *app.App) http.HandlerFunc {
 
 		data := make([]map[string]any, 0)
 		for _, m := range domainModels {
+			if !providerpkg.IsDomesticProvider(m.Provider) {
+				continue
+			}
 			if hasAllowlist && !allowSet[m.Code] {
 				continue
 			}
@@ -102,6 +107,25 @@ func HandleListModels(application *app.App) http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]any{
 			"object": "list",
 			"data":   data,
+		})
+	}
+}
+
+// HandleRetrieveModel implements GET /v1/models/{model}: return a single active
+// model by code (OpenAI-compatible retrieve semantics, new-api parity).
+func HandleRetrieveModel(application *app.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := chi.URLParam(r, "model")
+		m, err := application.Models.FindByCode(r.Context(), code)
+		if err != nil || !providerpkg.IsDomesticProvider(m.Provider) {
+			writeError(w, http.StatusNotFound, "model_not_found", "No such model")
+			return
+		}
+		writeJSONResponse(w, http.StatusOK, map[string]any{
+			"id":       m.Code,
+			"object":   "model",
+			"created":  m.CreatedAt.Unix(),
+			"owned_by": m.Provider,
 		})
 	}
 }

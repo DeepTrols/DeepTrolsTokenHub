@@ -1,4 +1,6 @@
 import { Info } from "lucide-react";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 interface PendingReviewBannerProps {
   /** Tenant lifecycle status from /me; empty for personal users. */
@@ -10,6 +12,7 @@ interface PendingReviewBannerProps {
  * approval. Renders nothing for personal users or non-pending tenant states.
  */
 export function PendingReviewBanner({ tenantStatus }: PendingReviewBannerProps) {
+  const { t } = useTranslation();
   if (tenantStatus !== "pending_review") return null;
 
   return (
@@ -19,10 +22,8 @@ export function PendingReviewBanner({ tenantStatus }: PendingReviewBannerProps) 
     >
       <Info size={18} className="mt-0.5 shrink-0 text-[#D3A94E]" />
       <div>
-        <p className="font-medium text-[#A06B12]">企业账号审核中</p>
-        <p className="mt-0.5 text-[#A06B12]/85">
-          您的企业账号正在等待平台管理员审核，审核通过后将自动开放团队管理与配额分配等功能。
-        </p>
+        <p className="font-medium text-[#A06B12]">{t("components.pendingTitle")}</p>
+        <p className="mt-0.5 text-[#A06B12]/85">{t("components.pendingDesc")}</p>
       </div>
     </div>
   );

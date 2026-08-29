@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { keepPreviousData } from "@tanstack/react-query";
 import { APIKeyData, ModelData, UsageLog, WalletData } from "../lib/api";
 import { useConsoleQuery } from "../lib/hooks/use-api";
@@ -17,7 +18,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Download, MoreVertical, RotateCw } from "lucide-react";
+import { AlertTriangle, Download, MoreVertical, RotateCw } from "lucide-react";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 const PALETTE = ["#4F6BED", "#0FA88B", "#8B6FE8", "#D3A94E", "#E5484D", "#12A5B0", "#C9A96A"];
 
@@ -115,8 +118,17 @@ function uniqueKeys(daily: DailyPoint[]): string[] {
   return [...set];
 }
 
-function exportCSV(logs: UsageLog[]) {
-  const header = ["日期(GMT+8)", "模型", "API Key", "请求ID", "状态", "输入Tokens", "输出Tokens", "费用(CNY)"];
+function exportCSV(logs: UsageLog[], t: (key: string) => string) {
+  const header = [
+    t("dashboard.csvDate"),
+    t("dashboard.csvModel"),
+    t("dashboard.csvApiKey"),
+    t("dashboard.csvRequestId"),
+    t("dashboard.csvStatus"),
+    t("dashboard.csvInput"),
+    t("dashboard.csvOutput"),
+    t("dashboard.csvCost"),
+  ];
   const rows = logs.map((l) => [
     gmt8DayKey(l.created_at),
     l.model,
@@ -134,12 +146,13 @@ function exportCSV(logs: UsageLog[]) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "用量明细.csv";
+  a.download = t("dashboard.csvFilename");
   a.click();
   URL.revokeObjectURL(url);
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation();
   const now = useMemo(() => new Date(), []);
   const [preset, setPreset] = useState<PresetKey>("7d");
   const [customRange, setCustomRange] = useState<{ from: Date; to: Date } | null>(null);
@@ -217,12 +230,12 @@ export default function Dashboard() {
     return (
       <div>
         <div className="mb-6">
-          <h2 className="font-display text-[25px] font-bold tracking-tight">用量信息</h2>
-          <p className="text-[13px] text-[#5C6472] mt-1">所有日期均按 GMT+8 时间显示，数据可能有 5 分钟延迟。</p>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">{t("dashboard.title")}</h2>
+          <p className="text-[13px] text-[#5C6472] mt-1">{t("dashboard.subtitle")}</p>
         </div>
         <div className="glass rounded-2xl p-12 text-center">
           <div className="animate-spin w-8 h-8 border-2 border-[#4F6BED] border-t-transparent rounded-full mx-auto mb-3" />
-          <p className="text-muted-foreground">加载...</p>
+          <p className="text-muted-foreground">{t("dashboard.loading")}</p>
         </div>
       </div>
     );
@@ -232,11 +245,11 @@ export default function Dashboard() {
     return (
       <div>
         <div className="mb-6">
-          <h2 className="font-display text-[25px] font-bold tracking-tight">用量信息</h2>
-          <p className="text-[13px] text-[#5C6472] mt-1">所有日期均按 GMT+8 时间显示，数据可能有 5 分钟延迟。</p>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">{t("dashboard.title")}</h2>
+          <p className="text-[13px] text-[#5C6472] mt-1">{t("dashboard.subtitle")}</p>
         </div>
         <div className="glass rounded-2xl border-[#E5484D]/25 p-6 text-center">
-          <p className="text-[#C4372C] mb-3">加载失败，请稍后重试</p>
+          <p className="text-[#C4372C] mb-3">{t("dashboard.loadFailed")}</p>
           <button
             onClick={() => {
               refetchWallet();
@@ -244,7 +257,7 @@ export default function Dashboard() {
             }}
             className="rounded-lg bg-[#E5484D] px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
           >
-            重试
+            {t("dashboard.retry")}
           </button>
         </div>
       </div>
@@ -252,25 +265,41 @@ export default function Dashboard() {
   }
 
   const statCards = [
-    { label: "消费金额", value: `¥${formatAmount(stats.cost)} CNY` },
-    { label: "API 请求次数", value: stats.requests.toLocaleString("en-US") },
-    { label: "Tokens", value: stats.tokens.toLocaleString("en-US") },
+    { label: t("dashboard.statCost"), value: `¥${formatAmount(stats.cost)} CNY` },
+    { label: t("dashboard.statRequests"), value: stats.requests.toLocaleString("en-US") },
+    { label: t("dashboard.statTokens"), value: stats.tokens.toLocaleString("en-US") },
   ];
 
   return (
     <div className="space-y-5">
       {/* 顶部标题区 */}
       <div>
-        <h2 className="font-display text-[25px] font-bold tracking-tight">用量信息</h2>
-        <p className="text-[13px] text-[#5C6472] mt-1">所有日期均按 GMT+8 时间显示，数据可能有 5 分钟延迟。</p>
+        <h2 className="font-display text-[25px] font-bold tracking-tight">{t("dashboard.title")}</h2>
+        <p className="text-[13px] text-[#5C6472] mt-1">{t("dashboard.subtitle")}</p>
+        <a href="/usage" className="inline-block mt-1 text-sm font-medium text-[#4F6BED] hover:underline">{t("dashboard.viewUsage")}</a>
       </div>
+
+      {wallet?.below_threshold && (
+        <div className="glass-soft rounded-xl border-[#D3A94E]/40 p-3.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[13px]">
+            <span className="grid w-7 h-7 shrink-0 place-items-center rounded-lg bg-[#D3A94E]/15 text-[#A06B12]">
+              <AlertTriangle size={14} />
+            </span>
+            <span className="font-semibold text-[#8a6d1f]">{t("dashboard.balanceAlert")}</span>
+            <span className="text-[#8a6d1f]/80">{t("dashboard.balanceAlertDesc")}</span>
+          </div>
+          <Link to="/bills" className="shrink-0 text-[13px] font-semibold text-[#4F6BED] hover:underline">
+            {t("dashboard.setAlert")}
+          </Link>
+        </div>
+      )}
 
       {/* 第一行：充值余额 + 累计消费金额 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="glass rounded-2xl p-5 flex items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[13px] font-semibold text-[#5C6472]">充值余额</span>
+              <span className="text-[13px] font-semibold text-[#5C6472]">{t("dashboard.balance")}</span>
             </div>
             <p className="font-mono text-[28px] font-semibold tracking-tight mt-2">
               ¥{formatAmount(wallet?.available)}{" "}
@@ -278,12 +307,12 @@ export default function Dashboard() {
             </p>
           </div>
           <a href="/recharge" className="rounded-lg bg-neutral-900 text-white text-sm font-semibold px-5 py-2.5 hover:bg-neutral-800 shrink-0">
-            去充值
+            {t("dashboard.goRecharge")}
           </a>
         </div>
         <div className="glass rounded-2xl p-5 flex items-center justify-between gap-4">
           <div>
-            <span className="text-[13px] font-semibold text-[#5C6472]">累计消费金额</span>
+            <span className="text-[13px] font-semibold text-[#5C6472]">{t("dashboard.totalCharged")}</span>
             <p className="font-mono text-[28px] font-semibold tracking-tight mt-2">
               ¥{formatAmount(Math.abs(parseFloat(wallet?.total_charged || "0")))}{" "}
               <span className="text-[13px] font-sans font-normal text-[#5C6472]">CNY</span>
@@ -305,11 +334,11 @@ export default function Dashboard() {
           }}
         />
         <SelectMenu
-          ariaLabel="API Key 筛选"
+          ariaLabel={t("dashboard.filterApiKey")}
           value={apiKeyId}
-          placeholder="全部 API Key"
+          placeholder={t("dashboard.allApiKeys")}
           options={[
-            { value: "", label: "全部 API Key" },
+            { value: "", label: t("dashboard.allApiKeys") },
             ...keys.map((k) => ({ value: k.id, label: k.name || k.masked_key || k.id })),
           ]}
           onChange={setApiKeyId}
@@ -323,21 +352,21 @@ export default function Dashboard() {
           }}
           className="text-[13px] font-medium text-[#4F6BED] hover:underline"
         >
-          清除筛选条件
+          {t("dashboard.clearFilters")}
         </button>
         <div className="ml-auto flex items-center gap-2">
           <button
-            onClick={() => exportCSV(logs)}
+            onClick={() => exportCSV(logs, t)}
             className="rounded-lg bg-neutral-900 text-white text-sm font-semibold px-4 py-2 hover:bg-neutral-800 inline-flex items-center gap-1.5"
           >
             <Download size={14} />
-            导出
+            {t("dashboard.export")}
           </button>
           <div className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
               className="p-2 rounded-lg hover:bg-black/5 text-[#5C6472]"
-              aria-label="更多操作"
+              aria-label={t("dashboard.moreActions")}
             >
               <MoreVertical size={16} />
             </button>
@@ -345,13 +374,13 @@ export default function Dashboard() {
               <div className="absolute right-0 top-full mt-1 bg-white rounded-lg border border-black/10 shadow-lg py-1 z-20 min-w-[130px]">
                 <button
                   onClick={() => {
-                    exportCSV(logs);
+                    exportCSV(logs, t);
                     setMenuOpen(false);
                   }}
                   className="w-full text-left px-3 py-1.5 text-[13px] hover:bg-black/5 inline-flex items-center gap-2"
                 >
                   <Download size={13} />
-                  导出 CSV
+                  {t("dashboard.exportCsv")}
                 </button>
                 <button
                   onClick={() => {
@@ -362,7 +391,7 @@ export default function Dashboard() {
                   className="w-full text-left px-3 py-1.5 text-[13px] hover:bg-black/5 inline-flex items-center gap-2"
                 >
                   <RotateCw size={13} />
-                  刷新数据
+                  {t("dashboard.refresh")}
                 </button>
               </div>
             )}
@@ -384,7 +413,7 @@ export default function Dashboard() {
       <div className="glass rounded-2xl p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
           <h3 className="font-display text-[15px] font-bold">
-            消费金额（CNY）
+            {t("dashboard.chartCost")}
             <span className="ml-2 font-mono text-[#4F6BED]">¥{formatAmount(stats.cost)}</span>
           </h3>
           <div className="flex rounded-lg bg-black/5 p-0.5">
@@ -396,7 +425,7 @@ export default function Dashboard() {
                   chartGroup === g ? "bg-white shadow-sm text-[#161A23]" : "text-[#5C6472] hover:text-[#161A23]"
                 }`}
               >
-                {g === "model" ? "模型" : "API Key"}
+                {g === "model" ? t("dashboard.groupModel") : t("dashboard.groupApiKey")}
               </button>
             ))}
           </div>
@@ -436,7 +465,7 @@ export default function Dashboard() {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <div className="py-16 text-center text-[#5C6472]">暂无数据</div>
+          <div className="py-16 text-center text-[#5C6472]">{t("dashboard.noData")}</div>
         )}
       </div>
 
@@ -444,9 +473,9 @@ export default function Dashboard() {
       {modelList.length > 0 && selectedModel ? (
         <div className="glass rounded-2xl p-6">
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-[13px] font-semibold text-[#5C6472]">按模型查看</span>
+            <span className="text-[13px] font-semibold text-[#5C6472]">{t("dashboard.byModel")}</span>
             <SelectMenu
-              ariaLabel="选择模型"
+              ariaLabel={t("dashboard.selectModel")}
               value={selectedModel}
               options={modelList.map((m) => ({ value: m.code, label: m.label }))}
               onChange={setSelectedModel}
@@ -455,7 +484,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div className="glass-soft rounded-xl p-5">
               <h4 className="text-[13px] font-semibold text-[#5C6472]">
-                API 请求次数{" "}
+                {t("dashboard.requests")}{" "}
                 <span className="ml-1 font-mono text-[#161A23]">{modelStats.requests.toLocaleString("en-US")}</span>
               </h4>
               <ResponsiveContainer width="100%" height={240}>
@@ -476,7 +505,7 @@ export default function Dashboard() {
                       borderRadius: 8,
                       fontSize: 12.5,
                     }}
-                    formatter={(v: number) => [v.toLocaleString("en-US"), "请求次数"]}
+                    formatter={(v: number) => [v.toLocaleString("en-US"), t("dashboard.requests")]}
                   />
                   <Area type="monotone" dataKey="requests" stroke="#4F6BED" strokeWidth={2} fill="url(#reqGrad)" />
                 </AreaChart>

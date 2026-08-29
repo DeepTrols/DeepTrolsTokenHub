@@ -1,0 +1,2 @@
+ALTER TABLE api_keys DROP COLUMN IF EXISTS group_name;
+ALTER TABLE channels DROP COLUMN IF EXISTS group_name;

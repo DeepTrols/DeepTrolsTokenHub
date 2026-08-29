@@ -555,6 +555,77 @@ func TestRun_L3_BillingDiffs(t *testing.T) {
 	_ = periodEnd
 }
 
+func TestRunL2_InternalCrossCheck(t *testing.T) {
+	pool := testutil.SetupPool(t)
+	testutil.TruncateAll(t, pool)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+	now := time.Now().UTC()
+	periodStart := now.Add(-30 * time.Minute)
+	periodEnd := now.Add(-5 * time.Minute)
+
+	mustExec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed %s: %v", sql[:40], err)
+		}
+	}
+	mustExec(`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'x')`, userID, "l2@test.local")
+	mustExec(`INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key) VALUES ($1, $2, 'sk-', 'hash-l2', 'sk-***')`,
+		keyID, userID)
+
+	seedUsage := func(id uuid.UUID, status string, at time.Time) {
+		mustExec(`INSERT INTO usage_logs (
+			id, user_id, api_key_id, request_id, request_type, public_model_code,
+			usage_source, list_cost, final_cost, currency, status, created_at
+		) VALUES ($1,$2,$3,$4,'chat','deepseek-chat','upstream',0,0,'CNY',$5,$6)`,
+			id, userID, keyID, "req-"+id.String()[:8], status, at)
+	}
+	withCharge := func(usageID uuid.UUID) {
+		mustExec(`INSERT INTO charge_lines (id, usage_log_id, dimension, unit_name, quantity, unit_price, line_cost)
+			VALUES ($1, $2, 'input', '1M tokens', 1, 1, 0.000001)`, uuid.New(), usageID)
+	}
+	withEvidence := func(usageID uuid.UUID) {
+		mustExec(`INSERT INTO provider_evidence (id, usage_log_id, provider, provider_request_id, status_code)
+			VALUES ($1, $2, 'deepseek', $3, 200)`, uuid.New(), usageID, "ev-"+usageID.String())
+	}
+
+	both := uuid.New()
+	seedUsage(both, "completed", periodStart)
+	withCharge(both)
+	withEvidence(both)
+
+	chargeOnly := uuid.New()
+	seedUsage(chargeOnly, "completed", periodStart)
+	withCharge(chargeOnly)
+
+	neither := uuid.New()
+	seedUsage(neither, "completed", periodStart)
+
+	// Failed usage must be excluded from the L2 snapshot.
+	seedUsage(uuid.New(), "failed", periodStart)
+
+	r := &Reconciler{pool: pool}
+	q, err := r.runL2(ctx, periodStart, periodEnd)
+	if err != nil {
+		t.Fatalf("runL2: %v", err)
+	}
+	if q.UsageLogs != 3 {
+		t.Errorf("usage_logs = %d, want 3", q.UsageLogs)
+	}
+	if q.WithCharge != 2 {
+		t.Errorf("with_charge = %d, want 2", q.WithCharge)
+	}
+	if q.WithEvidence != 1 {
+		t.Errorf("with_evidence = %d, want 1", q.WithEvidence)
+	}
+	if q.BothMissing != 1 {
+		t.Errorf("both_missing = %d, want 1", q.BothMissing)
+	}
+}
+
 // Compile-time interface conformance checks for test mocks.
 var (
 	_ dbPool   = (*mockDB)(nil)

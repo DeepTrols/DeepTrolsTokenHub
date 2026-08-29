@@ -17,6 +17,7 @@ import (
 	"github.com/deeptrols/api/internal/repository/tenant"
 	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/user"
+	"github.com/deeptrols/api/internal/repository/wallet"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -46,6 +47,7 @@ func appForConsoleTest(t *testing.T) *app.App {
 		Pool:        pool,
 		Config:      cfg,
 		Users:       user.NewPostgresRepository(pool),
+		Wallets:     wallet.NewPostgresRepository(pool),
 		Memberships: membership.NewPostgresRepository(pool),
 		Tenants:     tenant.NewPostgresRepository(pool),
 		Healthy:     true,

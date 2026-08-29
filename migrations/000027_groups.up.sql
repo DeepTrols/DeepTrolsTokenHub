@@ -1,0 +1,3 @@
+-- 000027_groups.up.sql
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS group_name VARCHAR(64);
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS group_name VARCHAR(64);

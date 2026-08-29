@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import RangePicker from "../components/RangePicker";
 import Dashboard, {
   aggregateDaily,
@@ -12,6 +13,7 @@ import Dashboard, {
 import { dayKeyToEnd, dayKeyToStart, rangeForPreset } from "../lib/gmt8";
 import { renderWithProviders } from "../test/test-utils";
 import { UsageLog } from "../lib/api";
+import { setLanguage } from "../i18n";
 
 vi.mock("../lib/api", () => ({
   api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
@@ -198,6 +200,41 @@ describe("Dashboard（用量信息）", () => {
     expect(screen.queryByText("加载...")).not.toBeInTheDocument();
     expect(screen.getByText("清除筛选条件")).toBeInTheDocument();
     expect(screen.getByText("消费金额")).toBeInTheDocument();
+  });
+
+  it("switches the dashboard to English via setLanguage", async () => {
+    setLanguage("en");
+    try {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path.startsWith("/wallet")) return Promise.resolve(wallet);
+        if (path.startsWith("/api-keys")) return Promise.resolve({ data: keys });
+        return Promise.resolve({ data: [] });
+      });
+      renderWithProviders(<Dashboard />);
+      expect(await screen.findByText("Wallet Balance")).toBeInTheDocument();
+      expect(screen.getByText("Total Spent")).toBeInTheDocument();
+    } finally {
+      setLanguage("zh-CN");
+    }
+  });
+
+  it("shows a low-balance alert banner when below threshold", async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.startsWith("/wallet")) {
+        return Promise.resolve({ ...wallet, balance_alert_threshold: "50.00", below_threshold: true });
+      }
+      if (path.startsWith("/api-keys")) return Promise.resolve({ data: keys });
+      return Promise.resolve({ data: [] });
+    });
+
+    renderWithProviders(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("余额不足预警")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "设置阈值" })).toHaveAttribute("href", "/bills");
   });
 
   it("renders aggregated stat cards, chart tabs and the top model section", async () => {

@@ -15,6 +15,7 @@ type Channel struct {
 	HealthScore    int
 	HealthStatus   HealthStatus
 	Status         ChannelStatus
+	GroupName      string
 	Weight         int
 	MaxConcurrency int
 	Strategy       RouteStrategy

@@ -44,14 +44,15 @@ type WalletTransaction struct {
 type WalletTxType string
 
 const (
-	WalletTxTopup       WalletTxType = "topup"
-	WalletTxCharge      WalletTxType = "charge"
-	WalletTxRefund      WalletTxType = "refund"
-	WalletTxReserve     WalletTxType = "reserve"
-	WalletTxRelease     WalletTxType = "release"
-	WalletTxTransferIn  WalletTxType = "transfer_in"
-	WalletTxTransferOut WalletTxType = "transfer_out"
-	WalletTxCompensate  WalletTxType = "compensate"
+	WalletTxTopup        WalletTxType = "topup"
+	WalletTxCharge       WalletTxType = "charge"
+	WalletTxRefund       WalletTxType = "refund"
+	WalletTxReserve      WalletTxType = "reserve"
+	WalletTxRelease      WalletTxType = "release"
+	WalletTxTransferIn   WalletTxType = "transfer_in"
+	WalletTxTransferOut  WalletTxType = "transfer_out"
+	WalletTxCompensate   WalletTxType = "compensate"
+	WalletTxSubscription WalletTxType = "subscription"
 )
 
 func NewWallet(userID uuid.UUID, tenantID *uuid.UUID, currency string) Wallet {

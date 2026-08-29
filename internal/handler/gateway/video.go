@@ -67,7 +67,7 @@ func HandleVideoGenerations(application *app.App) http.HandlerFunc {
 
 		// Budget reservation precedes the upstream call (invariant #2).
 		estimatedUsage := &usageparser.NormalizedUsage{VideoUnits: int64(n)}
-		priceResult, perr := application.Pricer.Calculate(r.Context(), primary.Channel.ModelID, tenantID, estimatedUsage)
+		priceResult, perr := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
 		holdAmount := decimal.Zero
 		if perr != nil {
 			log.Printf("gateway: video pricer estimate error: %v (using minimum hold)", perr)
@@ -324,7 +324,7 @@ func settleVideoEstimate(
 	}
 	settleMinuteBucket(r, application, actualUsage.TotalTokens)
 
-	actualCosts := calculateActualCosts(r.Context(), application, routeResult, resp, tenantID)
+	actualCosts := calculateActualCosts(r, application, routeResult, resp, tenantID)
 	finalCost := decimal.Zero
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost

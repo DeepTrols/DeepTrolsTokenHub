@@ -35,6 +35,26 @@ function createFetchMock() {
   return vi.fn();
 }
 
+/** Builds a fetch response whose body is an SSE stream of chat chunks. */
+function sseChatResponse(content: string, usage?: Record<string, number>) {
+  const encoder = new TextEncoder();
+  const chunks = [
+    'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n',
+    `data: {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"${content}"},"finish_reason":null}]}\n\n`,
+    `data: {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":${JSON.stringify(usage ?? {})}}\n\n`,
+    "data: [DONE]\n\n",
+  ];
+  return {
+    ok: true,
+    body: new ReadableStream({
+      start(controller) {
+        for (const c of chunks) controller.enqueue(encoder.encode(c));
+        controller.close();
+      },
+    }),
+  };
+}
+
 // Real key plaintext the secret endpoint returns. The gateway rejects the key
 // ID (UUID) with "Invalid API key", so models/chat requests must use this
 // plaintext rather than the selected key's id.
@@ -233,14 +253,10 @@ describe("Playground", () => {
       }),
     });
 
-    // Gateway chat response
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: "Hello from AI!" } }],
-        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
-      }),
-    });
+    // Gateway chat response (SSE stream)
+    mockFetch.mockResolvedValueOnce(
+      sseChatResponse("Hello from AI!", { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }),
+    );
 
     // Act
     renderWithProviders(<Playground />);
@@ -280,6 +296,7 @@ describe("Playground", () => {
     const body = JSON.parse(chatCallArgs[1].body);
     expect(body.model).toBe("gpt-4o");
     expect(body.messages).toEqual([{ role: "user", content: "Hello AI" }]);
+    expect(body.stream).toBe(true);
   });
 
   it("displays response and usage after successful chat", async () => {
@@ -305,13 +322,9 @@ describe("Playground", () => {
           ],
         }),
       })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: "Hello from AI!" } }],
-          usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
-        }),
-      });
+      .mockResolvedValueOnce(
+        sseChatResponse("Hello from AI!", { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 }),
+      );
 
     // Act
     renderWithProviders(<Playground />);
@@ -483,13 +496,9 @@ describe("Playground", () => {
           ],
         }),
       })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: "Response text" } }],
-          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
-        }),
-      });
+      .mockResolvedValueOnce(
+        sseChatResponse("Response text", { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 }),
+      );
 
     renderWithProviders(<Playground />);
     await waitFor(() => {

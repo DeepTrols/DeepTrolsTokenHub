@@ -199,6 +199,10 @@ func isTestutilHelperFrame(file string) bool {
 // Files outside internal/ or cmd/ yield "".
 func pkgKeyFromFile(file string) string {
 	norm := filepath.ToSlash(file)
+	// filepath.ToSlash only rewrites separators on the host OS. Normalize
+	// Windows backslashes explicitly so key derivation is identical when the
+	// same test source path is evaluated on Windows and inside Linux CI.
+	norm = strings.ReplaceAll(norm, `\`, "/")
 	for _, marker := range []string{"/internal/", "/cmd/"} {
 		if idx := strings.Index(norm, marker); idx >= 0 {
 			dir := filepath.ToSlash(filepath.Dir(norm[idx+1:]))

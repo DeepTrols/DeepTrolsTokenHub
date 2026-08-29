@@ -6,8 +6,16 @@ import { useState } from "react";
 import { ModelData } from "../lib/api";
 import { useConsoleQuery } from "../lib/hooks/use-api";
 import { Cpu, Search } from "lucide-react";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
-const cl: Record<string, string> = { chat: "对话", embedding: "向量", image: "图片", audio: "音频", video: "视频" };
+const cl: Record<string, string> = {
+  chat: "modelmarket.catChat",
+  embedding: "modelmarket.catEmbedding",
+  image: "modelmarket.catImage",
+  audio: "modelmarket.catAudio",
+  video: "modelmarket.catVideo",
+};
 const pl: Record<string, string> = {
   deepseek: "DeepSeek",
   openai: "OpenAI",
@@ -29,25 +37,38 @@ function pLabel(p: string): string {
 }
 
 export default function ModelMarket() {
+  const { t } = useTranslation();
   const { data: md, isLoading, isError, error, refetch } = useConsoleQuery<{ data: ModelData[] }>("/models");
   const models = md?.data ?? [];
   const [s, setS] = useState("");
-  const filtered = models.filter((m) => {
+  const [prov, setProv] = useState("");
+  const [sort, setSort] = useState<"default" | "priceAsc" | "priceDesc">("default");
+  const providers = Array.from(new Set(models.map((m) => m.provider))).sort();
+  let filtered = models.filter((m) => {
+    if (prov && m.provider !== prov) return false;
     if (!s) return true;
     const q = s.toLowerCase();
     return m.code.toLowerCase().includes(q) || m.display_name.toLowerCase().includes(q) || m.provider.toLowerCase().includes(q);
   });
+  const priceOf = (m: ModelData) => {
+    const v = m.pricing?.["input"] ?? m.pricing?.["output"];
+    const n = Number(v);
+    return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+  };
+  if (sort !== "default") {
+    filtered = [...filtered].sort((a, b) => (sort === "priceAsc" ? priceOf(a) - priceOf(b) : priceOf(b) - priceOf(a)));
+  }
 
   if (isLoading)
     return (
       <div>
         <div className="mb-6">
-          <h2 className="font-display text-[25px] font-bold tracking-tight">模型广场</h2>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">{t("modelmarket.title")}</h2>
         </div>
         <Card>
           <CardContent className="p-12 text-center">
             <div className="animate-spin w-8 h-8 border-2 border-[#4F6BED] border-t-transparent rounded-full mx-auto mb-3" />
-            <p className="text-muted-foreground">加载模型列表...</p>
+            <p className="text-muted-foreground">{t("modelmarket.loading")}</p>
           </CardContent>
         </Card>
       </div>
@@ -56,13 +77,13 @@ export default function ModelMarket() {
     return (
       <div>
         <div className="mb-6">
-          <h2 className="font-display text-[25px] font-bold tracking-tight">模型广场</h2>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">{t("modelmarket.title")}</h2>
         </div>
         <Card className="border-destructive/20">
           <CardContent className="p-6 text-center">
-            <p className="text-destructive mb-3">{error instanceof Error ? error.message : "加载失败"}</p>
+            <p className="text-destructive mb-3">{error instanceof Error ? error.message : t("modelmarket.loadFailed")}</p>
             <Button variant="destructive" size="sm" onClick={() => refetch()}>
-              重试
+              {t("modelmarket.retry")}
             </Button>
           </CardContent>
         </Card>
@@ -72,16 +93,29 @@ export default function ModelMarket() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="font-display text-[25px] font-bold tracking-tight">模型广场</h2>
-        <p className="text-[13px] text-[#5C6472] mt-1">浏览可用 AI 模型</p>
+        <h2 className="font-display text-[25px] font-bold tracking-tight">{t("modelmarket.title")}</h2>
+        <p className="text-[13px] text-[#5C6472] mt-1">{t("modelmarket.subtitle")}</p>
       </div>
       <div className="mb-4 relative">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input placeholder="搜索..." value={s} onChange={(e) => setS(e.target.value)} className="pl-10 h-10 text-sm" />
+        <Input placeholder={t("modelmarket.searchPlaceholder")} value={s} onChange={(e) => setS(e.target.value)} className="pl-10 h-10 text-sm" />
+      </div>
+      <div className="mb-4 flex flex-wrap gap-3">
+        <select value={prov} onChange={(e) => setProv(e.target.value)}
+          className="glass-soft rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+          <option value="">{t("modelmarket.allProviders")}</option>
+          {providers.map((p) => <option key={p} value={p}>{pLabel(p)}</option>)}
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}
+          className="glass-soft rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+          <option value="default">{t("modelmarket.sortDefault")}</option>
+          <option value="priceAsc">{t("modelmarket.sortAsc")}</option>
+          <option value="priceDesc">{t("modelmarket.sortDesc")}</option>
+        </select>
       </div>
       {filtered.length === 0 && (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">暂无匹配模型</CardContent>
+          <CardContent className="py-12 text-center text-muted-foreground">{t("modelmarket.empty")}</CardContent>
         </Card>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -98,7 +132,7 @@ export default function ModelMarket() {
                     {pLabel(m.provider)}
                   </Badge>
                   <Badge variant="secondary" className="text-xs">
-                    {cl[m.category] || m.category}
+                    {t(cl[m.category] || m.category)}
                   </Badge>
                   {m.context_window > 0 && (
                     <Badge variant="secondary" className="text-xs">
@@ -110,24 +144,24 @@ export default function ModelMarket() {
             </div>
             {m.pricing && Object.keys(m.pricing).length > 0 && (
               <div className="border-t border-black/10 pt-2.5">
-                <p className="text-xs text-muted-foreground mb-1.5">定价</p>
+                <p className="text-xs text-muted-foreground mb-1.5">{t("modelmarket.pricingLabel")}</p>
                 <div className="grid grid-cols-2 gap-1 text-xs">
                   {Object.entries(m.pricing).map(([dim, price]) => {
                     const dimL: Record<string, string> = {
-                      input: "输入",
-                      output: "输出",
-                      cache_read: "缓存读",
-                      cache_write: "缓存写",
-                      reasoning: "推理",
-                      image: "图片",
-                      audio: "音频",
-                      tts: "语音合成",
-                      video: "视频",
+                      input: "modelmarket.dimInput",
+                      output: "modelmarket.dimOutput",
+                      cache_read: "modelmarket.dimCacheRead",
+                      cache_write: "modelmarket.dimCacheWrite",
+                      reasoning: "modelmarket.dimReasoning",
+                      image: "modelmarket.dimImage",
+                      audio: "modelmarket.dimAudio",
+                      tts: "modelmarket.dimTts",
+                      video: "modelmarket.dimVideo",
                     };
                     return (
                       <div key={dim} className="flex justify-between py-1 px-2 glass-soft rounded-lg">
-                        <span className="text-muted-foreground">{dimL[dim] || dim}</span>
-                        <span className="font-mono font-medium">{price === "0" || price === "0.00" ? "免费" : price + " CNY"}</span>
+                        <span className="text-muted-foreground">{t(dimL[dim] || dim)}</span>
+                        <span className="font-mono font-medium">{price === "0" || price === "0.00" ? t("modelmarket.free") : price + " CNY"}</span>
                       </div>
                     );
                   })}

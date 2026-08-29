@@ -4,6 +4,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Activity, RefreshCw } from "lucide-react";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 interface HealthRow {
   channel_id: string;
@@ -24,9 +26,15 @@ interface HealthRow {
   last_checked_at?: string;
 }
 
-const STRATEGY_LABELS: Record<string, string> = { priority_only: "优先级", cost: "成本", quality: "质量", "": "优先级" };
+const STRATEGY_LABELS: Record<string, string> = {
+  priority_only: "gatewayhealth.strategyPriority",
+  cost: "gatewayhealth.strategyCost",
+  quality: "gatewayhealth.strategyQuality",
+  "": "gatewayhealth.strategyPriority",
+};
 
 export default function GatewayHealth() {
+  const { t } = useTranslation();
   const { data, isLoading, isError, error, refetch } = useAdminQuery<{ data: HealthRow[] }>("/gateway/health");
   const rows = data?.data ?? [];
   const loadError = isError ? (error instanceof Error ? error.message : String(error)) : "";
@@ -35,33 +43,33 @@ export default function GatewayHealth() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="font-display text-[25px] font-bold tracking-tight">网关健康</h2>
-          <p className="text-[13px] text-[#5C6472] mt-1">渠道与实例的实时健康、负载与冷却状态</p>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">{t("gatewayhealth.title")}</h2>
+          <p className="text-[13px] text-[#5C6472] mt-1">{t("gatewayhealth.subtitle")}</p>
         </div>
-        <Button variant="outline" onClick={() => refetch()}><RefreshCw size={14} className="mr-1.5" />刷新</Button>
+        <Button variant="outline" onClick={() => refetch()}><RefreshCw size={14} className="mr-1.5" />{t("gatewayhealth.refresh")}</Button>
       </div>
 
       {loadError && <Card className="mb-4 border-destructive/20"><CardContent className="p-4 text-destructive text-sm">{loadError}</CardContent></Card>}
-      {isLoading && <Card><CardContent className="p-12 text-center text-muted-foreground">加载中...</CardContent></Card>}
+      {isLoading && <Card><CardContent className="p-12 text-center text-muted-foreground">{t("gatewayhealth.loading")}</CardContent></Card>}
 
       <Card className="overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>渠道</TableHead>
-              <TableHead>模型</TableHead>
-              <TableHead>健康</TableHead>
-              <TableHead>状态</TableHead>
-              <TableHead>策略</TableHead>
-              <TableHead>实例</TableHead>
-              <TableHead className="text-right">负载/上限</TableHead>
-              <TableHead>冷却</TableHead>
+              <TableHead>{t("gatewayhealth.thChannel")}</TableHead>
+              <TableHead>{t("gatewayhealth.thModel")}</TableHead>
+              <TableHead>{t("gatewayhealth.thHealth")}</TableHead>
+              <TableHead>{t("gatewayhealth.thStatus")}</TableHead>
+              <TableHead>{t("gatewayhealth.thStrategy")}</TableHead>
+              <TableHead>{t("gatewayhealth.thInstance")}</TableHead>
+              <TableHead className="text-right">{t("gatewayhealth.thLoad")}</TableHead>
+              <TableHead>{t("gatewayhealth.thCooldown")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.length === 0 && (
               <TableRow><TableCell colSpan={8} className="py-12 text-center text-muted-foreground flex flex-col items-center gap-2">
-                <Activity size={28} className="opacity-30" />暂无渠道
+                <Activity size={28} className="opacity-30" />{t("gatewayhealth.empty")}
               </TableCell></TableRow>
             )}
             {rows.map((r) => (
@@ -74,13 +82,13 @@ export default function GatewayHealth() {
                   </span>
                 </TableCell>
                 <TableCell><Badge variant={r.channel_status === "active" ? "success" : "secondary"}>{r.channel_status}</Badge></TableCell>
-                <TableCell>{STRATEGY_LABELS[r.strategy] ?? r.strategy}{r.sticky_session ? " · 粘性" : ""}</TableCell>
+                <TableCell>{t(STRATEGY_LABELS[r.strategy] ?? r.strategy)}{r.sticky_session ? t("gatewayhealth.sticky") : ""}</TableCell>
                 <TableCell className="font-mono text-xs max-w-[200px] truncate">{r.base_url || "—"}</TableCell>
                 <TableCell className="text-right tabular-nums">
                   {r.current_load !== undefined ? `${r.current_load}/${r.concurrency_limit ?? "∞"}` : "—"}
                 </TableCell>
                 <TableCell className="text-xs">
-                  {r.cooldown_until ? <span className="text-destructive">至 {r.cooldown_until.replace("T", " ").slice(0, 16)}</span> : "—"}
+                  {r.cooldown_until ? <span className="text-destructive">{t("gatewayhealth.until", { time: r.cooldown_until.replace("T", " ").slice(0, 16) })}</span> : "—"}
                 </TableCell>
               </TableRow>
             ))}

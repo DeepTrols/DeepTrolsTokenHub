@@ -252,6 +252,11 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		writeRouteError(w, err)
 		return
 	}
+	candidates = gw.FilterByGroup(candidates, apiKeyGroup(r))
+	if len(candidates) == 0 {
+		writeRouteError(w, gw.ErrNoChannelAvailable)
+		return
+	}
 	primary := candidates[0]
 
 	// Resolve tenant ID for pricing.
@@ -262,7 +267,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 
 	// Estimate usage from request body, calculate hold amount via pricer.
 	estimatedUsage := estimateUsageFromBody(body)
-	priceResult, err := application.Pricer.Calculate(r.Context(), primary.Channel.ModelID, tenantID, estimatedUsage)
+	priceResult, err := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
 	holdAmount := decimal.Zero
 	if err != nil {
 		log.Printf("gateway: pricer estimate error: %v (using minimum hold)", err)
@@ -298,12 +303,8 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	}
 
 	// Execute with failover across the ordered candidates. Each attempt uses a
-	// distinct idempotency key so wallet holds do not collide on retry.
-	executor := application.Executor
-	if executor == nil {
-		executor = provider.NewOpenAICompatAdapter()
-	}
-
+	// distinct idempotency key so wallet holds do not collide on retry, and the
+	// executor is selected per candidate (e.g. gemini native channels).
 	var (
 		reserveResult     *billing.ReserveResult
 		routeResult       *gw.RouteResult
@@ -318,6 +319,10 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	startTime := time.Now()
 	for i := range candidates {
 		cand := candidates[i]
+		executor := application.Executor
+		if executor == nil {
+			executor = provider.NewExecutorForConfig(cand.Instance.Config)
+		}
 		attemptID := requestID
 		if i > 0 {
 			attemptID = fmt.Sprintf("%s-a%d", requestID, i)
@@ -362,6 +367,11 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		upstreamFailed = lastErr != nil || (resp != nil && resp.StatusCode >= 400)
 		if !upstreamFailed {
 			routeResult = &cand
+			// Failover may land on a later candidate: pin the channel that
+			// actually succeeded so the next request prefers it.
+			if application.Router != nil {
+				application.Router.RecordAffinity(r.Context(), userID.String(), modelName, cand.Channel.ID.String())
+			}
 			break
 		}
 
@@ -388,7 +398,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		// carries a usage object, e.g. context_length_exceeded) is real spend
 		// and must be billed even though the request failed for the client.
 		if lastResp != nil && lastResp.Usage != nil && lastResp.Usage.HasUsage() {
-			actualCosts := calculateActualCosts(r.Context(), application, lastRouteResult, lastResp, tenantID)
+			actualCosts := calculateActualCosts(r, application, lastRouteResult, lastResp, tenantID)
 			finalCost := decimal.Zero
 			if actualCosts != nil {
 				finalCost = actualCosts.ListCost
@@ -436,17 +446,24 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		resp.UsageSource = usageparser.SourceEstimated
 	}
 	settleMinuteBucket(r, application, resp.Usage.TotalTokens)
-	actualCosts := calculateActualCosts(r.Context(), application, routeResult, resp, tenantID)
+	actualCosts := calculateActualCosts(r, application, routeResult, resp, tenantID)
 
 	// Settle reserved funds against the ACTUAL tokens consumed.
 	finalCost := decimal.Zero
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
 	}
+	// Subscription free-token allowance: a request inside the remaining quota
+	// settles at zero (the evidence chain still records the real usage).
+	quotaCovered := false
+	if adj, covered := applySubscriptionAllowance(r.Context(), application, userID.String(), resp.Usage.TotalTokens, finalCost); covered {
+		finalCost = adj
+		quotaCovered = true
+	}
 	walletCharged := finalCost
 	underfunded := false
 	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
-	if pricingIncomplete {
+	if pricingIncomplete && !quotaCovered {
 		// Never let a misconfigured price produce a free call: charge the
 		// reserved hold and record the evidence for reconciliation.
 		log.Printf("gateway: pricing incomplete for dims %v; charging reserved hold %s", actualCosts.MissingPricing, holdAmount)
@@ -502,14 +519,58 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	}
 }
 
+// streamOutput adapts an upstream OpenAI SSE stream to the downstream wire
+// format: OpenAI chat.completion.chunk passthrough or Anthropic Messages SSE
+// (new-api relaykit parity for /v1/messages streaming).
+type streamOutput interface {
+	writeData(w io.Writer, payload string) error
+	writeDone(w io.Writer) error
+}
+
+// openAIStreamPassthrough forwards OpenAI SSE chunks verbatim ([DONE] marker).
+type openAIStreamPassthrough struct{}
+
+func (openAIStreamPassthrough) writeData(w io.Writer, payload string) error {
+	_, err := fmt.Fprintf(w, "data: %s\n\n", payload)
+	return err
+}
+
+func (openAIStreamPassthrough) writeDone(w io.Writer) error {
+	_, err := fmt.Fprintf(w, "data: [DONE]\n\n")
+	return err
+}
+
+// streamConfig parameterizes handleStreaming: the downstream output adapter
+// and an optional route resolver (defaults to Router.Route).
+type streamConfig struct {
+	out          streamOutput
+	resolveRoute func(application *app.App, r *http.Request, modelName string) (*gw.RouteResult, error)
+}
+
 // HandleStreamingChat handles streaming (SSE) chat completion requests with
 // budget reserve, usage extraction from stream, and proper billing.
 func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *app.App, modelName string, body map[string]any) {
+	handleStreaming(w, r, application, modelName, body, streamConfig{out: openAIStreamPassthrough{}})
+}
+
+// handleStreaming runs the shared streaming pipeline: route → budget reserve →
+// upstream SSE → downstream relay (via sconf.out) → usage extraction → settle
+// → evidence logging. Any output format can plug in through streamConfig.
+func handleStreaming(w http.ResponseWriter, r *http.Request, application *app.App, modelName string, body map[string]any, sconf streamConfig) {
 	cfg := application.Config
+	if sconf.out == nil {
+		sconf.out = openAIStreamPassthrough{}
+	}
 
 	// Resolve routing the same way as non-streaming.
 	identity := resolveAuthIdentity(r)
-	routeResult, err := application.Router.Route(r.Context(), identity, modelName)
+	var routeResult *gw.RouteResult
+	var err error
+	if sconf.resolveRoute != nil {
+		routeResult, err = sconf.resolveRoute(application, r, modelName)
+	} else {
+		routeResult, err = application.Router.Route(r.Context(), identity, modelName)
+	}
 	if err != nil {
 		log.Printf("gateway: stream route error: %v", err)
 		writeRouteError(w, err)
@@ -537,7 +598,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	}
 
 	estimatedUsage := estimateUsageFromBody(body)
-	priceResult, err := application.Pricer.Calculate(r.Context(), routeResult.Channel.ModelID, tenantID, estimatedUsage)
+	priceResult, err := priceWithAdjustments(application, r, routeResult.Channel.ModelID, tenantID, estimatedUsage)
 	holdAmount := decimal.Zero
 	if err != nil {
 		log.Printf("gateway: stream pricer estimate error: %v (using minimum hold)", err)
@@ -687,7 +748,9 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 			}
 			lastDataLine = payload
 			chunksForwarded++
-			fmt.Fprintf(w, "%s\n\n", line)
+			if werr := sconf.out.writeData(w, payload); werr != nil {
+				log.Printf("gateway: stream write error: %v", werr)
+			}
 		} else {
 			fmt.Fprintf(w, "data: %s\n\n", line)
 		}
@@ -716,8 +779,10 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		return
 	}
 
-	// Send [DONE] signal only after a clean EOF.
-	fmt.Fprintf(w, "data: [DONE]\n\n")
+	// Send the downstream end-of-stream marker only after a clean EOF.
+	if werr := sconf.out.writeDone(w); werr != nil {
+		log.Printf("gateway: stream done write error: %v", werr)
+	}
 	flusher.Flush()
 
 	// Parse usage from last buffered SSE data chunk.
@@ -748,7 +813,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 	// Calculate actual costs from extracted usage.
 	var actualCosts *billing.PriceResult
 	if normUsage.HasUsage() && application.Pricer != nil {
-		result, err := application.Pricer.Calculate(r.Context(), routeResult.Channel.ModelID, tenantID, normUsage)
+		result, err := priceWithAdjustments(application, r, routeResult.Channel.ModelID, tenantID, normUsage)
 		if err != nil {
 			log.Printf("gateway: stream pricer error: %v", err)
 		} else {
@@ -764,6 +829,14 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		}
 	}
 
+	// Subscription free-token allowance (streaming): settle at zero when the
+	// remaining quota covers the request.
+	quotaCovered := false
+	if adj, covered := applySubscriptionAllowance(r.Context(), application, userID.String(), normUsage.TotalTokens, actualCosts.ListCost); covered {
+		actualCosts.ListCost = adj
+		quotaCovered = true
+	}
+
 	// Settle reserved funds against the REAL final cost with a detached
 	// context so the settlement succeeds even if the client disconnects
 	// mid-stream (r.Context() would be cancelled).
@@ -777,7 +850,7 @@ func HandleStreamingChat(w http.ResponseWriter, r *http.Request, application *ap
 		if actualCosts != nil {
 			finalCost = actualCosts.ListCost
 		}
-		if pricingIncomplete {
+		if pricingIncomplete && !quotaCovered {
 			// Never let a misconfigured price produce a free call: charge the
 			// reserved hold and record the evidence for reconciliation.
 			log.Printf("gateway: stream pricing incomplete for dims %v; charging reserved hold %s", actualCosts.MissingPricing, holdAmount)
@@ -898,7 +971,7 @@ func estimateUsageFromBody(body map[string]any) *usageparser.NormalizedUsage {
 }
 
 // calculateActualCosts parses the upstream response usage and runs it through the pricer.
-func calculateActualCosts(ctx context.Context, application *app.App, routeResult *gw.RouteResult, resp *gw.ExecuteResponse, tenantID *uuid.UUID) *billing.PriceResult {
+func calculateActualCosts(r *http.Request, application *app.App, routeResult *gw.RouteResult, resp *gw.ExecuteResponse, tenantID *uuid.UUID) *billing.PriceResult {
 	// Parse usage from response body.
 	nu, err := usageparser.ParseOpenAIUsage(resp.Body)
 	if err != nil || nu == nil || !nu.HasUsage() {
@@ -914,7 +987,7 @@ func calculateActualCosts(ctx context.Context, application *app.App, routeResult
 
 	// Calculate costs via pricer using the routed model ID.
 	if application.Pricer != nil && routeResult != nil && routeResult.Channel != nil {
-		result, err := application.Pricer.Calculate(ctx, routeResult.Channel.ModelID, tenantID, nu)
+		result, err := priceWithAdjustments(application, r, routeResult.Channel.ModelID, tenantID, nu)
 		if err != nil {
 			log.Printf("gateway: cost calculation error: %v", err)
 			return &billing.PriceResult{ListCost: decimal.Zero, UpstreamCost: decimal.Zero}

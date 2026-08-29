@@ -76,6 +76,14 @@ func (r *Reconciler) Run(ctx context.Context) error {
 		log.Printf("reconciler: findErrorMislabel: %v", err)
 	}
 
+	// L2: internal cross-check of L0 (charge_lines) vs L1 (provider_evidence)
+	// coverage for completed usage logs — a usage row missing both is one
+	// root cause, and the quadrant counts expose coverage drift.
+	l2, err := r.runL2(ctx, periodStart, periodEnd)
+	if err != nil {
+		log.Printf("reconciler: runL2: %v", err)
+	}
+
 	// L3: external billing records (billing_records, synced from OneAPI /
 	// NewAPI / Aliyun) vs internal usage evidence.
 	billingCount, err := r.countBillingRecords(ctx, periodStart, periodEnd)
@@ -113,6 +121,13 @@ func (r *Reconciler) Run(ctx context.Context) error {
 			"missing_evidence": len(missingEvidence),
 			"usage_mismatch":   len(mismatches),
 			"error_mislabel":   len(mislabels),
+		},
+		"L2": map[string]interface{}{
+			"usage_logs":    l2.UsageLogs,
+			"with_charge":   l2.WithCharge,
+			"with_evidence": l2.WithEvidence,
+			"both_missing":  l2.BothMissing,
+			"balanced":      l2.WithCharge == l2.UsageLogs && l2.WithEvidence == l2.UsageLogs,
 		},
 		"L3": map[string]interface{}{
 			"billing_records":       billingCount,
@@ -357,6 +372,32 @@ func (r *Reconciler) countLogs(ctx context.Context, start, end time.Time) (int, 
 		 WHERE ul.created_at >= $1 AND ul.created_at < $2`,
 		start, end).Scan(&chargeCount)
 	return usageCount, chargeCount, err
+}
+
+// l2Quadrants is the L2 internal cross-check snapshot: completed usage logs
+// classified by whether they carry charge_lines (L0) and provider_evidence
+// (L1). both_missing rows indicate a single root cause behind both levels.
+type l2Quadrants struct {
+	UsageLogs    int
+	WithCharge   int
+	WithEvidence int
+	BothMissing  int
+}
+
+// runL2 cross-checks L0/L1 coverage for completed usage logs in the period.
+func (r *Reconciler) runL2(ctx context.Context, start, end time.Time) (l2Quadrants, error) {
+	var q l2Quadrants
+	err := r.pool.QueryRow(ctx,
+		`SELECT
+		   COUNT(*),
+		   COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM charge_lines cl WHERE cl.usage_log_id = ul.id)),
+		   COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM provider_evidence pe WHERE pe.usage_log_id = ul.id)),
+		   COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM charge_lines cl WHERE cl.usage_log_id = ul.id)
+		                     AND NOT EXISTS (SELECT 1 FROM provider_evidence pe WHERE pe.usage_log_id = ul.id))
+		 FROM usage_logs ul
+		 WHERE ul.created_at >= $1 AND ul.created_at < $2 AND ul.status = 'completed'`,
+		start, end).Scan(&q.UsageLogs, &q.WithCharge, &q.WithEvidence, &q.BothMissing)
+	return q, err
 }
 
 // countEvidence returns the number of provider_evidence records linked to

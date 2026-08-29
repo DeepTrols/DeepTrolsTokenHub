@@ -49,6 +49,62 @@ func TestPricer_Calculate_SingleDimension_TokenScale(t *testing.T) {
 	}
 }
 
+func TestPricer_Calculate_TieredByContext(t *testing.T) {
+	modelID := uuid.New()
+	p := newTestPricer([]domain.ModelPricing{
+		{
+			ID: uuid.New(), ModelID: modelID, PricingDimension: "input", UnitName: "1M tokens",
+			UnitPrice: "2", PriceType: domain.PriceTypeSell, IsActive: true,
+			Conditions: map[string]any{"max_total_tokens": float64(1000)},
+		},
+		{
+			ID: uuid.New(), ModelID: modelID, PricingDimension: "input", UnitName: "1M tokens",
+			UnitPrice: "10", PriceType: domain.PriceTypeSell, IsActive: true,
+			Conditions: map[string]any{"min_total_tokens": float64(1001)},
+		},
+	})
+	ctx := context.Background()
+
+	// 1K-token request fits the short tier: 2 * 1000 / 1M.
+	small, err := p.CalculateAt(ctx, modelID, nil, &usageparser.NormalizedUsage{InputTokens: 1000, TotalTokens: 1000}, time.Now())
+	if err != nil {
+		t.Fatalf("Calculate small: %v", err)
+	}
+	if !small.ListCost.Equal(decimal.NewFromFloat(0.002)) {
+		t.Errorf("small ListCost = %s, want 0.002", small.ListCost)
+	}
+
+	// 50K-token request matches the long tier: 10 * 1000 / 1M.
+	large, err := p.CalculateAt(ctx, modelID, nil, &usageparser.NormalizedUsage{InputTokens: 1000, TotalTokens: 50000}, time.Now())
+	if err != nil {
+		t.Fatalf("Calculate large: %v", err)
+	}
+	if !large.ListCost.Equal(decimal.NewFromFloat(0.01)) {
+		t.Errorf("large ListCost = %s, want 0.01", large.ListCost)
+	}
+}
+
+func TestPricingConditionsMatch(t *testing.T) {
+	base := &domain.ModelPricing{PricingDimension: "input", IsActive: true}
+	usage := &usageparser.NormalizedUsage{TotalTokens: 5000}
+	if !pricingConditionsMatch(base, usage) {
+		t.Fatal("row without conditions must always match")
+	}
+	withMax := &domain.ModelPricing{Conditions: map[string]any{"max_total_tokens": float64(10000)}}
+	if !pricingConditionsMatch(withMax, usage) {
+		t.Fatal("usage within max must match")
+	}
+	if pricingConditionsMatch(&domain.ModelPricing{Conditions: map[string]any{"max_total_tokens": float64(1000)}}, usage) {
+		t.Fatal("usage over max must not match")
+	}
+	if !pricingConditionsMatch(&domain.ModelPricing{Conditions: map[string]any{"min_total_tokens": float64(1000)}}, usage) {
+		t.Fatal("usage over min must match")
+	}
+	if pricingConditionsMatch(&domain.ModelPricing{Conditions: map[string]any{"min_total_tokens": float64(6000)}}, usage) {
+		t.Fatal("usage under min must not match")
+	}
+}
+
 func TestPricer_Calculate_MultiDimension(t *testing.T) {
 	p := newTestPricer([]domain.ModelPricing{
 		makePricingEntry("input", "10", "5"),
@@ -479,5 +535,47 @@ func TestPricer_ReasoningWithExplicitPrice_Charged(t *testing.T) {
 	// 10 + 15 + 200K*20/1M = 25 + 4 = 29
 	if !result.ListCost.Equal(decimal.NewFromFloat(29)) {
 		t.Errorf("ListCost = %s, want 29", result.ListCost)
+	}
+}
+
+func TestPricer_CalculateWithRatio_ScalesSellPrice(t *testing.T) {
+	p := newTestPricer([]domain.ModelPricing{
+		makePricingEntry("input", "10", "5"),
+	})
+
+	// VIP group ratio 0.8: sell 10 -> 8, upstream cost stays 5.
+	result, err := p.CalculateWithRatio(context.Background(), uuid.New(), nil,
+		&usageparser.NormalizedUsage{InputTokens: 1_000_000}, decimal.NewFromFloat(0.8))
+	if err != nil {
+		t.Fatalf("CalculateWithRatio: %v", err)
+	}
+	if !result.ListCost.Equal(decimal.NewFromFloat(8)) {
+		t.Errorf("ListCost = %s, want 8", result.ListCost)
+	}
+	if !result.UpstreamCost.Equal(decimal.NewFromFloat(5)) {
+		t.Errorf("UpstreamCost = %s, want 5 (cost must not be scaled)", result.UpstreamCost)
+	}
+	if len(result.ChargeLines) != 1 || !result.ChargeLines[0].UnitPrice.Equal(decimal.NewFromFloat(8)) {
+		t.Errorf("ChargeLines = %+v, want unit price 8", result.ChargeLines)
+	}
+	if got := result.PriceSnapshot["price_ratio"]; got != "0.8" {
+		t.Errorf("snapshot price_ratio = %v, want 0.8", got)
+	}
+	rows, ok := result.PriceSnapshot["rows"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("snapshot rows = %v", result.PriceSnapshot["rows"])
+	}
+	if row, ok := rows[0].(map[string]any); !ok || row["price_ratio"] != "0.8" {
+		t.Errorf("row price_ratio = %v, want 0.8", rows[0])
+	}
+}
+
+func TestPricer_CalculateWithRatio_RejectsNonPositive(t *testing.T) {
+	p := newTestPricer([]domain.ModelPricing{makePricingEntry("input", "10", "5")})
+	for _, ratio := range []decimal.Decimal{decimal.Zero, decimal.NewFromFloat(-1)} {
+		if _, err := p.CalculateWithRatio(context.Background(), uuid.New(), nil,
+			&usageparser.NormalizedUsage{InputTokens: 100}, ratio); err == nil {
+			t.Fatalf("ratio %s: expected error, got nil", ratio)
+		}
 	}
 }

@@ -70,6 +70,9 @@ func (m *mockWalletRepo) TopUp(ctx context.Context, walletID uuid.UUID, amount d
 func (m *mockWalletRepo) Transfer(ctx context.Context, fromWalletID, toWalletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
 	return nil, nil
 }
+func (m *mockWalletRepo) Spend(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+	return nil, nil
+}
 
 // ---------------------------------------------------------------------------
 // mockUsageRepo — mocks usage.Repository for Logger tests

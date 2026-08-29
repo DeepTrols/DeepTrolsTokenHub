@@ -14,6 +14,26 @@ vi.mock("react-router-dom", async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
+const mockOauthProviders: string[] = [];
+vi.mock("../lib/site", () => ({
+  useSiteInfo: () => ({
+    site: {
+      site_name: "DeepTrols",
+      logo_url: "",
+      favicon_url: "",
+      footer_text: "",
+      notice: "",
+      about: "",
+      home_page_content: "",
+      server_address: "",
+      contact_email: "",
+      legal: { user_agreement: "", privacy_policy: "" },
+      oauth_providers: mockOauthProviders,
+    },
+    isLoading: false,
+  }),
+}));
+
 function renderLogin() {
   return render(
     <MemoryRouter>
@@ -42,6 +62,33 @@ describe("Login", () => {
     expect(screen.getByText("AI 模型聚合平台 · 管理控制台")).toBeInTheDocument();
     const registerLink = screen.getByRole("link", { name: /立即注册/ });
     expect(registerLink).toHaveAttribute("href", "/register");
+  });
+
+  it("shows the GitHub login button when OAuth is enabled", () => {
+    mockOauthProviders.push("github");
+    renderLogin();
+    expect(screen.getByRole("link", { name: /使用 GitHub 登录/ })).toHaveAttribute(
+      "href",
+      "/api/oauth/github/authorize",
+    );
+  });
+
+  it("shows the WeChat login button when enabled", () => {
+    mockOauthProviders.push("wechat");
+    renderLogin();
+    expect(screen.getByRole("link", { name: /使用微信扫码登录/ })).toHaveAttribute(
+      "href",
+      "/api/oauth/wechat/authorize",
+    );
+  });
+
+  it("shows the Google login button when enabled", () => {
+    mockOauthProviders.push("google");
+    renderLogin();
+    expect(screen.getByRole("link", { name: /使用 Google 登录/ })).toHaveAttribute(
+      "href",
+      "/api/oauth/google/authorize",
+    );
   });
 
   it("submits and navigates to dashboard on success", async () => {

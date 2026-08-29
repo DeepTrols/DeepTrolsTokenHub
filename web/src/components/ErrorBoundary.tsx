@@ -1,6 +1,7 @@
 import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
+import i18n from "../i18n";
 
 /**
  * React Error Boundary.
@@ -69,14 +70,14 @@ export default class ErrorBoundary extends Component<
               <div className="p-2 rounded-xl bg-[#E5484D]/10">
                 <AlertTriangle size={20} className="text-[#E5484D]" />
               </div>
-              <h3 className="font-display font-semibold text-[#C4372C]">页面渲染错误</h3>
+              <h3 className="font-display font-semibold text-[#C4372C]">{i18n.t("components.ebTitle")}</h3>
             </div>
             <p className="text-sm text-[#5C6472] mb-4">
-              {this.state.error?.message || "发生了意外错误，请重试"}
+              {this.state.error?.message || i18n.t("components.ebDefaultMsg")}
             </p>
             {import.meta.env.DEV && this.state.error?.stack && (
               <details className="mb-4 text-xs text-[#5C6472]">
-                <summary className="cursor-pointer">错误详情</summary>
+                <summary className="cursor-pointer">{i18n.t("components.ebDetails")}</summary>
                 <pre className="mt-2 p-2 glass-soft rounded-xl overflow-auto whitespace-pre-wrap">
                   {this.state.error.stack}
                 </pre>
@@ -86,7 +87,7 @@ export default class ErrorBoundary extends Component<
               onClick={this.handleRetry}
               className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-br from-[#E5484D] to-[#C4372C] shadow-[0_10px_26px_rgba(229,72,77,0.3)] hover:brightness-110"
             >
-              重试
+              {i18n.t("components.retry")}
             </button>
           </div>
         </div>

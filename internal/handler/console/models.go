@@ -3,7 +3,10 @@ package console
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,19 +14,23 @@ import (
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
+	providerpkg "github.com/deeptrols/api/internal/provider"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
 
 type modelResponse struct {
-	ID            string            `json:"id"`
-	Code          string            `json:"code"`
-	Provider      string            `json:"provider"`
-	Category      string            `json:"category"`
-	DisplayName   string            `json:"display_name"`
-	ContextWindow int               `json:"context_window"`
-	Pricing       []pricingRow      `json:"pricings"`
-	PricingMap    map[string]string `json:"pricing"`
+	ID              string            `json:"id"`
+	Code            string            `json:"code"`
+	Provider        string            `json:"provider"`
+	Category        string            `json:"category"`
+	DisplayName     string            `json:"display_name"`
+	Description     string            `json:"description,omitempty"`
+	ContextWindow   int               `json:"context_window"`
+	MaxOutputTokens int               `json:"max_output_tokens,omitempty"`
+	Status          string            `json:"status,omitempty"`
+	Pricing         []pricingRow      `json:"pricings"`
+	PricingMap      map[string]string `json:"pricing"`
 }
 
 type loginHistoryResponse struct {
@@ -45,6 +52,9 @@ func HandleListModels(a *app.App) http.HandlerFunc {
 
 		response := make([]modelResponse, 0, len(models))
 		for _, m := range models {
+			if !providerpkg.IsDomesticProvider(m.Provider) {
+				continue
+			}
 			pricing, err := fetchModelPricing(ctx, a, m.ID)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to fetch model pricing"})
@@ -52,14 +62,17 @@ func HandleListModels(a *app.App) http.HandlerFunc {
 			}
 
 			response = append(response, modelResponse{
-				ID:            m.ID.String(),
-				Code:          m.Code,
-				Provider:      m.Provider,
-				Category:      string(m.Category),
-				DisplayName:   m.DisplayName,
-				ContextWindow: m.ContextWindow,
-				Pricing:       pricing,
-				PricingMap:    pricingToMap(pricing),
+				ID:              m.ID.String(),
+				Code:            m.Code,
+				Provider:        m.Provider,
+				Category:        string(m.Category),
+				DisplayName:     m.DisplayName,
+				Description:     m.Description,
+				ContextWindow:   m.ContextWindow,
+				MaxOutputTokens: m.MaxOutputTokens,
+				Status:          string(m.Status),
+				Pricing:         pricing,
+				PricingMap:      pricingToMap(pricing),
 			})
 		}
 
@@ -71,17 +84,18 @@ func HandleListModels(a *app.App) http.HandlerFunc {
 }
 
 type pricingRow struct {
-	Dimension string `json:"dimension"`
-	UnitName  string `json:"unit_name"`
-	UnitPrice string `json:"unit_price"`
-	PriceType string `json:"price_type"`
-	Period    string `json:"period"`
+	Dimension  string         `json:"dimension"`
+	UnitName   string         `json:"unit_name"`
+	UnitPrice  string         `json:"unit_price"`
+	PriceType  string         `json:"price_type"`
+	Period     string         `json:"period"`
+	Conditions map[string]any `json:"conditions,omitempty"`
 }
 
 // fetchModelPricing queries model_pricing for a given model and returns pricing rows.
 func fetchModelPricing(ctx context.Context, a *app.App, modelID interface{}) ([]pricingRow, error) {
 	rows, err := a.Pool.Query(ctx,
-		`SELECT pricing_dimension, unit_name, unit_price, price_type, period FROM model_pricing
+		`SELECT pricing_dimension, unit_name, unit_price, price_type, period, COALESCE(conditions, '{}'::jsonb) FROM model_pricing
 		 WHERE model_id = $1 AND is_active = TRUE
 		 ORDER BY CASE WHEN price_type = 'sell' THEN 0 ELSE 1 END, pricing_dimension, period`, modelID,
 	)
@@ -93,10 +107,16 @@ func fetchModelPricing(ctx context.Context, a *app.App, modelID interface{}) ([]
 	var pricing []pricingRow
 	for rows.Next() {
 		var p pricingRow
-		if err := rows.Scan(&p.Dimension, &p.UnitName, &p.UnitPrice, &p.PriceType, &p.Period); err != nil {
+		var condJSON []byte
+		if err := rows.Scan(&p.Dimension, &p.UnitName, &p.UnitPrice, &p.PriceType, &p.Period, &condJSON); err != nil {
 			return nil, err
 		}
 		p.UnitPrice = trimDecimalPrice(p.UnitPrice)
+		if len(condJSON) > 0 && string(condJSON) != "{}" {
+			if err := json.Unmarshal(condJSON, &p.Conditions); err != nil {
+				return nil, fmt.Errorf("decode conditions for %s: %w", p.Dimension, err)
+			}
+		}
 		pricing = append(pricing, p)
 	}
 	return pricing, rows.Err()
@@ -191,20 +211,23 @@ func HandleLoginHistory(a *app.App) http.HandlerFunc {
 
 // createModelRequest is the request body for HandleCreateModel.
 type createModelRequest struct {
-	Code          string                  `json:"code"`
-	Provider      string                  `json:"provider"`
-	Category      string                  `json:"category"`
-	DisplayName   string                  `json:"display_name,omitempty"`
-	ContextWindow int                     `json:"context_window,omitempty"`
-	Pricings      []createModelPricingReq `json:"pricings,omitempty"`
+	Code            string                  `json:"code"`
+	Provider        string                  `json:"provider"`
+	Category        string                  `json:"category"`
+	DisplayName     string                  `json:"display_name,omitempty"`
+	Description     string                  `json:"description,omitempty"`
+	ContextWindow   int                     `json:"context_window,omitempty"`
+	MaxOutputTokens int                     `json:"max_output_tokens,omitempty"`
+	Pricings        []createModelPricingReq `json:"pricings,omitempty"`
 }
 
 type createModelPricingReq struct {
-	Dimension string `json:"dimension"`
-	UnitName  string `json:"unit_name"`
-	UnitPrice string `json:"unit_price"`
-	Period    string `json:"period,omitempty"`
-	PriceType string `json:"price_type,omitempty"`
+	Dimension  string         `json:"dimension"`
+	UnitName   string         `json:"unit_name"`
+	UnitPrice  string         `json:"unit_price"`
+	Period     string         `json:"period,omitempty"`
+	PriceType  string         `json:"price_type,omitempty"`
+	Conditions map[string]any `json:"conditions,omitempty"`
 }
 
 // HandleCreateModel handles POST /api/console/models.
@@ -257,9 +280,9 @@ func HandleCreateModel(a *app.App) http.HandlerFunc {
 		}
 
 		_, err = tx.Exec(dbCtx,
-			`INSERT INTO models (id, code, provider, category, display_name, context_window, status, release_stage, created_at, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'active', 'GA', $7, $7)`,
-			modelID, req.Code, req.Provider, req.Category, displayName, req.ContextWindow, now,
+			`INSERT INTO models (id, code, provider, category, display_name, description, context_window, max_output_tokens, status, release_stage, created_at, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', 'GA', $9, $9)`,
+			modelID, req.Code, req.Provider, req.Category, displayName, req.Description, req.ContextWindow, req.MaxOutputTokens, now,
 		)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create model"})
@@ -267,10 +290,15 @@ func HandleCreateModel(a *app.App) http.HandlerFunc {
 		}
 
 		for _, p := range req.Pricings {
+			conditions, err := pricingConditionsForInsert(p)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
 			_, err = tx.Exec(dbCtx,
-				`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, price_type, created_at, updated_at)
-				 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'), COALESCE(NULLIF($8, ''), 'sell'), $9, $9)`,
-				uuid.New(), modelID, req.Category, p.Dimension, p.UnitName, p.UnitPrice, p.Period, normalizePricingType(p.PriceType), now,
+				`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, price_type, conditions, created_at, updated_at)
+				 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'), COALESCE(NULLIF($8, ''), 'sell'), $9, $10, $10)`,
+				uuid.New(), modelID, req.Category, p.Dimension, p.UnitName, p.UnitPrice, p.Period, normalizePricingType(p.PriceType), conditions, now,
 			)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to insert model pricing"})
@@ -321,11 +349,13 @@ func HandleUpdateModel(a *app.App) http.HandlerFunc {
 		}
 
 		var req struct {
-			DisplayName   *string                 `json:"display_name,omitempty"`
-			Status        *string                 `json:"status,omitempty"`
-			Provider      *string                 `json:"provider,omitempty"`
-			ContextWindow *int                    `json:"context_window,omitempty"`
-			Pricings      []createModelPricingReq `json:"pricings,omitempty"`
+			DisplayName     *string                 `json:"display_name,omitempty"`
+			Description     *string                 `json:"description,omitempty"`
+			Status          *string                 `json:"status,omitempty"`
+			Provider        *string                 `json:"provider,omitempty"`
+			ContextWindow   *int                    `json:"context_window,omitempty"`
+			MaxOutputTokens *int                    `json:"max_output_tokens,omitempty"`
+			Pricings        []createModelPricingReq `json:"pricings,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -387,6 +417,15 @@ func HandleUpdateModel(a *app.App) http.HandlerFunc {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update model"})
 			return
 		}
+		if req.Description != nil || req.MaxOutputTokens != nil {
+			_, err = tx.Exec(dbCtx,
+				`UPDATE models SET description = COALESCE($1, description), max_output_tokens = COALESCE($2, max_output_tokens), updated_at = $3 WHERE id = $4`,
+				req.Description, req.MaxOutputTokens, now, modelID)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update model metadata"})
+				return
+			}
+		}
 
 		// Replace sell pricing rows. Cost rows (price_type='cost') are managed
 		// by provider cost sync and must survive model edits.
@@ -403,11 +442,16 @@ func HandleUpdateModel(a *app.App) http.HandlerFunc {
 					// must never re-insert them as sell rows.
 					continue
 				}
+				conditions, err := pricingConditionsForInsert(p)
+				if err != nil {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+					return
+				}
 				_, err = tx.Exec(dbCtx,
-					`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, price_type, price_version, created_at, updated_at)
-					 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'), $9,
+					`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, is_active, period, price_type, conditions, price_version, created_at, updated_at)
+					 VALUES ($1, $2, $3, $4, $5, $6, 'CNY', TRUE, COALESCE(NULLIF($7, ''), 'off_peak'), $9, $10,
 					         (SELECT COALESCE(MAX(price_version), 0) + 1 FROM model_pricing WHERE model_id = $2), $8, $8)`,
-					uuid.New(), modelID, string(model.Category), p.Dimension, p.UnitName, p.UnitPrice, p.Period, now, normalizePricingType(p.PriceType),
+					uuid.New(), modelID, string(model.Category), p.Dimension, p.UnitName, p.UnitPrice, p.Period, now, normalizePricingType(p.PriceType), conditions,
 				)
 				if err != nil {
 					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to insert new pricing"})
@@ -542,5 +586,80 @@ func normalizePricingType(t string) string {
 		return t
 	default:
 		return domain.PriceTypeSell
+	}
+}
+
+// pricingConditionsForInsert validates tier conditions and serializes them for
+// JSONB storage. Empty conditions are stored as NULL so the platform unique
+// index (COALESCE(conditions, '{}')) still treats them as the generic row.
+func pricingConditionsForInsert(p createModelPricingReq) (any, error) {
+	if len(p.Conditions) == 0 {
+		return nil, nil
+	}
+	if err := validatePricingConditions(p.Conditions); err != nil {
+		return nil, fmt.Errorf("invalid pricing conditions for %s: %w", p.Dimension, err)
+	}
+	b, err := json.Marshal(p.Conditions)
+	if err != nil {
+		return nil, fmt.Errorf("encode pricing conditions for %s: %w", p.Dimension, err)
+	}
+	return string(b), nil
+}
+
+// validatePricingConditions enforces the conditions the billing engine
+// actually understands (inclusive total-token bounds) and rejects unknown
+// keys, so a typo cannot silently disable a price tier.
+func validatePricingConditions(c map[string]any) error {
+	var min, max int64
+	hasMin, hasMax := false, false
+	for k, v := range c {
+		switch k {
+		case "min_total_tokens":
+			n, ok := conditionInt(v)
+			if !ok {
+				return fmt.Errorf("min_total_tokens must be a non-negative integer")
+			}
+			min, hasMin = n, true
+		case "max_total_tokens":
+			n, ok := conditionInt(v)
+			if !ok {
+				return fmt.Errorf("max_total_tokens must be a non-negative integer")
+			}
+			max, hasMax = n, true
+		default:
+			return fmt.Errorf("unsupported condition key %q", k)
+		}
+	}
+	if hasMin && hasMax && min > max {
+		return fmt.Errorf("min_total_tokens must not exceed max_total_tokens")
+	}
+	return nil
+}
+
+func conditionInt(v any) (int64, bool) {
+	switch n := v.(type) {
+	case float64:
+		if n < 0 || math.Trunc(n) != n {
+			return 0, false
+		}
+		return int64(n), true
+	case int64:
+		if n < 0 {
+			return 0, false
+		}
+		return n, true
+	case int:
+		if n < 0 {
+			return 0, false
+		}
+		return int64(n), true
+	case string:
+		parsed, err := strconv.ParseInt(n, 10, 64)
+		if err != nil || parsed < 0 {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
 	}
 }

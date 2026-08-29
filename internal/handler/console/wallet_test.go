@@ -1,6 +1,7 @@
 package console
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -477,4 +478,119 @@ func TestHandleListTransactions_DefaultLimit(t *testing.T) {
 
 func decMustParse(s string) decimal.Decimal {
 	return decimal.RequireFromString(s)
+}
+
+// =============================================================================
+// Balance alert (low-balance threshold)
+// =============================================================================
+
+func TestHandleSetBalanceAlert_FlagsBelowThreshold(t *testing.T) {
+	a := appForWalletTest(t)
+	seedUser := seedUserForWalletTest(t, a, "alert@example.com", "pass", "Alert User")
+
+	// Wallet with 30 CNY available.
+	if _, err := a.Pool.Exec(context.Background(),
+		`INSERT INTO wallets (id, user_id, balance, frozen, currency, version, created_at, updated_at)
+		 VALUES ($1, $2, '30', '0', 'CNY', 0, NOW(), NOW())`,
+		uuid.New(), seedUser.ID); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+
+	body := []byte(`{"threshold":"50"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/console/wallet/alert", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = setUserInWalletContext(req, seedUser.ID.String())
+	w := httptest.NewRecorder()
+	HandleSetBalanceAlert(a).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	// Wallet summary now exposes threshold + below_threshold.
+	req = httptest.NewRequest(http.MethodGet, "/api/console/wallet", nil)
+	req = setUserInWalletContext(req, seedUser.ID.String())
+	w = httptest.NewRecorder()
+	HandleGetWallet(a).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET wallet status = %d, want 200", w.Code)
+	}
+	var resp struct {
+		BalanceAlertThreshold string `json:"balance_alert_threshold"`
+		BelowThreshold        bool   `json:"below_threshold"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.BalanceAlertThreshold != "50.00" {
+		t.Errorf("threshold = %q, want 50.00", resp.BalanceAlertThreshold)
+	}
+	if !resp.BelowThreshold {
+		t.Error("below_threshold should be true when 30 < 50")
+	}
+}
+
+func TestHandleSetBalanceAlert_ZeroDisables(t *testing.T) {
+	a := appForWalletTest(t)
+	seedUser := seedUserForWalletTest(t, a, "alert-off@example.com", "pass", "Alert Off")
+	if _, err := a.Pool.Exec(context.Background(),
+		`INSERT INTO wallets (id, user_id, balance, frozen, currency, version, created_at, updated_at)
+		 VALUES ($1, $2, '100', '0', 'CNY', 0, NOW(), NOW())`,
+		uuid.New(), seedUser.ID); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+	// Pre-set a threshold via SQL.
+	if _, err := a.Pool.Exec(context.Background(),
+		`UPDATE users SET balance_alert_threshold = '200' WHERE id = $1`, seedUser.ID); err != nil {
+		t.Fatalf("preset threshold: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/console/wallet/alert", bytes.NewReader([]byte(`{"threshold":"0"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req = setUserInWalletContext(req, seedUser.ID.String())
+	w := httptest.NewRecorder()
+	HandleSetBalanceAlert(a).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/console/wallet/alert", nil)
+	req = setUserInWalletContext(req, seedUser.ID.String())
+	w = httptest.NewRecorder()
+	HandleGetBalanceAlert(a).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET alert status = %d, want 200", w.Code)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["threshold"] != "0.00" {
+		t.Errorf("threshold = %q, want 0.00", got["threshold"])
+	}
+}
+
+func TestHandleSetBalanceAlert_RejectsInvalid(t *testing.T) {
+	a := appForWalletTest(t)
+	seedUser := seedUserForWalletTest(t, a, "alert-bad@example.com", "pass", "Alert Bad")
+
+	for _, body := range []string{`{"threshold":"-1"}`, `{"threshold":"abc"}`, `not-json`} {
+		req := httptest.NewRequest(http.MethodPut, "/api/console/wallet/alert", bytes.NewReader([]byte(body)))
+		req.Header.Set("Content-Type", "application/json")
+		req = setUserInWalletContext(req, seedUser.ID.String())
+		w := httptest.NewRecorder()
+		HandleSetBalanceAlert(a).ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body %q status = %d, want 400", body, w.Code)
+		}
+	}
+}
+
+func TestHandleGetBalanceAlert_NoAuth(t *testing.T) {
+	a := appForWalletTest(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/console/wallet/alert", nil)
+	w := httptest.NewRecorder()
+	HandleGetBalanceAlert(a).ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
 }

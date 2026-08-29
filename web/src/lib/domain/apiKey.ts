@@ -1,6 +1,8 @@
 // Pure helpers for API key limit form state and wire-format bodies.
 // Kept side-effect free so they are unit-testable without a DOM.
 
+import i18n from "../../i18n";
+
 export interface KeyLimitValues {
   monthlyLimit: string;
   weeklyLimit: string;
@@ -45,7 +47,7 @@ export function buildKeyLimitsBody(values: KeyLimitValues): KeyLimitsResult {
   const rpm = parseRateLimit(values.rateLimitRpm);
   if (rpm !== undefined) {
     if (Number.isNaN(rpm)) {
-      errors.push("RPM 必须是大于等于 0 的整数");
+    errors.push(i18n.t("lib.rpmInvalid"));
     } else {
       body.rate_limit_rpm = rpm;
     }
@@ -53,7 +55,7 @@ export function buildKeyLimitsBody(values: KeyLimitValues): KeyLimitsResult {
   const tpm = parseRateLimit(values.rateLimitTpm);
   if (tpm !== undefined) {
     if (Number.isNaN(tpm)) {
-      errors.push("TPM 必须是大于等于 0 的整数");
+    errors.push(i18n.t("lib.tpmInvalid"));
     } else {
       body.rate_limit_tpm = tpm;
     }
@@ -66,5 +68,5 @@ export function formatRateLimit(rpm?: number | null, tpm?: number | null): strin
   const parts: string[] = [];
   if (typeof rpm === "number" && rpm > 0) parts.push(`${rpm} RPM`);
   if (typeof tpm === "number" && tpm > 0) parts.push(`${tpm} TPM`);
-  return parts.length > 0 ? parts.join(" · ") : "不限";
+  return parts.length > 0 ? parts.join(" · ") : i18n.t("lib.unlimited");
 }

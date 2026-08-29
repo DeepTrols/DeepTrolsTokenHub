@@ -25,6 +25,9 @@ type Config struct {
 	Bootstrap      BootstrapConfig
 	Cookie         CookieConfig
 	ResponseCache  ResponseCacheConfig
+	// UploadDir is the local directory for admin-uploaded brand assets
+	// (logo/favicon). Defaults to ./uploads (relative to the process cwd).
+	UploadDir string
 	// FakePayment enables the demo-only topup faucet and signup bonus.
 	// MUST be false in production. When false, the topup endpoint returns 403
 	// and no bonus balance is granted.
@@ -152,6 +155,7 @@ func Load() (*Config, error) {
 			TTLSeconds:  envOrDefaultInt("CACHE_TTL_SECONDS", 3600),
 			CacheModels: os.Getenv("CACHE_MODELS"),
 		},
+		UploadDir:   envOrDefault("UPLOAD_DIR", "./uploads"),
 		FakePayment: envOrDefaultBool("ENABLE_FAKE_PAYMENT", false),
 	}
 

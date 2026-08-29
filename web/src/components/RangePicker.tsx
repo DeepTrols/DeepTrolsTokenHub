@@ -10,18 +10,18 @@ import {
   monthKeyFromInstant,
   rangeForPreset,
 } from "../lib/gmt8";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 const PRESETS: { key: PresetKey; label: string }[] = [
-  { key: "today", label: "今天" },
-  { key: "yesterday", label: "昨天" },
-  { key: "7d", label: "近 7 天" },
-  { key: "30d", label: "近 30 天" },
-  { key: "month", label: "本月" },
-  { key: "lastMonth", label: "上月" },
-  { key: "custom", label: "自定义" },
+  { key: "today", label: "components.presetToday" },
+  { key: "yesterday", label: "components.presetYesterday" },
+  { key: "7d", label: "components.preset7d" },
+  { key: "30d", label: "components.preset30d" },
+  { key: "month", label: "components.presetMonth" },
+  { key: "lastMonth", label: "components.presetLastMonth" },
+  { key: "custom", label: "components.presetCustom" },
 ];
-
-const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
 function monthCells(year: number, month: number): (string | null)[] {
   const first = new Date(Date.UTC(year, month, 1));
@@ -47,12 +47,14 @@ function CalendarMonth({
   todayKey: string;
   onPick: (key: string) => void;
 }) {
+  const { t } = useTranslation();
   const cells = monthCells(year, month);
   const inRange = (k: string) => !!selFrom && !!selTo && k > selFrom && k < selTo;
+  const weekdays = t("components.weekdays", { returnObjects: true }) as string[];
   return (
     <div>
       <div className="grid grid-cols-7 text-center text-[11px] text-[#5C6472] mb-1">
-        {WEEKDAYS.map((w) => (
+        {weekdays.map((w) => (
           <span key={w} className="py-1">
             {w}
           </span>
@@ -97,6 +99,7 @@ export interface RangePickerProps {
 }
 
 export default function RangePicker({ from, to, preset, now, onApply }: RangePickerProps) {
+  const { t } = useTranslation();
   const nowDate = useMemo(() => now ?? new Date(), [now]);
   const todayKey = useMemo(() => gmt8DayKey(nowDate.toISOString()), [nowDate]);
   const [open, setOpen] = useState(false);
@@ -160,6 +163,7 @@ export default function RangePicker({ from, to, preset, now, onApply }: RangePic
     onApply({ from: dayKeyToStart(start), to: dayKeyToEnd(end), preset: "custom" });
     setOpen(false);
   };
+  const monthLabel = (year: number, month: number) => t("components.yearMonth", { year, month: month + 1 });
 
   return (
     <div className="relative">
@@ -188,25 +192,25 @@ export default function RangePicker({ from, to, preset, now, onApply }: RangePic
                         : "text-[#5C6472] hover:bg-black/5"
                     }`}
                   >
-                    {p.label}
+                    {t(p.label)}
                     {activePreset === p.key && <Check size={14} className="text-[#4F6BED]" />}
                   </button>
                 ))}
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <button onClick={() => shift(-1)} aria-label="上个月" className="p-1 rounded hover:bg-black/5">
+                  <button onClick={() => shift(-1)} aria-label={t("components.prevMonth")} className="p-1 rounded hover:bg-black/5">
                     <ChevronLeft size={16} />
                   </button>
                   <div className="flex gap-10 text-[13px] font-bold text-[#161A23]">
                     <span>
-                      {viewYear}年{viewMonth + 1}月
+                      {monthLabel(viewYear, viewMonth)}
                     </span>
                     <span>
-                      {nextYear}年{nextMonth + 1}月
+                      {monthLabel(nextYear, nextMonth)}
                     </span>
                   </div>
-                  <button onClick={() => shift(1)} aria-label="下个月" className="p-1 rounded hover:bg-black/5">
+                  <button onClick={() => shift(1)} aria-label={t("components.nextMonth")} className="p-1 rounded hover:bg-black/5">
                     <ChevronRight size={16} />
                   </button>
                 </div>
@@ -235,14 +239,14 @@ export default function RangePicker({ from, to, preset, now, onApply }: RangePic
                 onClick={close}
                 className="rounded-lg border border-black/10 bg-white px-4 py-2 text-sm font-semibold hover:bg-black/5"
               >
-                取消
+                {t("components.cancel")}
               </button>
               <button
                 onClick={confirmCustom}
                 disabled={!selFrom || !selTo}
                 className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-40"
               >
-                确定
+                {t("components.ok")}
               </button>
             </div>
           </div>

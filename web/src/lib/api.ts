@@ -1,5 +1,6 @@
 const API_BASE = "/api/console";
 const ADMIN_API_BASE = "/api/admin";
+const PUBLIC_API_BASE = "/api/public";
 
 async function request<T>(baseURL: string, path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${baseURL}${path}`, {
@@ -36,6 +37,10 @@ function adminRequest<T>(path: string, options?: RequestInit): Promise<T> {
   return request<T>(ADMIN_API_BASE, path, options);
 }
 
+function publicRequest<T>(path: string, options?: RequestInit): Promise<T> {
+  return request<T>(PUBLIC_API_BASE, path, options);
+}
+
 export const api = {
   get: <T>(path: string) => consoleRequest<T>(path),
   post: <T>(path: string, body?: unknown) =>
@@ -52,6 +57,10 @@ export const adminApi = {
   put: <T>(path: string, body?: unknown) =>
     adminRequest<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   delete: <T>(path: string) => adminRequest<T>(path, { method: "DELETE" }),
+};
+
+export const publicApi = {
+  get: <T>(path: string) => publicRequest<T>(path),
 };
 
 export interface User {
@@ -76,6 +85,8 @@ export interface APIKeyData {
   rate_limit_tpm?: number;
   last_used_at?: string;
   last_7d_active?: boolean;
+  expires_at?: string;
+  group_name?: string;
   created_at: string;
 }
 
@@ -98,6 +109,8 @@ export interface WalletData {
   available: string;
   currency: string;
   total_charged: string;
+  balance_alert_threshold?: string;
+  below_threshold?: boolean;
 }
 
 export interface Transaction {
@@ -119,4 +132,52 @@ export interface ModelData {
   display_name: string;
   context_window: number;
   pricing: Record<string, string>;
+}
+
+export interface PaymentMethodInfo {
+  name: string;
+  type: string;
+  color: string;
+}
+
+export interface PaymentMethodsInfo {
+  enabled: boolean;
+  payment_compliance_confirmed: boolean;
+  pay_methods: PaymentMethodInfo[];
+  min_topup: string;
+  max_topup: string;
+  amount_options: string[];
+}
+
+export interface PaymentOrder {
+  id: string;
+  order_no: string;
+  amount: string;
+  currency: string;
+  channel: string;
+  pay_method: string;
+  status: string;
+  created_at: string;
+}
+
+export interface CreatePaymentOrderResponse {
+  order_no: string;
+  amount: string;
+  currency: string;
+  channel: string;
+  pay_method: string;
+  pay_url: string;
+}
+
+export interface ProviderModelPreview {
+  id: string;
+  exists: boolean;
+}
+
+export interface ChannelModelItem {
+  upstream: string;
+  code: string;
+  model_id: string;
+  status: string;
+  enabled: boolean;
 }

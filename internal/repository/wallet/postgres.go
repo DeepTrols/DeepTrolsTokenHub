@@ -391,6 +391,83 @@ func (r *PostgresRepository) Transfer(ctx context.Context, fromWalletID, toWalle
 	}, nil
 }
 
+// Spend atomically deducts `amount` from the wallet and records a negative
+// wallet_transaction (tx_type 'subscription'). Idempotent replay returns the
+// original record; insufficient balance returns ErrInsufficientBalance.
+func (r *PostgresRepository) Spend(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil, fmt.Errorf("wallet spend: amount must be positive")
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("wallet spend begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	existing, err := findIdempotentTx(ctx, tx, walletID, idempotencyKey)
+	if err == nil {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return nil, fmt.Errorf("wallet spend commit: %w", cerr)
+		}
+		return existing, nil
+	}
+	if err != pgx.ErrNoRows {
+		return nil, fmt.Errorf("wallet spend idempotent check: %w", err)
+	}
+
+	var balanceStr string
+	var version int64
+	if err := tx.QueryRow(ctx,
+		`SELECT balance, version FROM wallets WHERE id = $1 FOR UPDATE`, walletID,
+	).Scan(&balanceStr, &version); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("wallet spend: wallet not found: %w", ErrNotFound)
+		}
+		return nil, fmt.Errorf("wallet spend lock: %w", err)
+	}
+	balance := parseDecimalStr(balanceStr)
+	if balance.LessThan(amount) {
+		return nil, ErrInsufficientBalance
+	}
+
+	balanceBefore := balance
+	balanceAfter := balance.Sub(amount)
+	txID := uuid.New()
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO wallet_transactions (id, wallet_id, idempotency_key, tx_type, amount,
+			balance_before, balance_after, created_at)
+		 VALUES ($1, $2, $3, 'subscription', $4, $5, $6, NOW())`,
+		txID, walletID, idempotencyKey, amount.Neg(), balanceBefore, balanceAfter,
+	); err != nil {
+		return nil, fmt.Errorf("wallet spend insert tx: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE wallets SET balance = balance - $1, version = version + 1, updated_at = NOW()
+		 WHERE id = $2 AND version = $3`,
+		amount, walletID, version)
+	if err != nil {
+		return nil, fmt.Errorf("wallet spend update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, fmt.Errorf("wallet spend: optimistic lock conflict (version=%d)", version)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("wallet spend commit: %w", err)
+	}
+	return &domain.WalletTransaction{
+		ID:             txID,
+		WalletID:       walletID,
+		IdempotencyKey: idempotencyKey,
+		TxType:         domain.WalletTxSubscription,
+		Amount:         amount.Neg(),
+		BalanceBefore:  balanceBefore,
+		BalanceAfter:   balanceAfter,
+	}, nil
+}
+
 // Commit finalizes a reserved transaction: balance -= amount, frozen -= amount.
 func (r *PostgresRepository) Commit(ctx context.Context, txID uuid.UUID) error {
 	dbTx, err := r.pool.Begin(ctx)

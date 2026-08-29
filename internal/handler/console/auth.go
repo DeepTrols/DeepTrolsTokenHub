@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	"github.com/deeptrols/api/internal/repository/user"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -58,9 +60,10 @@ type meResponse struct {
 }
 
 type registerRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Name     string `json:"name"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	Name       string `json:"name"`
+	InviteCode string `json:"invite_code"`
 }
 
 type registerResponse struct {
@@ -191,6 +194,10 @@ func HandleMe(a *app.App) http.HandlerFunc {
 // HandleRegister creates a new user account with wallet and returns a JWT token.
 func HandleRegister(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !settingBool(a, r, "register_enabled") {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Registration is disabled"})
+			return
+		}
 		var req registerRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -229,13 +236,35 @@ func HandleRegister(a *app.App) http.HandlerFunc {
 		u := &domain.User{
 			ID: uuid.New(), Email: req.Email, PasswordHash: string(hash),
 			DisplayName: req.Name, Role: "user", Status: domain.UserStatusActive,
-			UserType: userType, CreatedAt: now, UpdatedAt: now,
+			UserType: userType, InviteCode: generateInviteCode(), CreatedAt: now, UpdatedAt: now,
 		}
+
+		// Resolve an optional inviter before creating the account (no
+		// self-invite is possible: this user does not exist yet).
+		var invitedBy *uuid.UUID
+		inviteReward := decimal.Zero
+		if code := strings.TrimSpace(req.InviteCode); code != "" {
+			var inviterID uuid.UUID
+			err = a.Pool.QueryRow(ctx,
+				`SELECT id FROM users WHERE invite_code = $1 AND status = 'active'`,
+				code).Scan(&inviterID)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无效的邀请码"})
+				return
+			}
+			invitedBy = &inviterID
+			inviteReward = inviteRewardSetting(a, r)
+		}
+		u.InvitedBy = invitedBy
 
 		if err := a.Users.Create(ctx, u); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create user"})
 			return
 		}
+		// Persist the invite fields (repo Create covers the base columns).
+		_, _ = a.Pool.Exec(ctx,
+			`UPDATE users SET invite_code = $2, invited_by = $3 WHERE id = $1`,
+			u.ID, u.InviteCode, invitedBy)
 
 		// Create wallet. Bonus balance is granted only when the demo money
 		// faucet is enabled (ENABLE_FAKE_PAYMENT=true); production = 0.
@@ -249,6 +278,16 @@ func HandleRegister(a *app.App) http.HandlerFunc {
 			uuid.New(), u.ID, bonus, now,
 		)
 
+		// Invite rewards: both sides credited idempotently (unique keys).
+		if invitedBy != nil && !inviteReward.IsZero() {
+			if wal, err := a.Wallets.FindByUser(ctx, u.ID, nil); err == nil && wal != nil {
+				_, _ = a.Wallets.TopUp(ctx, wal.ID, inviteReward, "invite:"+u.ID.String())
+			}
+			if inviterWal, err := a.Wallets.FindByUser(ctx, *invitedBy, nil); err == nil && inviterWal != nil {
+				_, _ = a.Wallets.TopUp(ctx, inviterWal.ID, inviteReward, "invite:"+u.ID.String()+":inviter")
+			}
+		}
+
 		token, _, err := generateLoginJWT(a, u)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate token"})
@@ -260,6 +299,31 @@ func HandleRegister(a *app.App) http.HandlerFunc {
 			User:  userProfile{ID: u.ID.String(), Email: u.Email, Name: u.DisplayName},
 		})
 	}
+}
+
+// settingBool reads a boolean system setting, tolerating both JSON booleans and
+// JSON-string booleans (as written by the admin API). Defaults to true.
+func settingBool(a *app.App, r *http.Request, key string) bool {
+	if a == nil || a.Settings == nil {
+		return true
+	}
+	all, err := a.Settings.All(r.Context())
+	if err != nil {
+		return true
+	}
+	if v, ok := all[key]; ok {
+		var b bool
+		if json.Unmarshal(v, &b) == nil {
+			return b
+		}
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			if p, err := strconv.ParseBool(s); err == nil {
+				return p
+			}
+		}
+	}
+	return true
 }
 
 // HandleLogout clears the auth cookie and returns a success message.

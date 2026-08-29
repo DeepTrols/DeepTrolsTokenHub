@@ -3,6 +3,10 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
+# 国内网络环境可访问的 Go 模块镜像（可用 --build-arg GOPROXY=... 覆盖）
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
+
 COPY go.mod go.sum ./
 RUN go mod download
 

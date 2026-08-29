@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 export interface SelectOption {
   value: string;
@@ -15,6 +17,7 @@ export interface SelectMenuProps {
 }
 
 export default function SelectMenu({ value, options, onChange, ariaLabel, placeholder }: SelectMenuProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
 
@@ -26,7 +29,7 @@ export default function SelectMenu({ value, options, onChange, ariaLabel, placeh
         onClick={() => setOpen((v) => !v)}
         className="glass-soft rounded-lg px-3 py-2 text-sm inline-flex items-center gap-2 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
       >
-        <span className="max-w-[220px] truncate">{selected?.label ?? placeholder ?? "请选择"}</span>
+        <span className="max-w-[220px] truncate">{selected?.label ?? placeholder ?? t("components.selectPlaceholder")}</span>
         <ChevronDown size={14} className="text-[#5C6472] shrink-0" />
       </button>
       {open && (

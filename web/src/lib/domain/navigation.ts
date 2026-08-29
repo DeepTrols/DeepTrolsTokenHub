@@ -35,6 +35,8 @@ export function defaultViewForRole(user: NavigationUser | null | undefined): str
 export function filterNavItems<T extends { to: string }>(
   items: T[],
   user: NavigationUser | null | undefined,
+  hiddenPaths: string[] = [],
 ): T[] {
-  return items.filter((item) => canAccessView(item.to, user));
+  const hidden = new Set(hiddenPaths);
+  return items.filter((item) => canAccessView(item.to, user) && !hidden.has(item.to));
 }

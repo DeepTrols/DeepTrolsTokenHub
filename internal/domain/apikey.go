@@ -19,6 +19,7 @@ type APIKey struct {
 	MaskedKey       string
 	Name            string
 	Status          APIKeyStatus
+	GroupName       string
 	AllowedModels   []string
 	SourceWhitelist []string
 	CumulativeLimit decimal.Decimal
@@ -27,6 +28,7 @@ type APIKey struct {
 	OverLimitAction OverLimitAction
 	LastUsedAt      *time.Time
 	Last7dActive    bool
+	ExpiresAt       *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	RevokedAt       *time.Time

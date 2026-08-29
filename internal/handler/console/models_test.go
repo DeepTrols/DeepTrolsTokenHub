@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,13 +116,66 @@ func seedModelsForTest(t *testing.T, a *app.App) {
 	}
 }
 
+// seedDomesticModelsForListTest seeds two active domestic-provider models so
+// the console list handler's domestic-provider filter (IsDomesticProvider)
+// keeps them visible. Pricing mirrors seedModelsForTest for the list test.
+func seedDomesticModelsForListTest(t *testing.T, a *app.App) {
+	t.Helper()
+	ctx := context.Background()
+
+	model1ID := uuid.New()
+	model2ID := uuid.New()
+
+	_, err := a.Pool.Exec(ctx,
+		`INSERT INTO models (id, code, provider, category, display_name, description, context_window, status, release_stage, created_at, updated_at)
+		 VALUES ($1, 'deepseek-chat', 'deepseek', 'chat', 'DeepSeek Chat', 'DeepSeek V3 chat model', 128000, 'active', 'GA', NOW(), NOW())`,
+		model1ID,
+	)
+	if err != nil {
+		t.Fatalf("insert model1: %v", err)
+	}
+
+	_, err = a.Pool.Exec(ctx,
+		`INSERT INTO models (id, code, provider, category, display_name, description, context_window, status, release_stage, created_at, updated_at)
+		 VALUES ($1, 'glm-4', 'zhipu', 'chat', 'GLM-4', 'Zhipu GLM-4 model', 200000, 'active', 'GA', NOW(), NOW())`,
+		model2ID,
+	)
+	if err != nil {
+		t.Fatalf("insert model2: %v", err)
+	}
+
+	for _, row := range []struct {
+		modelID uuid.UUID
+		input   string
+		output  string
+		inCost  string
+		outCost string
+	}{
+		{model1ID, "2.50", "10.00", "1.20", "5.00"},
+		{model2ID, "3.00", "15.00", "1.50", "7.50"},
+	} {
+		if _, err := a.Pool.Exec(ctx,
+			`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, upstream_cost, is_active, created_at, updated_at)
+			 VALUES ($1, $2, 'chat', 'input', 'token', $3, 'CNY', $4, TRUE, NOW(), NOW())`,
+			uuid.New(), row.modelID, row.input, row.inCost); err != nil {
+			t.Fatalf("insert pricing input: %v", err)
+		}
+		if _, err := a.Pool.Exec(ctx,
+			`INSERT INTO model_pricing (id, model_id, request_type, pricing_dimension, unit_name, unit_price, currency, upstream_cost, is_active, created_at, updated_at)
+			 VALUES ($1, $2, 'chat', 'output', 'token', $3, 'CNY', $4, TRUE, NOW(), NOW())`,
+			uuid.New(), row.modelID, row.output, row.outCost); err != nil {
+			t.Fatalf("insert pricing output: %v", err)
+		}
+	}
+}
+
 // =============================================================================
 // HandleListModels Tests
 // =============================================================================
 
 func TestHandleListModels_ReturnsActiveModels(t *testing.T) {
 	a := appForModelsTest(t)
-	seedModelsForTest(t, a)
+	seedDomesticModelsForListTest(t, a)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/console/models", nil)
 	w := httptest.NewRecorder()
@@ -159,44 +213,44 @@ func TestHandleListModels_ReturnsActiveModels(t *testing.T) {
 	foundGPT, foundClaude := false, false
 	for _, m := range resp.Data {
 		switch m.Code {
-		case "gpt-4o":
+		case "deepseek-chat":
 			foundGPT = true
-			if m.Provider != "openai" {
-				t.Errorf("gpt-4o provider = %s, want 'openai'", m.Provider)
+			if m.Provider != "deepseek" {
+				t.Errorf("deepseek-chat provider = %s, want 'deepseek'", m.Provider)
 			}
 			if m.Category != "chat" {
-				t.Errorf("gpt-4o category = %s, want 'chat'", m.Category)
+				t.Errorf("deepseek-chat category = %s, want 'chat'", m.Category)
 			}
 			if m.ContextWindow != 128000 {
-				t.Errorf("gpt-4o context_window = %d, want 128000", m.ContextWindow)
+				t.Errorf("deepseek-chat context_window = %d, want 128000", m.ContextWindow)
 			}
 			if m.Pricing == nil {
-				t.Error("gpt-4o pricing should not be nil")
+				t.Error("deepseek-chat pricing should not be nil")
 			}
 			if m.Pricing["input"] != "2.50" {
-				t.Errorf("gpt-4o input price = %v, want '2.50'", m.Pricing["input"])
+				t.Errorf("deepseek-chat input price = %v, want '2.50'", m.Pricing["input"])
 			}
 			if m.Pricing["output"] != "10.00" {
-				t.Errorf("gpt-4o output price = %v, want '10.00'", m.Pricing["output"])
+				t.Errorf("deepseek-chat output price = %v, want '10.00'", m.Pricing["output"])
 			}
-		case "claude-sonnet":
+		case "glm-4":
 			foundClaude = true
-			if m.Provider != "anthropic" {
-				t.Errorf("claude-sonnet provider = %s, want 'anthropic'", m.Provider)
+			if m.Provider != "zhipu" {
+				t.Errorf("glm-4 provider = %s, want 'zhipu'", m.Provider)
 			}
 			if m.ContextWindow != 200000 {
-				t.Errorf("claude-sonnet context_window = %d, want 200000", m.ContextWindow)
+				t.Errorf("glm-4 context_window = %d, want 200000", m.ContextWindow)
 			}
 			if m.Pricing == nil {
-				t.Error("claude-sonnet pricing should not be nil")
+				t.Error("glm-4 pricing should not be nil")
 			}
 		}
 	}
 	if !foundGPT {
-		t.Error("gpt-4o not found in response")
+		t.Error("deepseek-chat not found in response")
 	}
 	if !foundClaude {
-		t.Error("claude-sonnet not found in response")
+		t.Error("glm-4 not found in response")
 	}
 }
 
@@ -210,7 +264,7 @@ func TestHandleListModels_OnlyActiveModels(t *testing.T) {
 
 	_, err := a.Pool.Exec(ctx,
 		`INSERT INTO models (id, code, provider, category, display_name, status, release_stage, created_at, updated_at)
-		 VALUES ($1, 'active-model', 'test', 'chat', 'Active', 'active', 'GA', NOW(), NOW())`,
+		 VALUES ($1, 'active-model', 'deepseek', 'chat', 'Active', 'active', 'GA', NOW(), NOW())`,
 		activeID,
 	)
 	if err != nil {
@@ -218,7 +272,7 @@ func TestHandleListModels_OnlyActiveModels(t *testing.T) {
 	}
 	_, err = a.Pool.Exec(ctx,
 		`INSERT INTO models (id, code, provider, category, display_name, status, release_stage, created_at, updated_at)
-		 VALUES ($1, 'inactive-model', 'test', 'chat', 'Inactive', 'inactive', 'unsupported', NOW(), NOW())`,
+		 VALUES ($1, 'inactive-model', 'deepseek', 'chat', 'Inactive', 'inactive', 'unsupported', NOW(), NOW())`,
 		inactiveID,
 	)
 	if err != nil {
@@ -544,9 +598,10 @@ func TestHandleLoginHistory_Max50Entries(t *testing.T) {
 // =============================================================================
 
 type testPricingRequest struct {
-	Dimension string `json:"dimension"`
-	UnitName  string `json:"unit_name"`
-	UnitPrice string `json:"unit_price"`
+	Dimension  string         `json:"dimension"`
+	UnitName   string         `json:"unit_name"`
+	UnitPrice  string         `json:"unit_price"`
+	Conditions map[string]any `json:"conditions,omitempty"`
 }
 
 type testCreateModelRequest struct {
@@ -1211,5 +1266,251 @@ func TestHandleUpdateModel_AuditRecordsOldPricing(t *testing.T) {
 	}
 	if !bytes.Contains(oldValue, []byte("2.50")) {
 		t.Errorf("audit old_value = %s, want it to contain pre-edit price 2.50", oldValue)
+	}
+}
+
+// ============================================================================
+// Tiered pricing: model_pricing.conditions must survive create/update/list/get
+// roundtrips so admins can edit tiers from the console (new-api parity), and
+// malformed conditions must be rejected instead of silently disabling a tier.
+// ============================================================================
+
+func TestHandleCreateModel_TieredConditionsRoundtrip(t *testing.T) {
+	a := appForModelsTest(t)
+
+	body := testCreateModelRequest{
+		Code:     "deepseek-tiers",
+		Provider: "deepseek",
+		Category: "chat",
+		Pricings: []testPricingRequest{
+			{Dimension: "input", UnitName: "1M tokens", UnitPrice: "3.00", Conditions: map[string]any{"max_total_tokens": 200000}},
+			{Dimension: "input", UnitName: "1M tokens", UnitPrice: "2.00", Conditions: map[string]any{"min_total_tokens": 200001}},
+			{Dimension: "output", UnitName: "1M tokens", UnitPrice: "8.00"},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/console/models", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = setUserInModelsContext(req, uuid.New().String())
+	w := httptest.NewRecorder()
+	HandleCreateModel(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body = %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+
+	// DB rows keep the tier conditions.
+	rows, err := a.Pool.Query(context.Background(),
+		`SELECT pricing_dimension, unit_price, COALESCE(conditions, '{}'::jsonb)::text
+		 FROM model_pricing WHERE model_id = $1 AND price_type = 'sell'
+		 ORDER BY pricing_dimension, unit_price`, resp.Data.ID)
+	if err != nil {
+		t.Fatalf("query pricing: %v", err)
+	}
+	defer rows.Close()
+
+	type dbRow struct {
+		dim, price, cond string
+	}
+	var got []dbRow
+	for rows.Next() {
+		var r dbRow
+		if err := rows.Scan(&r.dim, &r.price, &r.cond); err != nil {
+			t.Fatalf("scan pricing: %v", err)
+		}
+		got = append(got, r)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 sell rows, got %d: %+v", len(got), got)
+	}
+	if got[0].dim != "input" || trimDecimalPrice(got[0].price) != "2.00" || !strings.Contains(got[0].cond, "200001") {
+		t.Errorf("row 0 = %+v, want input 2.00 with min_total_tokens 200001", got[0])
+	}
+	if got[1].dim != "input" || trimDecimalPrice(got[1].price) != "3.00" || !strings.Contains(got[1].cond, "200000") {
+		t.Errorf("row 1 = %+v, want input 3.00 with max_total_tokens 200000", got[1])
+	}
+	if got[2].dim != "output" || trimDecimalPrice(got[2].price) != "8.00" || got[2].cond != "{}" {
+		t.Errorf("row 2 = %+v, want output 8.00 with empty conditions", got[2])
+	}
+
+	// GET roundtrip exposes the conditions to the console UI.
+	req = httptest.NewRequest(http.MethodGet, "/api/console/models/"+resp.Data.ID, nil)
+	req = setUserInModelsContext(req, uuid.New().String())
+	req = chiRouteCtx(req, "id", resp.Data.ID)
+	w = httptest.NewRecorder()
+	HandleGetModel(a).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	var getResp struct {
+		Data struct {
+			Pricings []struct {
+				Dimension  string         `json:"dimension"`
+				UnitPrice  string         `json:"unit_price"`
+				Conditions map[string]any `json:"conditions"`
+			} `json:"pricings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("unmarshal get response: %v", err)
+	}
+	inputTiers := 0
+	for _, p := range getResp.Data.Pricings {
+		if p.Dimension != "input" {
+			continue
+		}
+		inputTiers++
+		if trimDecimalPrice(p.UnitPrice) == "2.00" {
+			if p.Conditions["min_total_tokens"] != float64(200001) {
+				t.Errorf("input 2.00 conditions = %v, want min_total_tokens 200001", p.Conditions)
+			}
+		}
+		if trimDecimalPrice(p.UnitPrice) == "3.00" {
+			if p.Conditions["max_total_tokens"] != float64(200000) {
+				t.Errorf("input 3.00 conditions = %v, want max_total_tokens 200000", p.Conditions)
+			}
+		}
+	}
+	if inputTiers != 2 {
+		t.Errorf("GET pricings exposed %d input tiers, want 2", inputTiers)
+	}
+}
+
+func TestHandleCreateModel_RejectsInvalidTierConditions(t *testing.T) {
+	cases := []struct {
+		name       string
+		conditions map[string]any
+	}{
+		{"min greater than max", map[string]any{"min_total_tokens": 500, "max_total_tokens": 100}},
+		{"unsupported key", map[string]any{"below_tokens": 100}},
+		{"non-integer max", map[string]any{"max_total_tokens": "abc"}},
+		{"negative min", map[string]any{"min_total_tokens": -1}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := appForModelsTest(t)
+			body := testCreateModelRequest{
+				Code:     "bad-tiers",
+				Provider: "deepseek",
+				Category: "chat",
+				Pricings: []testPricingRequest{
+					{Dimension: "input", UnitName: "1M tokens", UnitPrice: "1.00", Conditions: tc.conditions},
+				},
+			}
+			bodyBytes, _ := json.Marshal(body)
+			req := httptest.NewRequest(http.MethodPost, "/api/console/models", bytes.NewReader(bodyBytes))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUserInModelsContext(req, uuid.New().String())
+			w := httptest.NewRecorder()
+			HandleCreateModel(a).ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body = %s", w.Code, w.Body.String())
+			}
+			var resp map[string]string
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
+			if resp["error"] == "" {
+				t.Error("expected a descriptive error message")
+			}
+		})
+	}
+}
+
+func TestHandleUpdateModel_TieredConditionsRoundtrip(t *testing.T) {
+	a := appForModelsTest(t)
+	seedModelsForTest(t, a)
+
+	found, err := a.Models.FindByCode(context.Background(), "gpt-4o")
+	if err != nil || found == nil {
+		t.Fatalf("FindByCode gpt-4o: %v", err)
+	}
+	modelID := found.ID
+
+	body := map[string]interface{}{
+		"pricings": []map[string]interface{}{
+			{"dimension": "input", "unit_name": "1M tokens", "unit_price": "2.00", "conditions": map[string]any{"max_total_tokens": 200000}},
+			{"dimension": "output", "unit_name": "1M tokens", "unit_price": "6.00", "conditions": map[string]any{"min_total_tokens": 0}},
+		},
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPut, "/api/console/models/"+modelID.String(), bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = setUserInModelsContext(req, uuid.New().String())
+	req = chiRouteCtx(req, "id", modelID.String())
+	w := httptest.NewRecorder()
+	HandleUpdateModel(a).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+
+	// GET shows the tiered rows.
+	req = httptest.NewRequest(http.MethodGet, "/api/console/models/"+modelID.String(), nil)
+	req = setUserInModelsContext(req, uuid.New().String())
+	req = chiRouteCtx(req, "id", modelID.String())
+	w = httptest.NewRecorder()
+	HandleGetModel(a).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", w.Code)
+	}
+	var getResp struct {
+		Data struct {
+			Pricings []struct {
+				Dimension  string         `json:"dimension"`
+				UnitPrice  string         `json:"unit_price"`
+				Conditions map[string]any `json:"conditions"`
+			} `json:"pricings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("unmarshal get response: %v", err)
+	}
+	foundTier := false
+	for _, p := range getResp.Data.Pricings {
+		if p.Dimension == "input" && trimDecimalPrice(p.UnitPrice) == "2.00" {
+			foundTier = true
+			if p.Conditions["max_total_tokens"] != float64(200000) {
+				t.Errorf("input conditions = %v, want max_total_tokens 200000", p.Conditions)
+			}
+		}
+	}
+	if !foundTier {
+		t.Error("tiered input row missing after update")
+	}
+
+	// Clearing the tier (conditions omitted) must remove the conditions so the
+	// row behaves as the generic price again.
+	clearBody := map[string]interface{}{
+		"pricings": []map[string]interface{}{
+			{"dimension": "input", "unit_name": "1M tokens", "unit_price": "2.50"},
+		},
+	}
+	clearBytes, _ := json.Marshal(clearBody)
+	req = httptest.NewRequest(http.MethodPut, "/api/console/models/"+modelID.String(), bytes.NewReader(clearBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = setUserInModelsContext(req, uuid.New().String())
+	req = chiRouteCtx(req, "id", modelID.String())
+	w = httptest.NewRecorder()
+	HandleUpdateModel(a).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("clear status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	var condText string
+	err = a.Pool.QueryRow(context.Background(),
+		`SELECT COALESCE(conditions, '{}'::jsonb)::text FROM model_pricing
+		 WHERE model_id = $1 AND pricing_dimension = 'input' AND price_type = 'sell'`, modelID).Scan(&condText)
+	if err != nil {
+		t.Fatalf("query cleared conditions: %v", err)
+	}
+	if condText != "{}" {
+		t.Errorf("cleared input conditions = %s, want {}", condText)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/deeptrols/api/internal/pkg/lease"
 	"github.com/deeptrols/api/internal/worker/health_checker"
 	"github.com/deeptrols/api/internal/worker/reconciliation"
+	"github.com/deeptrols/api/internal/worker/subscriptions"
 )
 
 func main() {
@@ -34,6 +35,8 @@ func main() {
 
 	checker := health_checker.New(application.Pool)
 	reconciler := reconciliation.New(application.Pool)
+	subscriptionExpirer := subscriptions.New(application.Pool)
+	subscriptionRenewer := subscriptions.NewRenewer(application.Pool, application.Wallets, application.Subscriptions)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -41,6 +44,8 @@ func main() {
 	go runHealthChecker(ctx, checker, application.Redis)
 	go runReconciler(ctx, reconciler, application.Redis)
 	go runBillingSync(ctx, application, application.Redis)
+	go runSubscriptionExpirer(ctx, subscriptionExpirer, application.Redis)
+	go runSubscriptionRenewer(ctx, subscriptionRenewer, application.Redis)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -139,6 +144,66 @@ func runBillingSync(ctx context.Context, application *app.App, redis *goredis.Cl
 					return nil
 				})
 			})
+		}
+	}
+}
+
+// runSubscriptionExpirer sweeps expired subscriptions into the terminal state.
+// It runs once at startup and then hourly, guarded by the Redis lease.
+func runSubscriptionExpirer(ctx context.Context, e *subscriptions.Expirer, redis *goredis.Client) {
+	runCycle := func() {
+		runSafely("subscription_expirer", func() error {
+			return withLease(ctx, "subscription_expirer", redis, "worker:lease:subscription_expirer", 5*time.Minute, func() error {
+				n, err := e.Run(ctx)
+				if err != nil {
+					return err
+				}
+				if n > 0 {
+					log.Printf("subscription_expirer: expired %d subscriptions", n)
+				}
+				return nil
+			})
+		})
+	}
+	runCycle()
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runCycle()
+		}
+	}
+}
+
+// runSubscriptionRenewer auto-renews opted-in subscriptions from wallet
+// balance shortly before expiry. Runs hourly with the Redis lease.
+func runSubscriptionRenewer(ctx context.Context, r *subscriptions.Renewer, redis *goredis.Client) {
+	runCycle := func() {
+		runSafely("subscription_renewer", func() error {
+			return withLease(ctx, "subscription_renewer", redis, "worker:lease:subscription_renewer", 5*time.Minute, func() error {
+				n, err := r.Run(ctx)
+				if err != nil {
+					return err
+				}
+				if n > 0 {
+					log.Printf("subscription_renewer: renewed %d subscriptions", n)
+				}
+				return nil
+			})
+		})
+	}
+	runCycle()
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runCycle()
 		}
 	}
 }

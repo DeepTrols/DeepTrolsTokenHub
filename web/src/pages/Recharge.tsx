@@ -1,15 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlipayIcon, WechatIcon } from "@/components/PaymentIcons";
 import { WalletSummary } from "@/components/WalletSummary";
 import { ErrorState, LoadingState } from "@/components/StateViews";
+import { PaymentQrDialog } from "@/components/PaymentQrDialog";
+import CheckinCard from "@/components/CheckinCard";
 import { useConsoleMutation, useConsoleQuery } from "../lib/hooks/use-api";
-import { WalletData } from "../lib/api";
-import { formatAmount } from "../lib/format";
+import {
+  WalletData,
+  PaymentMethodsInfo,
+  PaymentOrder,
+  CreatePaymentOrderResponse,
+} from "../lib/api";
 import { WalletIcon, Zap } from "lucide-react";
-
-const PRESET_AMOUNTS = ["10", "50", "100", "200", "500"];
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 function PayIcon({ kind }: { kind: "alipay" | "wechat" }) {
   const bg = kind === "alipay" ? "#1677FF" : "#07C160";
@@ -25,82 +31,114 @@ function PayIcon({ kind }: { kind: "alipay" | "wechat" }) {
 }
 
 export default function Recharge() {
-  const {
-    data: wallet,
-    isLoading,
-    isError,
-    error,
-    refetch,
-  } = useConsoleQuery<WalletData>("/wallet");
+  const { t } = useTranslation();
+  const walletQuery = useConsoleQuery<WalletData>("/wallet");
+  const methodsQuery = useConsoleQuery<PaymentMethodsInfo>("/payment/methods");
 
   const [selectedAmount, setSelectedAmount] = useState("50");
   const [customAmount, setCustomAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("alipay");
   const [paymentError, setPaymentError] = useState("");
   const [paymentSuccess, setPaymentSuccess] = useState("");
+  const [order, setOrder] = useState<{ orderNo: string; payURL: string; paid: boolean } | null>(null);
 
-  const topupMutation = useConsoleMutation<
-    { data: { balance_after: string } },
-    { amount: string; payment_method: string }
-  >("post", "/wallet/topup", "/wallet", {
-    onSuccess: (result) => {
-      const bal = result?.data?.balance_after ? formatAmount(result.data.balance_after) : "?";
-      setPaymentSuccess(`支付成功！当前余额 ${bal} ￥`);
-      setPaymentError("");
+  const createOrder = useConsoleMutation<CreatePaymentOrderResponse, { amount: string; pay_method: string }>(
+    "post",
+    "/payment/order",
+    "/payment/orders",
+    {
+      onSuccess: (res) => {
+        setOrder({ orderNo: res.order_no, payURL: res.pay_url, paid: false });
+        setPaymentError("");
+      },
+      onError: (e) => setPaymentError(e instanceof Error ? e.message : t("recharge.orderFailed")),
     },
+  );
+  const redeem = useConsoleMutation<{ ok: boolean; amount: string }, { code: string }>(
+    "post",
+    "/redemption/redeem",
+    "/wallet",
+    {
+      onSuccess: (r) => {
+        setPaymentSuccess(t("recharge.redeemSuccess", { amount: r.amount }));
+        walletQuery.refetch();
+      },
+      onError: (e) => setPaymentError(e instanceof Error ? e.message : t("recharge.redeemFailed")),
+    },
+  );
+  const [redeemCode, setRedeemCode] = useState("");
+
+  // Poll orders while a payment dialog is open to auto-detect success.
+  const ordersQuery = useConsoleQuery<{ orders: PaymentOrder[] }>("/payment/orders", {
+    refetchInterval: order && !order.paid ? 3000 : false,
   });
+
+  useEffect(() => {
+    if (!order || order.paid) return;
+    const found = ordersQuery.data?.orders?.find((o) => o.order_no === order.orderNo);
+    if (found && found.status === "paid") {
+      setOrder((prev) => (prev ? { ...prev, paid: true } : prev));
+      setPaymentSuccess(t("recharge.paidSuccess"));
+      walletQuery.refetch();
+    }
+  }, [ordersQuery.data, order, walletQuery]);
+
+  const methods = methodsQuery.data;
+  const amountOptions = methods?.amount_options?.length ? methods.amount_options : ["10", "50", "100", "200", "500"];
+  const payMethods = methods?.pay_methods ?? [];
 
   const handlePayment = async () => {
     setPaymentError("");
     setPaymentSuccess("");
     const amt = customAmount.trim() || selectedAmount;
     if (!amt || Number(amt) <= 0) {
-      setPaymentError("请选择或输入有效的充值金额");
+      setPaymentError(t("recharge.invalidAmount"));
       return;
     }
-    try {
-      await topupMutation.mutateAsync({ amount: amt, payment_method: paymentMethod });
-    } catch (err) {
-      setPaymentError(err instanceof Error ? err.message : "支付失败，请稍后重试");
-    }
+    const method = payMethods.find((m) => m.type === paymentMethod)?.type ?? (payMethods[0]?.type ?? "alipay");
+    await createOrder.mutateAsync({ amount: amt, pay_method: method });
   };
 
-  if (isLoading) {
+  if (walletQuery.isLoading) {
     return (
       <div>
         <div className="mb-6">
-          <h2 className="font-display text-[25px] font-bold tracking-tight">充值</h2>
-          <p className="text-[13px] text-[#5C6472] mt-1">余额管理与充值</p>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">{t("recharge.title")}</h2>
+          <p className="text-[13px] text-[#5C6472] mt-1">{t("recharge.subtitle")}</p>
         </div>
-        <LoadingState message="加载钱包数据..." />
+        <LoadingState message={t("recharge.loading")} />
       </div>
     );
   }
 
-  if (isError) {
+  if (walletQuery.isError) {
     return (
       <div>
         <div className="mb-6">
-          <h2 className="font-display text-[25px] font-bold tracking-tight">充值</h2>
+          <h2 className="font-display text-[25px] font-bold tracking-tight">{t("recharge.title")}</h2>
         </div>
-        <ErrorState error={error} onRetry={() => refetch()} title="加载钱包数据失败" />
+        <ErrorState error={walletQuery.error} onRetry={() => walletQuery.refetch()} title={t("recharge.loadFailed")} />
       </div>
     );
   }
 
   return (
     <div>
-      {/* ---- header ---------------------------------------------------------- */}
       <div className="mb-6">
-        <h2 className="font-display text-[25px] font-bold tracking-tight">充值</h2>
-        <p className="text-[13px] text-[#5C6472] mt-1">余额管理与充值</p>
+        <h2 className="font-display text-[25px] font-bold tracking-tight">{t("recharge.title")}</h2>
+        <p className="text-[13px] text-[#5C6472] mt-1">{t("recharge.subtitle")}</p>
       </div>
 
-      <WalletSummary wallet={wallet} />
+      <WalletSummary wallet={walletQuery.data} />
 
-      {/* ---- 在线充值 ------------------------------------------------------- */}
       <div className="glass rounded-[22px] p-5 mb-6">
-        <h3 className="font-display font-semibold mb-4">在线支付充值</h3>
+        <h3 className="font-display font-semibold mb-4">{t("recharge.onlineTitle")}</h3>
+
+        {!methods?.enabled && (
+          <div className="mb-4 p-3 glass-soft rounded-xl border-[#D3A94E]/40 text-sm text-[#8a6d1f]">
+            {t("recharge.onlineDisabled")}
+          </div>
+        )}
 
         {paymentSuccess && (
           <div className="mb-4 p-3 glass-soft rounded-xl border-[#1BA878]/35 text-sm text-[#0C7A55] flex items-center gap-2">
@@ -116,9 +154,9 @@ export default function Recharge() {
         )}
 
         <div className="mb-4">
-          <label className="block text-sm font-medium text-[#161A23] mb-2">选择充值金额</label>
+          <label className="block text-sm font-medium text-[#161A23] mb-2">{t("recharge.chooseAmount")}</label>
           <div className="flex flex-wrap gap-2 mb-3">
-            {PRESET_AMOUNTS.map((amt) => (
+            {amountOptions.map((amt) => (
               <button
                 key={amt}
                 onClick={() => {
@@ -131,12 +169,12 @@ export default function Recharge() {
                     : "glass-soft text-[#5C6472] hover:text-[#161A23]"
                 }`}
               >
-                {amt} ￥
+                {fmtAmt(amt)} ￥
               </button>
             ))}
           </div>
           <div className="max-w-[200px]">
-            <label className="block text-xs text-[#5C6472] mb-1">或输入自定义金额</label>
+            <label className="block text-xs text-[#5C6472] mb-1">{t("recharge.customAmount")}</label>
             <Input
               type="number"
               min="0"
@@ -146,67 +184,80 @@ export default function Recharge() {
                 setCustomAmount(e.target.value);
                 if (e.target.value) setSelectedAmount("");
               }}
-              placeholder="自定义金额"
+              placeholder={t("recharge.customPlaceholder")}
             />
           </div>
         </div>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium text-[#161A23] mb-2">选择支付方式</label>
+          <label className="block text-sm font-medium text-[#161A23] mb-2">{t("recharge.chooseMethod")}</label>
           <div className="flex flex-wrap gap-3">
-            <label
-              className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors border ${
-                paymentMethod === "alipay"
-                  ? "border-[#1677FF]/50 bg-white/80"
-                  : "glass-soft border-transparent hover:border-[#1677FF]/30"
-              }`}
-            >
-              <input
-                type="radio"
-                name="paymentMethod"
-                value="alipay"
-                checked={paymentMethod === "alipay"}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="accent-[#1677FF]"
-              />
-              <PayIcon kind="alipay" />
-              <div>
-                <p className="text-sm font-medium">支付宝</p>
-                <p className="text-xs text-[#5C6472]">推荐使用</p>
-              </div>
-            </label>
-            <label
-              className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors border ${
-                paymentMethod === "wechat"
-                  ? "border-[#07C160]/50 bg-white/80"
-                  : "glass-soft border-transparent hover:border-[#07C160]/30"
-              }`}
-            >
-              <input
-                type="radio"
-                name="paymentMethod"
-                value="wechat"
-                checked={paymentMethod === "wechat"}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="accent-[#07C160]"
-              />
-              <PayIcon kind="wechat" />
-              <div>
-                <p className="text-sm font-medium">微信支付</p>
-                <p className="text-xs text-[#5C6472]">安全便捷</p>
-              </div>
-            </label>
+            {payMethods.length > 0 ? (
+              payMethods.map((pm) => (
+                <label
+                  key={pm.type}
+                  className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors border ${
+                    paymentMethod === pm.type
+                      ? "border-[#4F6BED]/50 bg-white/80"
+                      : "glass-soft border-transparent hover:border-[#4F6BED]/30"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    value={pm.type}
+                    checked={paymentMethod === pm.type}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="accent-[#4F6BED]"
+                  />
+                  <PayIcon kind={pm.type === "wxpay" ? "wechat" : "alipay"} />
+                  <div>
+                    <p className="text-sm font-medium">{pm.name}</p>
+                  </div>
+                </label>
+              ))
+            ) : (
+              <p className="text-xs text-[#5C6472]">{t("recharge.noMethods")}</p>
+            )}
           </div>
         </div>
 
-        <Button onClick={handlePayment} disabled={topupMutation.isPending} className="px-6">
+        <Button onClick={handlePayment} disabled={createOrder.isPending || !methods?.enabled} className="px-6">
           <WalletIcon size={16} className="mr-1.5" />
-          {topupMutation.isPending ? "处理中..." : "充值"}
+          {createOrder.isPending ? t("recharge.processing") : t("recharge.submit")}
         </Button>
-        <p className="text-xs text-[#5C6472]/80 mt-2">
-          点击「充值」后将跳转至支付平台完成付款
-        </p>
+        <p className="text-xs text-[#5C6472]/80 mt-2">{t("recharge.hint")}</p>
       </div>
+
+      <PaymentQrDialog
+        open={!!order}
+        onClose={() => setOrder(null)}
+        payURL={order?.payURL ?? ""}
+        orderNo={order?.orderNo ?? ""}
+        paid={order?.paid ?? false}
+      />
+
+      <div className="glass rounded-[22px] p-5">
+        <h3 className="font-display font-semibold mb-4">{t("recharge.redeemTitle")}</h3>
+        <div className="flex gap-3">
+          <Input
+            value={redeemCode}
+            onChange={(e) => setRedeemCode(e.target.value)}
+            placeholder={t("recharge.redeemPlaceholder")}
+            className="max-w-[280px] font-mono"
+          />
+          <Button variant="outline" onClick={() => redeem.mutate({ code: redeemCode.trim() })} disabled={redeem.isPending}>
+            {redeem.isPending ? t("recharge.redeeming") : t("recharge.redeem")}
+          </Button>
+        </div>
+      </div>
+
+      <CheckinCard />
     </div>
   );
+}
+
+function fmtAmt(v: string) {
+  const n = Number(v);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }

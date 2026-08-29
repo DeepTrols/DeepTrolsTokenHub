@@ -79,4 +79,32 @@ describe("Reconciliation", () => {
     expect(await screen.findByText("recon failed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /重试/ })).toBeInTheDocument();
   });
+
+  it("renders the L2 internal reconciliation summary", async () => {
+    mockAdminGet.mockImplementation((path: string) => {
+      if (path.startsWith("/reconciliation/summary")) {
+        return Promise.resolve({
+          usage_logs: 3,
+          charge_lines: 2,
+          usage_missing_charge: 1,
+          balanced: false,
+          l2: {
+            usage_logs: 3,
+            with_charge: 2,
+            with_evidence: 1,
+            both_missing: 1,
+            balanced: false,
+            available: true,
+          },
+        });
+      }
+      return Promise.resolve({ data: seedRuns(), total: 1 });
+    });
+
+    renderWithProviders(<Reconciliation />);
+
+    expect(await screen.findByText(/L2 内部对账/)).toBeInTheDocument();
+    expect(screen.getByText(/charge 覆盖 2\/3/)).toBeInTheDocument();
+    expect(screen.getByText("L2 存在缺口")).toBeInTheDocument();
+  });
 });

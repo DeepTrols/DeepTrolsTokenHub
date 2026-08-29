@@ -223,6 +223,9 @@ func (m *mockWalletRepo) TopUp(ctx context.Context, walletID uuid.UUID, amount d
 func (m *mockWalletRepo) Transfer(ctx context.Context, fromWalletID, toWalletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
 	return nil, nil
 }
+func (m *mockWalletRepo) Spend(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+	return nil, nil
+}
 
 // ============================================================================
 // mockUsageRepo -- mocks usage.Repository for Logger
@@ -463,6 +466,99 @@ func validResponseBody() map[string]any {
 // ============================================================================
 // Test: Non-streaming success -- pricer called, reserve called, commit called, log has non-zero costs
 // ============================================================================
+
+func TestHandleNonStreamingChat_GeminiUpstream(t *testing.T) {
+	// A channel with upstream_format=gemini must route the OpenAI chat request
+	// through the GeminiAdapter (generateContent) and convert the response back.
+	userID := uuid.New()
+	apiKeyID := uuid.New()
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	modelID := uuid.New()
+
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"candidates":[{"content":{"role":"model","parts":[{"text":"hey from gemini"}]},"finishReason":"STOP"}],
+			"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":3,"totalTokenCount":11}
+		}`))
+	}))
+	defer upstream.Close()
+
+	modelRepo := &mockModelRepo{
+		findByCodeFn: func(ctx context.Context, code string) (*domain.Model, error) {
+			return &domain.Model{ID: modelID, Code: code, Status: domain.ModelStatusActive}, nil
+		},
+	}
+	channelRepo := &mockChannelRepo{
+		listByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.Channel, error) {
+			return []domain.Channel{{ID: channelID, ModelID: modelID, Status: domain.ChannelStatusActive, HealthScore: 100, HealthStatus: domain.HealthStatusHealthy, Weight: 1, MaxConcurrency: 10}}, nil
+		},
+		listInstancesFn: func(ctx context.Context, cid uuid.UUID) ([]domain.ChannelInstance, error) {
+			return []domain.ChannelInstance{{
+				ID: instanceID, ChannelID: channelID, BaseURL: upstream.URL, ProviderRoute: "gemini-2.5-flash",
+				Config: map[string]any{"upstream_format": "gemini", "api_key": "gemini-key"},
+				Status: domain.InstanceStatusActive,
+			}}, nil
+		},
+	}
+	pricingRepo := &mockPricingRepo{
+		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
+			return makePricingEntries(), nil
+		},
+	}
+	walletRepo := &mockWalletRepo{
+		findByUserFn: func(ctx context.Context, uid uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error) {
+			return &domain.Wallet{ID: uuid.New(), UserID: uid, Balance: decimal.NewFromFloat(100.0), Frozen: decimal.Zero}, nil
+		},
+		reserveFn: func(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error) {
+			return &domain.WalletTransaction{ID: uuid.New(), WalletID: walletID, Amount: amount, IdempotencyKey: idempotencyKey, TxType: domain.WalletTxReserve}, nil
+		},
+	}
+	usageRepo := &mockUsageRepo{}
+
+	application := newTestApp(nil, modelRepo, channelRepo, pricingRepo, walletRepo, usageRepo)
+	// No injected executor: the config-based fallback must pick GeminiAdapter.
+
+	body := validRequestBody()
+	respBodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(respBodyBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "test-gemini")
+	req = setAuthContext(req, userID, apiKeyID)
+	w := httptest.NewRecorder()
+
+	HandleNonStreamingChat(w, req, application, "gemini-2.5-flash", body)
+
+	if gotPath != "/v1beta/models/gemini-2.5-flash:generateContent" {
+		t.Fatalf("upstream path = %q, want generateContent", gotPath)
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "hey from gemini") {
+		t.Fatalf("expected converted gemini text, got %s", w.Body.String())
+	}
+	if walletRepo.reserveCalled == 0 || walletRepo.settleCalled == 0 {
+		t.Errorf("expected reserve+settle, got reserve=%d settle=%d", walletRepo.reserveCalled, walletRepo.settleCalled)
+	}
+
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if usageRepo.lastUsageLog == nil {
+		t.Fatal("usage log was never recorded (timed out)")
+	}
+	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceUpstream {
+		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceUpstream)
+	}
+	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusCompleted {
+		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusCompleted)
+	}
+}
 
 func TestHandleNonStreamingChat_Success(t *testing.T) {
 	// Arrange

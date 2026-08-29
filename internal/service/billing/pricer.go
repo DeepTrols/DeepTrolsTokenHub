@@ -63,6 +63,13 @@ func (p *Pricer) Calculate(ctx context.Context, modelID uuid.UUID, tenantID *uui
 	return p.CalculateAt(ctx, modelID, tenantID, usage, time.Now().UTC())
 }
 
+// CalculateWithRatio prices usage with a group pricing multiplier (new-api
+// group_ratio parity): every sell price is scaled by ratio (e.g. 0.8 for a VIP
+// group) while the real upstream cost stays untouched.
+func (p *Pricer) CalculateWithRatio(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID, usage *usageparser.NormalizedUsage, ratio decimal.Decimal) (*PriceResult, error) {
+	return p.CalculateAtWithRatio(ctx, modelID, tenantID, usage, time.Now().UTC(), ratio)
+}
+
 // CalculateAt prices usage at a specific instant so tests are deterministic.
 // Sell price resolution (first match wins):
 //  1. explicit sell row (price_type='sell') for the dimension,
@@ -70,6 +77,15 @@ func (p *Pricer) Calculate(ctx context.Context, modelID uuid.UUID, tenantID *uui
 //  2. cost row (price_type='cost') at its real price (no markup);
 //  3. otherwise the dimension is reported in MissingPricing (fail-closed).
 func (p *Pricer) CalculateAt(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID, usage *usageparser.NormalizedUsage, now time.Time) (*PriceResult, error) {
+	return p.CalculateAtWithRatio(ctx, modelID, tenantID, usage, now, decimal.NewFromInt(1))
+}
+
+// CalculateAtWithRatio is CalculateAt with an explicit group ratio; a
+// non-positive ratio fails closed (billing must never silently charge zero).
+func (p *Pricer) CalculateAtWithRatio(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID, usage *usageparser.NormalizedUsage, now time.Time, ratio decimal.Decimal) (*PriceResult, error) {
+	if !ratio.IsPositive() {
+		return nil, fmt.Errorf("pricer calculate: group ratio must be positive, got %s", ratio.String())
+	}
 	if usage == nil {
 		return nil, fmt.Errorf("pricer calculate: usage must not be nil")
 	}
@@ -113,7 +129,7 @@ func (p *Pricer) CalculateAt(ctx context.Context, modelID uuid.UUID, tenantID *u
 			continue
 		}
 
-		sellRow, costRow := selectPricingRows(pricings, dim.name, period)
+		sellRow, costRow := selectPricingRows(pricings, dim.name, period, usage)
 		// Reasoning tokens are already included in completion_tokens for the
 		// providers that report them (DeepSeek etc.). Without an explicit
 		// reasoning price row the dimension is not billable on its own and
@@ -133,7 +149,7 @@ func (p *Pricer) CalculateAt(ctx context.Context, modelID uuid.UUID, tenantID *u
 		if sellRow != nil {
 			v, ok := parsePricingDecimal(sellRow.UnitPrice, dim.name, "unit price")
 			if ok {
-				sellPrice = v
+				sellPrice = v.Mul(ratio)
 				unitName = sellRow.UnitName
 				priceVersion = sellRow.PriceVersion
 				priceID = sellRow.ID.String()
@@ -146,7 +162,7 @@ func (p *Pricer) CalculateAt(ctx context.Context, modelID uuid.UUID, tenantID *u
 			// Fall back to the real cost price (no markup).
 			if costRow != nil {
 				if v, ok := parsePricingDecimal(costRow.UnitPrice, dim.name, "cost"); ok {
-					sellPrice = v
+					sellPrice = v.Mul(ratio)
 					unitName = costRow.UnitName
 					priceVersion = costRow.PriceVersion
 					priceID = costRow.ID.String()
@@ -205,6 +221,7 @@ func (p *Pricer) CalculateAt(ctx context.Context, modelID uuid.UUID, tenantID *u
 			"dimension":     dim.name,
 			"unit_name":     unitName,
 			"unit_price":    sellPrice.String(),
+			"price_ratio":   ratio.String(),
 			"upstream_cost": costPrice.String(),
 			"price_version": priceVersion,
 			"price_type":    rowType,
@@ -219,6 +236,7 @@ func (p *Pricer) CalculateAt(ctx context.Context, modelID uuid.UUID, tenantID *u
 		"currency":    snapshotCurrency,
 		"captured_at": capturedAt,
 		"period":      period,
+		"price_ratio": ratio.String(),
 		"rows":        snapshotRows,
 	}
 
@@ -239,11 +257,11 @@ func pricingPeriod(now time.Time) string {
 
 // selectPricingRows returns the best sell and cost rows for a dimension.
 // Preference: current period first, then tenant-specific rows, then first row.
-func selectPricingRows(rows []domain.ModelPricing, dim, period string) (*domain.ModelPricing, *domain.ModelPricing) {
+func selectPricingRows(rows []domain.ModelPricing, dim, period string, usage *usageparser.NormalizedUsage) (*domain.ModelPricing, *domain.ModelPricing) {
 	var sell, cost *domain.ModelPricing
 	for i := range rows {
 		r := &rows[i]
-		if r.PricingDimension != dim || !r.IsActive {
+		if r.PricingDimension != dim || !r.IsActive || !pricingConditionsMatch(r, usage) {
 			continue
 		}
 		switch normalizePriceType(r.PriceType) {
@@ -260,6 +278,38 @@ func selectPricingRows(rows []domain.ModelPricing, dim, period string) (*domain.
 	return sell, cost
 }
 
+// pricingConditionsMatch evaluates model_pricing.conditions against the actual
+// usage so admins can define tiered prices (new-api tiered-pricing parity):
+//
+//	{"max_total_tokens": 200000} applies to requests up to 200K total tokens.
+//
+// Supported keys: min_total_tokens / max_total_tokens (inclusive bounds).
+func pricingConditionsMatch(r *domain.ModelPricing, usage *usageparser.NormalizedUsage) bool {
+	if len(r.Conditions) == 0 || usage == nil {
+		return true
+	}
+	total := usage.TotalTokens
+	if v, ok := conditionNumber(r.Conditions["min_total_tokens"]); ok && total < v {
+		return false
+	}
+	if v, ok := conditionNumber(r.Conditions["max_total_tokens"]); ok && total > v {
+		return false
+	}
+	return true
+}
+
+func conditionNumber(v any) (int64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int64(n), true
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	}
+	return 0, false
+}
+
 // pricingRowScore ranks candidate rows: period mismatch adds 10, platform
 // (tenant_id IS NULL) rows add 1 so tenant-specific rows win ties.
 func pricingRowScore(r *domain.ModelPricing, period string) int {
@@ -269,6 +319,9 @@ func pricingRowScore(r *domain.ModelPricing, period string) int {
 	}
 	if r.TenantID == nil {
 		score++
+	}
+	if len(r.Conditions) > 0 {
+		score-- // tiered (conditional) rows win ties over the generic price
 	}
 	return score
 }

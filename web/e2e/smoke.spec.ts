@@ -85,3 +85,28 @@ test("核心链路冒烟：登录→建渠道→模型目录→网关调用→�
     }
   }
 });
+
+test("i18n 语言切换 + 余额预警阈值", async ({ page, context }) => {
+  await page.goto("/login");
+  await page.locator("#email").fill("deeptrols@admin.com");
+  await page.locator("#password").fill("deeptrols@2026");
+  await page.getByRole("button", { name: "登 录" }).click();
+  await page.waitForURL(/dashboard/, { timeout: 20_000 });
+
+  // 切换到英文：导航与用量页标题联动。
+  await page.getByRole("button", { name: "Switch language" }).click();
+  await expect(page.getByRole("heading", { name: "Usage" })).toBeVisible({ timeout: 10_000 });
+
+  // 账单页出现余额预警卡片（英文），保存阈值。
+  await page.goto("/bills");
+  await expect(page.getByRole("heading", { name: "Balance Alert" })).toBeVisible({ timeout: 10_000 });
+  await page.locator("#balance-alert-threshold").fill("10");
+  await page.getByRole("button", { name: "Save Threshold" }).click();
+  await expect(page.locator("#balance-alert-threshold")).toHaveValue("10", { timeout: 10_000 });
+
+  // 清理：阈值重置为 0（关闭预警）。
+  const reset = await context.request.put("/api/console/wallet/alert", {
+    data: { threshold: "0" },
+  });
+  expect(reset.ok()).toBeTruthy();
+});

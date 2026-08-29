@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { History, CheckCircle, XCircle, User, Building2 } from "lucide-react";
+import { History, CheckCircle, XCircle, User, Building2, Gift, Copy } from "lucide-react";
+import { toast } from "sonner";
 import { useConsoleMutation, useConsoleQuery } from "../lib/hooks/use-api";
 import { useAuth } from "../lib/auth";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 interface MemberItem { id: string; name: string; email: string; role: string; }
 interface EnterpriseInfo { tenant_id: string; tenant_name: string; credit_code: string; members: MemberItem[]; }
@@ -16,12 +19,14 @@ interface LoginHistoryEntry { ip_address: string; user_agent: string; success: b
 
 function fmtTime(iso: string): string { try { return new Date(iso).toLocaleString("zh-CN", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }); } catch { return iso; } }
 function trunc(s: string): string { return s && s.length > 40 ? s.slice(0,40)+"..." : s; }
-function roleLabel(r: string): string { if (r === "owner") return "拥有者"; if (r === "admin") return "管理员"; if (r === "member") return "成员"; return r; }
+function roleKey(r: string): string { if (r === "owner") return "profile.roleOwner"; if (r === "admin") return "profile.roleAdmin"; if (r === "member") return "profile.roleMember"; return r; }
 
 export function ProfileContent() {
+  const { t } = useTranslation();
   const { user: authUser } = useAuth();
   const { data: profileData, isLoading: isLoadingProfile } = useConsoleQuery<ProfileData>("/profile");
   const { data: historyData, isLoading: isLoadingHistory } = useConsoleQuery<{ data: LoginHistoryEntry[] }>("/security/login-history");
+  const { data: inviteData } = useConsoleQuery<{ invite_code: string; invited_count: number; invite_link: string }>("/invite");
 
   const profile = profileData?.user;
   const enterprise = profileData?.enterprise;
@@ -52,9 +57,10 @@ export function ProfileContent() {
   return (
     <Tabs defaultValue="personal" className="max-w-2xl">
       <TabsList>
-        <TabsTrigger value="personal">个人信息</TabsTrigger>
-        <TabsTrigger value="security">登录记录</TabsTrigger>
-        {isEnterpriseUser && <TabsTrigger value="enterprise">企业信息</TabsTrigger>}
+        <TabsTrigger value="personal">{t("profile.tabPersonal")}</TabsTrigger>
+        <TabsTrigger value="security">{t("profile.tabSecurity")}</TabsTrigger>
+        <TabsTrigger value="invite">{t("profile.tabInvite")}</TabsTrigger>
+        {isEnterpriseUser && <TabsTrigger value="enterprise">{t("profile.tabEnterprise")}</TabsTrigger>}
       </TabsList>
 
         {/* Tab 1: Personal Info */}
@@ -62,19 +68,19 @@ export function ProfileContent() {
           <Card><CardContent className="p-5">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-primary/10 rounded-lg"><User size={20} className="text-primary" /></div>
-              <div><h3 className="font-semibold">基本信息</h3><p className="text-xs text-muted-foreground">修改您的显示名称和联系方式</p></div>
+              <div><h3 className="font-semibold">{t("profile.basicTitle")}</h3><p className="text-xs text-muted-foreground">{t("profile.basicDesc")}</p></div>
             </div>
             {isLoadingProfile ? (
               <div className="space-y-3 animate-pulse">{[1,2,3].map(i=><div key={i} className="h-10 bg-muted rounded" />)}</div>
             ) : (
               <div className="space-y-4">
-                <div className="space-y-1.5"><label className="text-sm font-medium">邮箱</label><Input value={profile?.email ?? ""} disabled className="opacity-60" /></div>
-                <div className="space-y-1.5"><label className="text-sm font-medium">显示名称</label><Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="输入显示名称" /></div>
-                <div className="space-y-1.5"><label className="text-sm font-medium">手机号</label><Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="输入手机号" /></div>
-                <div className="space-y-1.5"><label className="text-sm font-medium">头像 URL</label><Input value={avatarUrl} onChange={e => setAvatarUrl(e.target.value)} placeholder="https://..." /></div>
-                {updateProfile.isError && <p className="text-sm text-destructive">{updateProfile.error instanceof Error ? updateProfile.error.message : "保存失败"}</p>}
-                {updateProfile.isSuccess && <p className="text-sm text-[#0C7A55]">保存成功</p>}
-                <Button onClick={handleSaveProfile} disabled={updateProfile.isPending}>{updateProfile.isPending ? "保存中..." : "保存修改"}</Button>
+                <div className="space-y-1.5"><label className="text-sm font-medium">{t("profile.email")}</label><Input value={profile?.email ?? ""} disabled className="opacity-60" /></div>
+                <div className="space-y-1.5"><label className="text-sm font-medium">{t("profile.displayName")}</label><Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder={t("profile.namePlaceholder")} /></div>
+                <div className="space-y-1.5"><label className="text-sm font-medium">{t("profile.phone")}</label><Input value={phone} onChange={e => setPhone(e.target.value)} placeholder={t("profile.phonePlaceholder")} /></div>
+                <div className="space-y-1.5"><label className="text-sm font-medium">{t("profile.avatarUrl")}</label><Input value={avatarUrl} onChange={e => setAvatarUrl(e.target.value)} placeholder="https://..." /></div>
+                {updateProfile.isError && <p className="text-sm text-destructive">{updateProfile.error instanceof Error ? updateProfile.error.message : t("profile.saveFailed")}</p>}
+                {updateProfile.isSuccess && <p className="text-sm text-[#0C7A55]">{t("profile.saveSuccess")}</p>}
+                <Button onClick={handleSaveProfile} disabled={updateProfile.isPending}>{updateProfile.isPending ? t("profile.saving") : t("profile.save")}</Button>
               </div>
             )}
           </CardContent></Card>
@@ -86,18 +92,50 @@ export function ProfileContent() {
             <Card><CardContent className="p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 bg-muted rounded-lg"><History size={20} /></div>
-                <div><h3 className="font-semibold">登录记录</h3><p className="text-xs text-muted-foreground">最近登录活动</p></div>
+                <div><h3 className="font-semibold">{t("profile.historyTitle")}</h3><p className="text-xs text-muted-foreground">{t("profile.historyDesc")}</p></div>
               </div>
               {isLoadingHistory ? (
                 <div className="space-y-3 animate-pulse">{[1,2,3].map(i=><div key={i} className="h-8 bg-muted rounded" />)}</div>
               ) : loginHistory.length===0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">暂无登录记录</p>
+                <p className="text-sm text-muted-foreground text-center py-4">{t("profile.noHistory")}</p>
               ) : (
-                <Table><TableHeader><TableRow><TableHead>IP 地址</TableHead><TableHead>客户端</TableHead><TableHead>状态</TableHead><TableHead>时间</TableHead></TableRow></TableHeader>
-                <TableBody>{loginHistory.map((h,i)=><TableRow key={i}><TableCell className="font-mono text-xs">{h.ip_address}</TableCell><TableCell className="text-xs text-muted-foreground max-w-40 truncate">{trunc(h.user_agent)}</TableCell><TableCell><Badge variant={h.success ? "success" : "destructive"}>{h.success ? <><CheckCircle size={12} className="mr-1"/>成功</> : <><XCircle size={12} className="mr-1"/>失败</>}</Badge></TableCell><TableCell className="text-xs text-muted-foreground">{fmtTime(h.created_at)}</TableCell></TableRow>)}</TableBody></Table>
+                <Table><TableHeader><TableRow><TableHead>{t("profile.thIp")}</TableHead><TableHead>{t("profile.thClient")}</TableHead><TableHead>{t("profile.thStatus")}</TableHead><TableHead>{t("profile.thTime")}</TableHead></TableRow></TableHeader>
+                <TableBody>{loginHistory.map((h,i)=><TableRow key={i}><TableCell className="font-mono text-xs">{h.ip_address}</TableCell><TableCell className="text-xs text-muted-foreground max-w-40 truncate">{trunc(h.user_agent)}</TableCell><TableCell><Badge variant={h.success ? "success" : "destructive"}>{h.success ? <><CheckCircle size={12} className="mr-1"/>{t("profile.success")}</> : <><XCircle size={12} className="mr-1"/>{t("profile.failed")}</>}</Badge></TableCell><TableCell className="text-xs text-muted-foreground">{fmtTime(h.created_at)}</TableCell></TableRow>)}</TableBody></Table>
               )}
             </CardContent></Card>
           </div>
+        </TabsContent>
+
+        {/* Invite tab */}
+        <TabsContent value="invite">
+          <Card><CardContent className="p-5">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-primary/10 rounded-lg"><Gift size={20} className="text-primary" /></div>
+              <div>
+                <h3 className="font-semibold">{t("profile.inviteTitle")}</h3>
+                <p className="text-xs text-muted-foreground">{t("profile.inviteDesc")}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <code className="flex-1 px-3 py-2 glass-soft rounded-xl font-mono text-sm">{inviteData?.invite_code ?? "…"}</code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (inviteData?.invite_code) {
+                    navigator.clipboard?.writeText(inviteData.invite_code).catch(() => undefined);
+                    toast.success(t("profile.inviteCopied"));
+                  }
+                }}
+              >
+                <Copy size={13} className="mr-1" /> {t("profile.copy")}
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              {t("profile.invitedCount", { count: inviteData?.invited_count ?? 0 })} {" "}
+              <code className="font-mono">{inviteData?.invite_link ?? ""}</code>
+            </p>
+          </CardContent></Card>
         </TabsContent>
 
         {/* Tab 3: Enterprise Info (conditional) */}
@@ -106,25 +144,25 @@ export function ProfileContent() {
             <Card><CardContent className="p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 bg-primary/10 rounded-lg"><Building2 size={20} className="text-primary" /></div>
-                <div><h3 className="font-semibold">企业信息</h3><p className="text-xs text-muted-foreground">您的企业账户详情</p></div>
+                <div><h3 className="font-semibold">{t("profile.entTitle")}</h3><p className="text-xs text-muted-foreground">{t("profile.entDesc")}</p></div>
               </div>
               {enterprise ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1"><p className="text-xs text-muted-foreground">企业名称</p><p className="font-medium">{enterprise.tenant_name}</p></div>
-                    <div className="space-y-1"><p className="text-xs text-muted-foreground">统一社会信用代码</p><p className="font-mono text-sm">{enterprise.credit_code || "未填写"}</p></div>
+                    <div className="space-y-1"><p className="text-xs text-muted-foreground">{t("profile.entName")}</p><p className="font-medium">{enterprise.tenant_name}</p></div>
+                    <div className="space-y-1"><p className="text-xs text-muted-foreground">{t("profile.entCredit")}</p><p className="font-mono text-sm">{enterprise.credit_code || t("profile.notFilled")}</p></div>
                   </div>
-                  <div className="space-y-1"><p className="text-xs text-muted-foreground">我的角色</p><Badge variant={profile?.tenant_role === "owner" ? "default" : profile?.tenant_role === "admin" ? "secondary" : "outline"}>{roleLabel(profile?.tenant_role ?? "")}</Badge></div>
+                  <div className="space-y-1"><p className="text-xs text-muted-foreground">{t("profile.myRole")}</p><Badge variant={profile?.tenant_role === "owner" ? "default" : profile?.tenant_role === "admin" ? "secondary" : "outline"}>{t(roleKey(profile?.tenant_role ?? ""))}</Badge></div>
                   {enterprise.members.length > 0 && (
                     <div className="space-y-2">
-                      <p className="text-sm font-medium">团队成员</p>
-                      <Table><TableHeader><TableRow><TableHead>姓名</TableHead><TableHead>邮箱</TableHead><TableHead>角色</TableHead></TableRow></TableHeader>
-                        <TableBody>{enterprise.members.map(m => <TableRow key={m.id}><TableCell className="font-medium text-sm">{m.name}</TableCell><TableCell className="text-sm text-muted-foreground">{m.email}</TableCell><TableCell><Badge variant={m.role === "owner" ? "default" : m.role === "admin" ? "secondary" : "outline"}>{roleLabel(m.role)}</Badge></TableCell></TableRow>)}</TableBody></Table>
+                      <p className="text-sm font-medium">{t("profile.teamMembers")}</p>
+                      <Table><TableHeader><TableRow><TableHead>{t("profile.thName")}</TableHead><TableHead>{t("profile.thEmail")}</TableHead><TableHead>{t("profile.thRole")}</TableHead></TableRow></TableHeader>
+                        <TableBody>{enterprise.members.map(m => <TableRow key={m.id}><TableCell className="font-medium text-sm">{m.name}</TableCell><TableCell className="text-sm text-muted-foreground">{m.email}</TableCell><TableCell><Badge variant={m.role === "owner" ? "default" : m.role === "admin" ? "secondary" : "outline"}>{t(roleKey(m.role))}</Badge></TableCell></TableRow>)}</TableBody></Table>
                     </div>
                   )}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">加载中...</p>
+                <p className="text-sm text-muted-foreground text-center py-4">{t("profile.loading")}</p>
               )}
             </CardContent></Card>
           </TabsContent>

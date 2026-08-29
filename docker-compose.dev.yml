@@ -31,8 +31,10 @@ services:
       - ./.air.toml:/app/.air.toml
       - ./cmd:/app/cmd
       - ./internal:/app/internal
+      - ./migrations:/app/migrations
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
+      - ./uploads:/app/uploads
       - go-mod-cache:/go/pkg/mod
 
   worker:
@@ -51,5 +53,11 @@ services:
       redis:
         condition: service_healthy
 
+  web:
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+
 volumes:
   go-mod-cache:
+  web-node-modules:

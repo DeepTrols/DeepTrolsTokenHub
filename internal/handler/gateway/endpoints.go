@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/deeptrols/api/internal/app"
+	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/service/billing"
@@ -176,6 +177,13 @@ func parseMultipartForwardedRequest(w http.ResponseWriter, r *http.Request, _ *a
 	return fields, files, modelName, nil
 }
 
+func apiKeyGroup(r *http.Request) string {
+	if v, ok := r.Context().Value(middleware.CtxAPIKeyGroup).(string); ok {
+		return v
+	}
+	return ""
+}
+
 // estimateSTTUsage derives an audio-seconds estimate from the uploaded file
 // size (128 kbps ≈ 16 KB/s). The upstream rarely returns usage for
 // transcriptions, so this estimate is the billing basis.
@@ -220,6 +228,7 @@ func handleForwardedMultipartExecution(
 		writeRouteError(w, err)
 		return
 	}
+	candidates = gw.FilterByGroup(candidates, apiKeyGroup(r))
 	if len(candidates) == 0 {
 		writeRouteError(w, gw.ErrNoChannelAvailable)
 		return
@@ -233,7 +242,7 @@ func handleForwardedMultipartExecution(
 
 	// Budget reservation must precede the upstream call (invariant #2).
 	estimatedUsage := estimate(fields)
-	priceResult, err := application.Pricer.Calculate(r.Context(), primary.Channel.ModelID, tenantID, estimatedUsage)
+	priceResult, err := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
 	holdAmount := decimal.Zero
 	if err != nil {
 		log.Printf("gateway: %s pricer estimate error: %v (using minimum hold)", endpoint, err)
@@ -368,7 +377,7 @@ func handleForwardedMultipartExecution(
 	}
 	settleMinuteBucket(r, application, actualUsage.TotalTokens)
 
-	actualCosts := calculateActualCosts(r.Context(), application, routeResult, resp, tenantID)
+	actualCosts := calculateActualCosts(r, application, routeResult, resp, tenantID)
 	finalCost := decimal.Zero
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
@@ -489,7 +498,7 @@ func handleForwardedRawExecution(
 
 	// Budget reservation must precede the upstream call (invariant #2).
 	estimatedUsage := estimate(body)
-	priceResult, err := application.Pricer.Calculate(r.Context(), primary.Channel.ModelID, tenantID, estimatedUsage)
+	priceResult, err := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
 	holdAmount := decimal.Zero
 	if err != nil {
 		log.Printf("gateway: %s pricer estimate error: %v (using minimum hold)", endpoint, err)
@@ -637,7 +646,7 @@ func handleForwardedRawExecution(
 		Body:          map[string]any{"content_type": raw.ContentType, "bytes": len(raw.Body)},
 	}
 
-	actualCosts := calculateActualCosts(r.Context(), application, routeResult, synthetic, tenantID)
+	actualCosts := calculateActualCosts(r, application, routeResult, synthetic, tenantID)
 	finalCost := decimal.Zero
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
@@ -714,7 +723,7 @@ func handleForwardedEndpointExecution(
 	// Estimate usage and compute the budget hold BEFORE the upstream call
 	// (invariant #2 — budget reservation precedes upstream invocation).
 	estimatedUsage := estimate(body)
-	priceResult, err := application.Pricer.Calculate(r.Context(), primary.Channel.ModelID, tenantID, estimatedUsage)
+	priceResult, err := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
 	holdAmount := decimal.Zero
 	if err != nil {
 		log.Printf("gateway: %s pricer estimate error: %v (using minimum hold)", endpoint, err)
@@ -848,7 +857,7 @@ func handleForwardedEndpointExecution(
 	settleMinuteBucket(r, application, actualUsage.TotalTokens)
 
 	// Settle reserved funds against the REAL final cost.
-	actualCosts := calculateActualCosts(r.Context(), application, routeResult, resp, tenantID)
+	actualCosts := calculateActualCosts(r, application, routeResult, resp, tenantID)
 	finalCost := decimal.Zero
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost

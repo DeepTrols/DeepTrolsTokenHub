@@ -21,6 +21,7 @@ type channelResponse struct {
 	HealthScore    int    `json:"health_score"`
 	HealthStatus   string `json:"health_status"`
 	Status         string `json:"status"`
+	GroupName      string `json:"group_name"`
 	Weight         int    `json:"weight"`
 	MaxConcurrency int    `json:"max_concurrency"`
 	InstanceCount  int    `json:"instance_count"`
@@ -62,6 +63,7 @@ type createChannelRequest struct {
 	Name           string `json:"name"`
 	ModelID        string `json:"model_id"`
 	PoolType       string `json:"pool_type"`
+	GroupName      string `json:"group_name"`
 	Weight         *int   `json:"weight"`
 	MaxConcurrency *int   `json:"max_concurrency"`
 }
@@ -72,6 +74,7 @@ type updateChannelRequest struct {
 	Weight         *int    `json:"weight"`
 	MaxConcurrency *int    `json:"max_concurrency"`
 	PoolType       *string `json:"pool_type"`
+	GroupName      *string `json:"group_name"`
 }
 
 // addInstanceRequest is the request body for HandleAddInstance.
@@ -92,7 +95,8 @@ func HandleListChannels(a *app.App) http.HandlerFunc {
 		rows, err := a.Pool.Query(r.Context(),
 			`SELECT c.id, c.name, c.model_id, m.code, m.provider,
 			        c.pool_type, c.health_score, c.health_status,
-			        c.status, c.weight, c.max_concurrency, c.created_at, c.updated_at,
+			        c.status, COALESCE(c.group_name, ''), c.weight, c.max_concurrency,
+			        c.created_at, c.updated_at,
 			        COUNT(ci.id) AS instance_count
 			 FROM channels c
 			 JOIN models m ON m.id = c.model_id
@@ -111,14 +115,14 @@ func HandleListChannels(a *app.App) http.HandlerFunc {
 			var (
 				id                                                 uuid.UUID
 				name, modelCode, provider, poolType                string
-				healthStatus, status                               string
+				healthStatus, status, groupName                    string
 				modelID                                            uuid.UUID
 				healthScore, weight, maxConcurrency, instanceCount int
 				createdAt, updatedAt                               time.Time
 			)
 			if err := rows.Scan(&id, &name, &modelID, &modelCode, &provider,
 				&poolType, &healthScore, &healthStatus,
-				&status, &weight, &maxConcurrency, &createdAt, &updatedAt, &instanceCount); err != nil {
+				&status, &groupName, &weight, &maxConcurrency, &createdAt, &updatedAt, &instanceCount); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read channel"})
 				return
 			}
@@ -133,6 +137,7 @@ func HandleListChannels(a *app.App) http.HandlerFunc {
 				HealthScore:    healthScore,
 				HealthStatus:   healthStatus,
 				Status:         status,
+				GroupName:      groupName,
 				Weight:         weight,
 				MaxConcurrency: maxConcurrency,
 				InstanceCount:  instanceCount,
@@ -297,9 +302,9 @@ func HandleCreateChannel(a *app.App) http.HandlerFunc {
 		now := time.Now().UTC()
 
 		_, err = a.Pool.Exec(dbCtx,
-			`INSERT INTO channels (id, name, model_id, pool_type, weight, max_concurrency, status, created_at, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7)`,
-			channelID, req.Name, modelID, poolType, weight, maxConcurrency, now,
+			`INSERT INTO channels (id, name, model_id, pool_type, group_name, weight, max_concurrency, status, created_at, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $8)`,
+			channelID, req.Name, modelID, poolType, req.GroupName, weight, maxConcurrency, now,
 		)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create channel"})
@@ -388,8 +393,8 @@ func HandleUpdateChannel(a *app.App) http.HandlerFunc {
 		now := time.Now().UTC()
 
 		_, err = a.Pool.Exec(dbCtx,
-			`UPDATE channels SET name = $1, pool_type = $2, weight = $3, max_concurrency = $4, updated_at = $5 WHERE id = $6`,
-			name, poolType, weight, maxConcurrency, now, channelID,
+			`UPDATE channels SET name = $1, pool_type = $2, group_name = COALESCE($3, group_name), weight = $4, max_concurrency = $5, updated_at = $6 WHERE id = $7`,
+			name, poolType, req.GroupName, weight, maxConcurrency, now, channelID,
 		)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update channel"})

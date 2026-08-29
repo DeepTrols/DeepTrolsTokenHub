@@ -32,6 +32,8 @@ import {
   Trash2,
   Building2,
 } from "lucide-react";
+import "../i18n";
+import { useTranslation } from "react-i18next";
 
 interface TenantData {
   id: string;
@@ -44,24 +46,25 @@ interface TenantData {
 }
 
 const STATUS_META: Record<string, { label: string; variant: "success" | "destructive" | "secondary" | "outline" }> = {
-  pending_review: { label: "待审核", variant: "secondary" },
-  active: { label: "已激活", variant: "success" },
-  suspended: { label: "已停用", variant: "destructive" },
-  terminated: { label: "已终止", variant: "outline" },
-  rejected: { label: "已拒绝", variant: "outline" },
+  pending_review: { label: "tenants.statusPending", variant: "secondary" },
+  active: { label: "tenants.statusActive", variant: "success" },
+  suspended: { label: "tenants.statusSuspended", variant: "destructive" },
+  terminated: { label: "tenants.statusTerminated", variant: "outline" },
+  rejected: { label: "tenants.statusRejected", variant: "outline" },
 };
 
 type LifecycleAction = "approve" | "reject" | "suspend" | "reactivate" | "delete";
 
 const ACTION_LABEL: Record<LifecycleAction, string> = {
-  approve: "审核通过",
-  reject: "拒绝",
-  suspend: "停用",
-  reactivate: "启用",
-  delete: "删除",
+  approve: "tenants.actionApprove",
+  reject: "tenants.actionReject",
+  suspend: "tenants.actionSuspend",
+  reactivate: "tenants.actionReactivate",
+  delete: "tenants.actionDelete",
 };
 
 export default function Tenants() {
+  const { t: tr } = useTranslation();
   const {
     data,
     isLoading,
@@ -172,11 +175,11 @@ export default function Tenants() {
       <SectionPageLayout>
         <SectionPageLayout.Header>
           <SectionPageLayout.HeaderBlock>
-            <SectionPageLayout.Title>租户管理</SectionPageLayout.Title>
+            <SectionPageLayout.Title>{tr("tenants.title")}</SectionPageLayout.Title>
           </SectionPageLayout.HeaderBlock>
         </SectionPageLayout.Header>
         <SectionPageLayout.Content>
-          <LoadingState message="加载企业..." />
+          <LoadingState message={tr("tenants.loading")} />
         </SectionPageLayout.Content>
       </SectionPageLayout>
     );
@@ -186,8 +189,8 @@ export default function Tenants() {
     <SectionPageLayout>
       <SectionPageLayout.Header>
         <SectionPageLayout.HeaderBlock>
-          <SectionPageLayout.Title>租户管理</SectionPageLayout.Title>
-          <SectionPageLayout.Description>共 {total} 家企业</SectionPageLayout.Description>
+          <SectionPageLayout.Title>{tr("tenants.title")}</SectionPageLayout.Title>
+          <SectionPageLayout.Description>{tr("tenants.totalCount", { count: total })}</SectionPageLayout.Description>
         </SectionPageLayout.HeaderBlock>
         <SectionPageLayout.Actions>
           <Button
@@ -200,7 +203,7 @@ export default function Tenants() {
             }}
           >
             <Plus size={16} className="mr-1.5" />
-            创建企业
+            {tr("tenants.createEnterprise")}
           </Button>
         </SectionPageLayout.Actions>
       </SectionPageLayout.Header>
@@ -212,7 +215,7 @@ export default function Tenants() {
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="搜索企业名称 / 编码"
+              placeholder={tr("tenants.searchPlaceholder")}
               className="pl-9 h-9 text-sm"
             />
             {q && (
@@ -234,19 +237,19 @@ export default function Tenants() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>企业</TableHead>
-                <TableHead>编码</TableHead>
-                <TableHead>企业 ID</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>创建时间</TableHead>
-                <TableHead className="text-right">操作</TableHead>
+                <TableHead>{tr("tenants.thEnterprise")}</TableHead>
+                <TableHead>{tr("tenants.thCode")}</TableHead>
+                <TableHead>{tr("tenants.thId")}</TableHead>
+                <TableHead>{tr("tenants.thStatus")}</TableHead>
+                <TableHead>{tr("tenants.thCreated")}</TableHead>
+                <TableHead className="text-right">{tr("tenants.thActions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6}>
-                    <EmptyState icon={Building2} title={q ? "未找到" : "暂无企业"} />
+                    <EmptyState icon={Building2} title={q ? tr("tenants.notFound") : tr("tenants.empty")} />
                   </TableCell>
                 </TableRow>
               )}
@@ -270,7 +273,7 @@ export default function Tenants() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1 items-start">
-                        <Badge variant={meta.variant}>{meta.label}</Badge>
+                        <Badge variant={meta.variant}>{tr(meta.label)}</Badge>
                         {t.status_reason && (
                           <span className="text-xs text-muted-foreground">{t.status_reason}</span>
                         )}
@@ -285,14 +288,14 @@ export default function Tenants() {
                           <>
                             <Button variant="default" size="sm" onClick={() => requestAction(t, "approve")}>
                               <CheckCircle2 size={14} className="mr-1" />
-                              审核通过
+                              {tr("tenants.actionApprove")}
                             </Button>
                             <Button variant="outline" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "reject")}>
-                              拒绝
+                              {tr("tenants.actionReject")}
                             </Button>
                             <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "delete")}>
                               <Trash2 size={14} className="mr-1" />
-                              删除
+                              {tr("tenants.actionDelete")}
                             </Button>
                           </>
                         )}
@@ -300,11 +303,11 @@ export default function Tenants() {
                           <>
                             <Button variant="outline" size="sm" onClick={() => requestAction(t, "suspend")}>
                               <Pause size={14} className="mr-1" />
-                              停用
+                              {tr("tenants.actionSuspend")}
                             </Button>
                             <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "delete")}>
                               <Trash2 size={14} className="mr-1" />
-                              删除
+                              {tr("tenants.actionDelete")}
                             </Button>
                           </>
                         )}
@@ -312,18 +315,18 @@ export default function Tenants() {
                           <>
                             <Button variant="outline" size="sm" onClick={() => requestAction(t, "reactivate")}>
                               <Play size={14} className="mr-1" />
-                              启用
+                              {tr("tenants.actionReactivate")}
                             </Button>
                             <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "delete")}>
                               <Trash2 size={14} className="mr-1" />
-                              删除
+                              {tr("tenants.actionDelete")}
                             </Button>
                           </>
                         )}
                         {(t.status === "terminated" || t.status === "rejected") && (
                           <Button variant="ghost" size="sm" className="hover:text-destructive" onClick={() => requestAction(t, "delete")}>
                             <Trash2 size={14} className="mr-1" />
-                            删除
+                            {tr("tenants.actionDelete")}
                           </Button>
                         )}
                       </div>
@@ -341,31 +344,31 @@ export default function Tenants() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {pendingAction ? `${ACTION_LABEL[pendingAction.action]}：${pendingAction.tenant.name}` : ""}
+              {pendingAction ? tr("tenants.confirmTitle", { action: tr(ACTION_LABEL[pendingAction.action]), name: pendingAction.tenant.name }) : ""}
             </DialogTitle>
           </DialogHeader>
           {pendingAction && (
             <div className="space-y-4">
               {pendingAction.action !== "delete" && (
                 <div className="space-y-2">
-                  <Label>原因（可选）</Label>
+                  <Label>{tr("tenants.reasonLabel")}</Label>
                   <Input
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
-                    placeholder="填写操作原因"
+                    placeholder={tr("tenants.reasonPlaceholder")}
                   />
                 </div>
               )}
               <p className="text-sm text-muted-foreground">
                 {pendingAction.action === "delete"
-                  ? "删除后该企业及其成员、配额、模型配置将被永久移除，此操作不可撤销。"
-                  : "确认后企业状态将更新。"}
+                  ? tr("tenants.deleteWarning")
+                  : tr("tenants.confirmUpdate")}
               </p>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPendingAction(null)}>
-              取消
+              {tr("tenants.cancel")}
             </Button>
             <Button
               variant={
@@ -375,7 +378,7 @@ export default function Tenants() {
               }
               onClick={confirmAction}
             >
-              {pendingAction?.action === "delete" ? "确认删除" : "确认"}
+              {pendingAction?.action === "delete" ? tr("tenants.confirmDelete") : tr("tenants.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -385,19 +388,19 @@ export default function Tenants() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>创建企业</DialogTitle>
+            <DialogTitle>{tr("tenants.createTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>企业名称 *</Label>
-              <Input value={nm} onChange={(e) => setNm(e.target.value)} placeholder="例：某某科技有限公司" />
+              <Label>{tr("tenants.nameLabel")}</Label>
+              <Input value={nm} onChange={(e) => setNm(e.target.value)} placeholder={tr("tenants.namePlaceholder")} />
             </div>
             <div className="space-y-2">
-              <Label>企业编码 *</Label>
-              <Input value={cd} onChange={(e) => setCd(e.target.value)} placeholder="唯一编码，如 acme-corp" />
+              <Label>{tr("tenants.codeLabel")}</Label>
+              <Input value={cd} onChange={(e) => setCd(e.target.value)} placeholder={tr("tenants.codePlaceholder")} />
             </div>
             <div className="space-y-2">
-              <Label>负责人邮箱（可选）</Label>
+              <Label>{tr("tenants.ownerEmail")}</Label>
               <Input
                 value={ownerEmail}
                 onChange={(e) => setOwnerEmail(e.target.value)}
@@ -405,24 +408,22 @@ export default function Tenants() {
               />
             </div>
             <div className="space-y-2">
-              <Label>初始密码（可选）</Label>
+              <Label>{tr("tenants.ownerPassword")}</Label>
               <Input
                 type="password"
                 value={ownerPassword}
                 onChange={(e) => setOwnerPassword(e.target.value)}
-                placeholder="至少 8 位，与邮箱成对填写"
+                placeholder={tr("tenants.ownerPasswordPlaceholder")}
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              新企业创建后为待审核状态，需审核通过后方可使用。填写负责人邮箱+初始密码后，将同时创建该负责人账号并设为企业 owner。
-            </p>
+            <p className="text-xs text-muted-foreground">{tr("tenants.createHint")}</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              取消
+              {tr("tenants.cancel")}
             </Button>
             <Button onClick={create} disabled={!nm.trim() || !cd.trim() || cM.isPending}>
-              {cM.isPending ? "创建中..." : "创建"}
+              {cM.isPending ? tr("tenants.creating") : tr("tenants.create")}
             </Button>
           </DialogFooter>
         </DialogContent>

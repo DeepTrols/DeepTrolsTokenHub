@@ -1,10 +1,13 @@
 import { Button } from "@/components/ui/button";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Send, Loader2, RotateCcw, AlertCircle } from "lucide-react";
+import { Send, Loader2, RotateCcw, AlertCircle, Square } from "lucide-react";
 import { APIKeyData } from "../lib/api";
 import { useConsoleQuery } from "../lib/hooks/use-api";
 import { getKeySecret } from "../lib/keyMemory";
+import { streamChatCompletion } from "../lib/streaming";
+import i18n from "../i18n";
+import { useTranslation } from "react-i18next";
 
 interface GatewayModel {
   id: string;
@@ -23,7 +26,7 @@ async function fetchGatewayModels(apiKey: string): Promise<GatewayModel[]> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const message =
-      (body as { error?: { message?: string } }).error?.message || `请求失败 (${res.status})`;
+      (body as { error?: { message?: string } }).error?.message || i18n.t("playground.requestFailed", { status: res.status });
     throw new Error(message);
   }
   const data = (await res.json()) as { data?: GatewayModel[] };
@@ -31,6 +34,7 @@ async function fetchGatewayModels(apiKey: string): Promise<GatewayModel[]> {
 }
 
 export default function Playground() {
+  const { t } = useTranslation();
   const { data: keysData, isLoading: keysLoading } = useConsoleQuery<{ data: APIKeyData[] }>("/api-keys");
   const apiKeys = keysData?.data ?? [];
   const [selectedKeyId, setSelectedKeyId] = useState("");
@@ -63,7 +67,10 @@ export default function Playground() {
   const [response, setResponse] = useState("");
   const [usageInfo, setUsageInfo] = useState("");
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [reasoning, setReasoning] = useState("");
   const [error, setError] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
 
   // Sync API key secret into state when the secret query resolves.
   useEffect(() => {
@@ -95,68 +102,86 @@ export default function Playground() {
   useEffect(() => {
     if (modelsError) {
       setModelsLoadError(
-        `获取模型列表失败: ${modelsErrorObj instanceof Error ? modelsErrorObj.message : String(modelsErrorObj)}`,
+        `${t("playground.fetchModelsFailed")}: ${modelsErrorObj instanceof Error ? modelsErrorObj.message : String(modelsErrorObj)}`,
       );
     }
-  }, [modelsError, modelsErrorObj]);
+  }, [modelsError, modelsErrorObj, t]);
 
   const handleSend = async () => {
     const key = apiKeyText.trim();
-    if (!key) { setError("请先输入 API Key"); return; }
-    if (!selectedModel) { setError("请选择模型"); return; }
-    setLoading(true); setResponse(""); setUsageInfo(""); setError("");
+    if (!key) { setError(t("playground.needKey")); return; }
+    if (!selectedModel) { setError(t("playground.needModel")); return; }
+    setLoading(true); setStreaming(true); setResponse(""); setReasoning(""); setUsageInfo(""); setError("");
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const res = await fetch("/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key, "X-Request-ID": "playground-" + Date.now() },
-        body: JSON.stringify({ model: selectedModel, messages: [{ role: "user", content: prompt }] }),
+      const result = await streamChatCompletion({
+        url: "/v1/chat/completions",
+        apiKey: key,
+        model: selectedModel,
+        messages: [{ role: "user", content: prompt }],
+        requestId: "playground-" + Date.now(),
+        signal: controller.signal,
+        callbacks: {
+          onDelta: (text) => setResponse((prev) => prev + text),
+          onReasoning: (text) => setReasoning((prev) => prev + text),
+          onUsage: (u) => setUsageInfo(u.total_tokens != null ? `${u.total_tokens} tokens` : ""),
+        },
       });
-      const data = await res.json();
-      if (data.error) { setError(data.error.message || "请求失败"); }
-      else {
-        setResponse(data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2));
-        const u = data.usage;
-        if (u && (u.total_tokens != null)) {
-          setUsageInfo(`${u.total_tokens} tokens`);
-        }
+      if (result.usage && result.usage.total_tokens != null) {
+        setUsageInfo(`${result.usage.total_tokens} tokens`);
       }
-    } catch (e) { setError("网络错误: " + String(e)); }
-    setLoading(false);
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setLoading(false);
+      setStreaming(false);
+      abortRef.current = null;
+    }
   };
 
-  const handleReset = () => { setPrompt(""); setResponse(""); setUsageInfo(""); setError(""); };
+  const handleStop = () => {
+    abortRef.current?.abort();
+  };
+
+  const handleReset = () => {
+    handleStop();
+    setPrompt(""); setResponse(""); setReasoning(""); setUsageInfo(""); setError("");
+  };
 
   const noKeysAvailable = !keysLoading && apiKeys.length === 0;
 
   return (
     <div>
       <div className="mb-6">
-        <h2 className="font-display text-[25px] font-bold tracking-tight">在线体验</h2>
-        <p className="text-[13px] text-[#5C6472] mt-1">使用真实 API Key 在线测试模型调用效果</p>
+        <h2 className="font-display text-[25px] font-bold tracking-tight">{t("playground.title")}</h2>
+        <p className="text-[13px] text-[#5C6472] mt-1">{t("playground.subtitle")}</p>
       </div>
       <div className="glass rounded-2xl p-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
             {/* API Key Selection */}
             <div className="mb-4">
-              <label htmlFor="api-key-select" className="block text-[12px] font-semibold text-[#5C6472] mb-2">选择 API 密钥</label>
+              <label htmlFor="api-key-select" className="block text-[12px] font-semibold text-[#5C6472] mb-2">{t("playground.selectKey")}</label>
               <select id="api-key-select" value={selectedKeyId} onChange={(e) => setSelectedKeyId(e.target.value)}
                 className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm mb-2 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
-                <option value="">-- 选择密钥以加载模型 --</option>
+                <option value="">{t("playground.selectKeyPlaceholder")}</option>
                 {apiKeys.filter(k => k.status === "active").map(k => (
                   <option key={k.id} value={k.id}>{k.name}</option>
                 ))}
               </select>
               {modelsLoading ? (
                 <div className="flex items-center gap-2 text-sm text-[#5C6472]/70 py-2">
-                  <Loader2 size={14} className="animate-spin" /> 加载模型列表中...
+                  <Loader2 size={14} className="animate-spin" /> {t("playground.loadingModels")}
                 </div>
               ) : (
                 <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}
                   className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
                   disabled={availableModels.length === 0}>
                   {availableModels.length === 0 ? (
-                    <option>{selectedKeyId ? "暂无模型" : "请先选择密钥"}</option>
+                    <option>{selectedKeyId ? t("playground.noModels") : t("playground.selectKeyFirst")}</option>
                   ) : (
                     availableModels.map((m) => (
                       <option key={m.code} value={m.code}>{m.display_name || m.code}</option>
@@ -174,44 +199,59 @@ export default function Playground() {
 
             {noKeysAvailable && (
               <div className="mb-4 p-4 glass-soft border-[#4F6BED]/30 rounded-xl">
-                <p className="text-sm text-[#4F6BED] font-medium">请先创建 API 密钥</p>
-                <p className="text-xs text-[#5C6472] mt-1">创建密钥后即可在控制台在线体验模型调用</p>
+                <p className="text-sm text-[#4F6BED] font-medium">{t("playground.noKeysTitle")}</p>
+                <p className="text-xs text-[#5C6472] mt-1">{t("playground.noKeysDesc")}</p>
               </div>
             )}
 
             {/* Prompt */}
             <div className="mb-4">
-              <label className="block text-[12px] font-semibold text-[#5C6472] mb-2">输入提示词</label>
+              <label className="block text-[12px] font-semibold text-[#5C6472] mb-2">{t("playground.prompt")}</label>
               <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
-                placeholder="在此输入您的问题或提示词..." rows={6}
+                placeholder={t("playground.promptPlaceholder")} rows={6}
                 className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
             </div>
 
             <div className="flex gap-3">
               <Button onClick={handleSend} disabled={loading || !apiKeyText.trim()}>
                 {loading ? <Loader2 size={16} className="animate-spin"/> : <Send size={16}/>}
-                发送请求
+                {t("playground.send")}
               </Button>
+              {streaming && (
+                <Button variant="outline" onClick={handleStop}>
+                  <Square size={14} /> {t("playground.stop")}
+                </Button>
+              )}
               <Button variant="outline" onClick={handleReset}>
-                <RotateCcw size={14} /> 重置
+                <RotateCcw size={14} /> {t("playground.reset")}
               </Button>
             </div>
           </div>
 
           {/* Response */}
           <div>
-            <label className="block text-[12px] font-semibold text-[#5C6472] mb-2">响应结果</label>
+            <label className="block text-[12px] font-semibold text-[#5C6472] mb-2">{t("playground.response")}</label>
             <div className="p-4 glass-soft rounded-xl min-h-[200px] max-h-[400px] overflow-auto">
               {loading ? (
-                <div className="flex items-center gap-2 text-[#5C6472]/70"><Loader2 size={16} className="animate-spin"/> 请求中...</div>
+                <div className="flex items-center gap-2 text-[#5C6472]/70">
+                  <Loader2 size={16} className="animate-spin"/> {streaming ? t("playground.streaming") : t("playground.requesting")}
+                </div>
               ) : error ? (
                 <div className="p-3 bg-[#E5484D]/10 border border-[#E5484D]/25 rounded-xl text-sm text-[#C4372C] flex items-start gap-2">
                   <AlertCircle size={16} className="mt-0.5"/>{error}
                 </div>
               ) : response ? (
-                <pre className="text-sm whitespace-pre-wrap font-sans text-[#161A23]">{response}</pre>
+                <>
+                  {reasoning && (
+                    <div className="mb-3 p-3 rounded-xl bg-[#8B6FE8]/8 border border-[#8B6FE8]/20 text-[13px] text-[#5C6472] whitespace-pre-wrap">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-[#8B6FE8] mb-1">{t("playground.thinking")}</div>
+                      {reasoning}
+                    </div>
+                  )}
+                  <pre className="text-sm whitespace-pre-wrap font-sans text-[#161A23]">{response}</pre>
+                </>
               ) : (
-                <p className="text-sm text-[#5C6472]/70">在左侧输入提示词并点击发送</p>
+                <p className="text-sm text-[#5C6472]/70">{t("playground.emptyHint")}</p>
               )}
               {usageInfo && (
                 <p className="mt-2 text-xs text-[#5C6472] font-mono">{usageInfo}</p>

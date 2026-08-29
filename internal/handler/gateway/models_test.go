@@ -46,39 +46,39 @@ func seedModelsForGatewayTest(t *testing.T, a *app.App) {
 
 	_, err := a.Pool.Exec(ctx,
 		`INSERT INTO models (id, code, provider, category, display_name, description, context_window, status, release_stage, created_at, updated_at)
-		 VALUES ($1, 'gpt-4o', 'openai', 'chat', 'GPT-4o', 'OpenAI GPT-4o model', 128000, 'active', 'GA', NOW(), NOW())`,
+		 VALUES ($1, 'deepseek-chat', 'deepseek', 'chat', 'DeepSeek Chat', 'DeepSeek V3 chat model', 128000, 'active', 'GA', NOW(), NOW())`,
 		uuid.New(),
 	)
 	if err != nil {
-		t.Fatalf("insert model gpt-4o: %v", err)
+		t.Fatalf("insert model deepseek-chat: %v", err)
 	}
 
 	_, err = a.Pool.Exec(ctx,
 		`INSERT INTO models (id, code, provider, category, display_name, description, context_window, status, release_stage, created_at, updated_at)
-		 VALUES ($1, 'claude-sonnet', 'anthropic', 'chat', 'Claude Sonnet 4', 'Anthropic Claude model', 200000, 'active', 'GA', NOW(), NOW())`,
+		 VALUES ($1, 'glm-4', 'zhipu', 'chat', 'GLM-4', 'Zhipu GLM-4 model', 200000, 'active', 'GA', NOW(), NOW())`,
 		uuid.New(),
 	)
 	if err != nil {
-		t.Fatalf("insert model claude-sonnet: %v", err)
+		t.Fatalf("insert model glm-4: %v", err)
 	}
 
 	_, err = a.Pool.Exec(ctx,
 		`INSERT INTO models (id, code, provider, category, display_name, description, context_window, status, release_stage, created_at, updated_at)
-		 VALUES ($1, 'gpt-4o-mini', 'openai', 'chat', 'GPT-4o Mini', 'OpenAI GPT-4o Mini model', 128000, 'beta', 'beta', NOW(), NOW())`,
+		 VALUES ($1, 'qwen-max', 'alibaba', 'chat', 'Qwen Max', 'Qwen max model', 128000, 'beta', 'beta', NOW(), NOW())`,
 		uuid.New(),
 	)
 	if err != nil {
-		t.Fatalf("insert model gpt-4o-mini: %v", err)
+		t.Fatalf("insert model qwen-max: %v", err)
 	}
 
 	// Create an inactive model that should NOT appear in results.
 	_, err = a.Pool.Exec(ctx,
 		`INSERT INTO models (id, code, provider, category, display_name, description, context_window, status, release_stage, created_at, updated_at)
-		 VALUES ($1, 'deprecated-model', 'openai', 'chat', 'Deprecated', 'deprecated model', 4096, 'inactive', 'unsupported', NOW(), NOW())`,
+		 VALUES ($1, 'deepseek-archive', 'deepseek', 'chat', 'Deprecated', 'deprecated model', 4096, 'inactive', 'unsupported', NOW(), NOW())`,
 		uuid.New(),
 	)
 	if err != nil {
-		t.Fatalf("insert model deprecated-model: %v", err)
+		t.Fatalf("insert model deepseek-archive: %v", err)
 	}
 }
 
@@ -182,18 +182,18 @@ func TestHandleListModels_ReturnsActiveModelsFromDB(t *testing.T) {
 	}
 
 	// Active models should be present.
-	if !modelCodes["gpt-4o"] {
-		t.Error("expected gpt-4o in active models")
+	if !modelCodes["deepseek-chat"] {
+		t.Error("expected deepseek-chat in active models")
 	}
-	if !modelCodes["claude-sonnet"] {
-		t.Error("expected claude-sonnet in active models")
+	if !modelCodes["glm-4"] {
+		t.Error("expected glm-4 in active models")
 	}
-	if !modelCodes["gpt-4o-mini"] {
-		t.Error("expected gpt-4o-mini (beta) in active models")
+	if !modelCodes["qwen-max"] {
+		t.Error("expected qwen-max (beta) in active models")
 	}
 	// Inactive model should NOT be present.
-	if modelCodes["deprecated-model"] {
-		t.Error("deprecated-model should not be in active models list")
+	if modelCodes["deepseek-archive"] {
+		t.Error("deepseek-archive should not be in active models list")
 	}
 }
 
@@ -201,7 +201,7 @@ func TestHandleListModels_KeyWithAllowedModels_FiltersCorrectly(t *testing.T) {
 	// Arrange
 	a := appForModelsTest(t)
 	seedModelsForGatewayTest(t, a)
-	keyID := seedUserAndKeyForGatewayTest(t, a, []string{"gpt-4o", "gpt-4o-mini"})
+	keyID := seedUserAndKeyForGatewayTest(t, a, []string{"deepseek-chat", "qwen-max"})
 
 	handler := HandleListModels(a)
 
@@ -235,14 +235,14 @@ func TestHandleListModels_KeyWithAllowedModels_FiltersCorrectly(t *testing.T) {
 		modelCodes[m.ID] = true
 	}
 
-	if !modelCodes["gpt-4o"] {
-		t.Error("expected gpt-4o in filtered results")
+	if !modelCodes["deepseek-chat"] {
+		t.Error("expected deepseek-chat in filtered results")
 	}
-	if !modelCodes["gpt-4o-mini"] {
-		t.Error("expected gpt-4o-mini in filtered results")
+	if !modelCodes["qwen-max"] {
+		t.Error("expected qwen-max in filtered results")
 	}
-	if modelCodes["claude-sonnet"] {
-		t.Error("claude-sonnet should NOT be in filtered results (not in AllowedModels)")
+	if modelCodes["glm-4"] {
+		t.Error("glm-4 should NOT be in filtered results (not in AllowedModels)")
 	}
 }
 

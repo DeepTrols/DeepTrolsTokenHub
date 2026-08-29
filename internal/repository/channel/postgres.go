@@ -168,7 +168,7 @@ func (r *PostgresRepository) ClearCooldown(ctx context.Context, instanceID uuid.
 
 const channelSelectClause = `
 	id, name, model_id, tenant_id, pool_type, health_score, health_status,
-	status, weight, max_concurrency, strategy, sticky_session, fallback_order,
+	status, COALESCE(group_name, ''), weight, max_concurrency, strategy, sticky_session, fallback_order,
 	created_at, updated_at
 `
 
@@ -177,7 +177,7 @@ func scanChannel(row pgx.Row) (*domain.Channel, error) {
 	err := row.Scan(
 		&c.ID, &c.Name, &c.ModelID, &c.TenantID, &c.PoolType,
 		&c.HealthScore, &c.HealthStatus,
-		&c.Status, &c.Weight, &c.MaxConcurrency,
+		&c.Status, &c.GroupName, &c.Weight, &c.MaxConcurrency,
 		&c.Strategy, &c.StickySession, &c.FallbackOrder,
 		&c.CreatedAt, &c.UpdatedAt,
 	)

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Bills from "./Bills";
 import { renderWithProviders } from "../test/test-utils";
@@ -20,6 +21,7 @@ vi.mock("../lib/auth", () => ({
 
 import { api } from "../lib/api";
 const mockApiGet = api.get as ReturnType<typeof vi.fn>;
+const mockApiPut = api.put as ReturnType<typeof vi.fn>;
 
 function seedTxs() {
   return [
@@ -31,6 +33,7 @@ function seedTxs() {
 describe("Bills", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApiPut.mockResolvedValue({ threshold: "50.00" });
   });
 
   afterEach(() => {
@@ -65,5 +68,61 @@ describe("Bills", () => {
 
     expect(await screen.findByText("wallet down")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /重试/ })).toBeInTheDocument();
+  });
+
+  it("saves the balance alert threshold", async () => {
+    const user = userEvent.setup();
+    mockApiGet
+      .mockResolvedValueOnce({ data: seedTxs() })
+      .mockResolvedValueOnce({ threshold: "0.00" });
+
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/bills"]}>
+        <Bills />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("充值记录");
+    const input = screen.getByLabelText("未设置");
+    await user.clear(input);
+    await user.type(input, "50");
+    await user.click(screen.getByRole("button", { name: "保存阈值" }));
+
+    await waitFor(() => {
+      expect(mockApiPut).toHaveBeenCalledWith("/wallet/alert", { threshold: "50" });
+    });
+  });
+
+  it("renders the monthly statement with per-model spend", async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path.startsWith("/wallet/transactions")) return Promise.resolve({ data: seedTxs() });
+      if (path.startsWith("/wallet/alert")) return Promise.resolve({ threshold: "0.00" });
+      if (path.startsWith("/billing/statement")) {
+        return Promise.resolve({
+          year: 2026,
+          month: 8,
+          total_cost: "25.00",
+          total_topup: "150.00",
+          charge_count: 3,
+          by_model: [
+            { model: "gpt-4o", cost: "20.00", count: 2 },
+            { model: "claude-sonnet", cost: "5.00", count: 1 },
+          ],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/bills"]}>
+        <Bills />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("月度账单")).toBeInTheDocument();
+    expect(await screen.findByText("¥25.00")).toBeInTheDocument();
+    expect(screen.getByText("¥150.00")).toBeInTheDocument();
+    expect(screen.getByText("gpt-4o")).toBeInTheDocument();
+    expect(screen.getByText("claude-sonnet")).toBeInTheDocument();
   });
 });

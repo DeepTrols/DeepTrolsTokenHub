@@ -1,5 +1,9 @@
 FROM golang:1.23-alpine
 
+# 国内网络环境可访问的 Go 模块镜像（可用 --build-arg GOPROXY=... 覆盖）
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
+
 RUN go install github.com/air-verse/air@v1.61.7
 WORKDIR /app
 

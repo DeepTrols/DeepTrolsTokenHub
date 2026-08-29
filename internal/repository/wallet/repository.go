@@ -34,6 +34,11 @@ type Repository interface {
 	Settle(ctx context.Context, txID uuid.UUID, finalAmount decimal.Decimal) error
 	Release(ctx context.Context, txID uuid.UUID) error
 	TopUp(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error)
+	// Spend atomically deducts `amount` from the wallet (e.g. subscription
+	// purchase), recording a negative wallet_transaction with the given
+	// idempotency key. Returns ErrInsufficientBalance when the wallet cannot
+	// cover the amount, ErrNotFound when the wallet is missing.
+	Spend(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error)
 	// Transfer atomically moves `amount` from the source wallet to the
 	// destination wallet in one transaction: a negative transfer_out on the
 	// source and a positive transfer_in on the destination. Returns the

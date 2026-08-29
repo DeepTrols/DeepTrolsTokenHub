@@ -22,11 +22,12 @@ import (
 	"github.com/deeptrols/api/internal/pkg/minutebucket"
 	"github.com/deeptrols/api/internal/pkg/ratelimit"
 	"github.com/deeptrols/api/internal/pkg/redis"
-	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/repository/apikey"
 	"github.com/deeptrols/api/internal/repository/channel"
 	"github.com/deeptrols/api/internal/repository/membership"
 	"github.com/deeptrols/api/internal/repository/model"
+	"github.com/deeptrols/api/internal/repository/paymentorder"
+	"github.com/deeptrols/api/internal/repository/setting"
 	"github.com/deeptrols/api/internal/repository/tenant"
 	"github.com/deeptrols/api/internal/repository/usage"
 	"github.com/deeptrols/api/internal/repository/user"
@@ -34,6 +35,9 @@ import (
 	"github.com/deeptrols/api/internal/service/billing"
 	"github.com/deeptrols/api/internal/service/cache"
 	"github.com/deeptrols/api/internal/service/gateway"
+	paymentsvc "github.com/deeptrols/api/internal/service/payment"
+	settingsvc "github.com/deeptrols/api/internal/service/setting"
+	subscription "github.com/deeptrols/api/internal/service/subscription"
 )
 
 // App holds all shared dependencies for the API server.
@@ -60,6 +64,14 @@ type App struct {
 	Wallets     wallet.Repository
 	Channels    channel.Repository
 	Memberships membership.Repository
+	// Settings resolves and persists runtime config (site/branding/payment).
+	Settings *settingsvc.Service
+	// PaymentOrders persists recharge orders for the Alipay/WeChat gateway.
+	PaymentOrders paymentorder.Repository
+	// Payment coordinates order creation, gateway callbacks and idempotent credit.
+	Payment *paymentsvc.Service
+	// Subscriptions activates plans and tracks free-token quotas.
+	Subscriptions *subscription.Service
 
 	// Services
 	Charger *billing.Charger
@@ -117,6 +129,13 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.Wallets = wallet.NewPostgresRepository(pool)
 	a.Channels = channel.NewPostgresRepository(pool)
 	a.Memberships = membership.NewPostgresRepository(pool)
+	a.Settings = settingsvc.NewService(setting.NewPostgresRepository(pool))
+	a.PaymentOrders = paymentorder.NewPostgresRepository(pool)
+	a.Payment = paymentsvc.NewService(a.PaymentOrders, a.Wallets, a.Settings)
+	// Paid subscription orders activate the plan (instead of wallet credit).
+	subSvc := subscription.New(pool)
+	a.Subscriptions = subSvc
+	a.Payment.ActivateSubscription = subSvc.Activate
 	billingSyncRepo := billingpersistence.NewPostgresRepository(pool, []byte(cfg.Encryption.Key))
 	a.BillingSyncRepo = billingSyncRepo
 	a.BillingSync = billingsync.NewService(billingSyncRepo,
@@ -130,7 +149,9 @@ func NewApp(cfg *config.Config) (*App, error) {
 	a.Logger = billing.NewLoggerWithPool(a.Usage, a.Pool)
 	a.Pricer = billing.NewPricer(a.Models.(model.PricingRepository))
 	a.Router = gateway.NewRouter(a.Models, a.Channels)
-	a.Executor = provider.NewOpenAICompatAdapter()
+	// Executor is deliberately left nil: each gateway path selects the adapter
+	// per channel instance config (OpenAI-compatible default, Gemini native
+	// when upstream_format=gemini). Tests inject their own executor.
 	a.HttpClient = &http.Client{Timeout: 120 * time.Second}
 
 	// Wire rate limiter: Redis-backed with in-memory fallback when Redis is
@@ -149,6 +170,9 @@ func NewApp(cfg *config.Config) (*App, error) {
 	// back to the database current_load column.
 	a.LoadTracker = gateway.NewLoadTracker(a.Redis, time.Duration(cfg.LoadTTLSeconds)*time.Second)
 	a.Router.SetLoadSource(a.LoadTracker)
+	// Channel affinity (new-api parity): prefer the last channel per user+model
+	// to improve upstream cache-hit rates. Redis-backed when available.
+	a.Router.EnableAffinity(gateway.NewAffinityStore(a.Redis, time.Hour))
 
 	return a, nil
 }

@@ -37,10 +37,10 @@ func (r *PostgresRepository) Create(ctx context.Context, key *domain.APIKey) err
 			id, user_id, tenant_id, key_prefix, key_hash, encrypted_key, masked_key,
 			name, status, allowed_models, source_whitelist,
 			cumulative_limit, weekly_limit, monthly_limit,
-			over_limit_action, rate_limit_rpm, rate_limit_tpm, created_at, updated_at
+			over_limit_action, rate_limit_rpm, rate_limit_tpm, created_at, updated_at, expires_at, group_name
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-			$12, $13, $14, $15, $16, $17, $18, $19
+			$12, $13, $14, $15, $16, $17, $18, $19, $20, $21
 		)
 	`
 
@@ -49,7 +49,7 @@ func (r *PostgresRepository) Create(ctx context.Context, key *domain.APIKey) err
 		key.Name, key.Status, allowedModels, sourceWhitelist,
 		key.CumulativeLimit, key.WeeklyLimit, key.MonthlyLimit,
 		key.OverLimitAction, key.RateLimitRPM, key.RateLimitTPM,
-		key.CreatedAt, key.UpdatedAt,
+		key.CreatedAt, key.UpdatedAt, key.ExpiresAt, key.GroupName,
 	)
 	if err != nil {
 		return fmt.Errorf("apikey create: %w", err)
@@ -83,6 +83,7 @@ func scanKey(row pgx.Row) (*domain.APIKey, error) {
 	var k domain.APIKey
 	var allowedJSON, whitelistJSON string
 	var cumulativeLimitStr, weeklyLimitStr, monthlyLimitStr string
+	var expiresAt *time.Time
 
 	err := row.Scan(
 		&k.ID, &k.UserID, &k.TenantID,
@@ -92,7 +93,7 @@ func scanKey(row pgx.Row) (*domain.APIKey, error) {
 		&allowedJSON, &whitelistJSON,
 		&cumulativeLimitStr, &weeklyLimitStr, &monthlyLimitStr,
 		&k.OverLimitAction, &k.LastUsedAt, &k.Last7dActive,
-		&k.CreatedAt, &k.UpdatedAt, &k.RevokedAt,
+		&k.CreatedAt, &k.UpdatedAt, &k.RevokedAt, &expiresAt, &k.GroupName,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("apikey scan: %w", err)
@@ -103,6 +104,7 @@ func scanKey(row pgx.Row) (*domain.APIKey, error) {
 	k.CumulativeLimit = parseDecimal(cumulativeLimitStr)
 	k.WeeklyLimit = parseDecimal(weeklyLimitStr)
 	k.MonthlyLimit = parseDecimal(monthlyLimitStr)
+	k.ExpiresAt = expiresAt
 
 	return &k, nil
 }
@@ -132,7 +134,7 @@ const apiKeySelectClause = `
 		COALESCE(array_to_json(source_whitelist)::text, '[]'),
 		COALESCE(cumulative_limit::text, ''), COALESCE(weekly_limit::text, ''), COALESCE(monthly_limit::text, ''),
 		over_limit_action, last_used_at, last_7d_active,
-		created_at, updated_at, revoked_at
+		created_at, updated_at, revoked_at, expires_at, COALESCE(group_name, '')
 	`
 
 // FindByHash retrieves an API key by its hash.

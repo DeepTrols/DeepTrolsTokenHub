@@ -19,6 +19,7 @@ type contextKey string
 
 const (
 	CtxAPIKeyID    contextKey = "api_key_id"
+	CtxAPIKeyGroup contextKey = "api_key_group"
 	CtxTenantID    contextKey = "tenant_id"
 	CtxRequestID   contextKey = "request_id"
 	CtxRequestType contextKey = "request_type"
@@ -87,6 +88,10 @@ func GatewayAuth(application *app.App) func(http.Handler) http.Handler {
 				writeGatewayError(w, http.StatusForbidden, "API key is disabled")
 				return
 			}
+			if key.ExpiresAt != nil && time.Now().After(*key.ExpiresAt) {
+				writeGatewayError(w, http.StatusUnauthorized, "API key expired")
+				return
+			}
 
 			// Record last_used_at for console visibility. Best-effort and
 			// detached: a transient DB failure must never fail the gateway
@@ -102,6 +107,7 @@ func GatewayAuth(application *app.App) func(http.Handler) http.Handler {
 			// Store resolved identity in context.
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, CtxAPIKeyID, key.ID.String())
+			ctx = context.WithValue(ctx, CtxAPIKeyGroup, key.GroupName)
 			ctx = context.WithValue(ctx, CtxUserID, key.UserID.String())
 			ctx = context.WithValue(ctx, CtxRequestID, requestID)
 			ctx = context.WithValue(ctx, CtxRequestType, "chat")

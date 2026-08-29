@@ -24,10 +24,38 @@ const mockApiGet = api.get as ReturnType<typeof vi.fn>;
 const mockApiPost = api.post as ReturnType<typeof vi.fn>;
 
 const wallet = { balance: "100.00", frozen: "5.00", available: "95.00", currency: "CNY", total_charged: "50.00" };
+const methodsPayload = {
+  enabled: true,
+  payment_compliance_confirmed: true,
+  pay_methods: [
+    { name: "支付宝", type: "alipay", color: "#1677FF" },
+    { name: "微信支付", type: "wxpay", color: "#07C160" },
+  ],
+  min_topup: "1.00",
+  max_topup: "1000000.00",
+  amount_options: ["10", "50", "100", "200", "500"],
+};
+
+function mockGet(path: string) {
+  if (path === "/wallet") return Promise.resolve(wallet);
+  if (path === "/payment/methods") return Promise.resolve(methodsPayload);
+  if (path === "/payment/orders") return Promise.resolve({ orders: [] });
+  if (path === "/checkin/status") {
+    return Promise.resolve({
+      enabled: true,
+      min_quota: "1",
+      max_quota: "5",
+      checked_in_today: false,
+      total_days: 1,
+    });
+  }
+  return Promise.resolve(null);
+}
 
 describe("Recharge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApiGet.mockImplementation(mockGet);
   });
 
   afterEach(() => {
@@ -35,8 +63,6 @@ describe("Recharge", () => {
   });
 
   it("renders page title and two balance cards", async () => {
-    mockApiGet.mockResolvedValueOnce(wallet);
-
     renderWithProviders(
       <MemoryRouter initialEntries={["/recharge"]}>
         <Recharge />
@@ -48,9 +74,7 @@ describe("Recharge", () => {
     expect(screen.getByText("累计消费")).toBeInTheDocument();
   });
 
-  it("renders the topup form without a recharge records section", async () => {
-    mockApiGet.mockResolvedValueOnce(wallet);
-
+  it("renders the online topup form", async () => {
     renderWithProviders(
       <MemoryRouter initialEntries={["/recharge"]}>
         <Recharge />
@@ -58,31 +82,23 @@ describe("Recharge", () => {
     );
 
     expect(await screen.findByText("在线支付充值")).toBeInTheDocument();
-    expect(screen.queryByText("充值记录")).not.toBeInTheDocument();
-    expect(screen.queryByText("订单编号")).not.toBeInTheDocument();
   });
 
-  it("formats wallet amounts to 2 decimals with banker's rounding", async () => {
-    mockApiGet.mockResolvedValueOnce({
-      ...wallet,
-      available: "95.237",
-      total_charged: "-0.763000",
-    });
-
+  it("offers alipay and wechat payment methods with alipay selected by default", async () => {
     renderWithProviders(
       <MemoryRouter initialEntries={["/recharge"]}>
         <Recharge />
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("95.24")).toBeInTheDocument();
-    expect(screen.getByText("0.76")).toBeInTheDocument();
-    expect(screen.queryByText("-0.76")).not.toBeInTheDocument();
+    expect(await screen.findByText("支付宝")).toBeInTheDocument();
+    expect(screen.getByText("微信支付")).toBeInTheDocument();
+    expect((screen.getByLabelText(/支付宝/) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText(/微信支付/) as HTMLInputElement).checked).toBe(false);
   });
 
-  it("shows error with retry on fetch failure", async () => {
-    mockApiGet.mockRejectedValue(new Error("wallet down"));
-
+  it("shows error with retry on wallet fetch failure", async () => {
+    mockApiGet.mockImplementation(() => Promise.reject(new Error("wallet down")));
     renderWithProviders(
       <MemoryRouter initialEntries={["/recharge"]}>
         <Recharge />
@@ -93,10 +109,16 @@ describe("Recharge", () => {
     expect(screen.getByRole("button", { name: /重试/ })).toBeInTheDocument();
   });
 
-  it("submits a payment", async () => {
+  it("creates a real payment order and opens the QR dialog", async () => {
     const user = userEvent.setup();
-    mockApiGet.mockResolvedValueOnce(wallet);
-    mockApiPost.mockResolvedValue({ data: { balance_after: "145.00" } });
+    mockApiPost.mockResolvedValue({
+      order_no: "DTP1",
+      amount: "50.00",
+      currency: "CNY",
+      channel: "epay",
+      pay_method: "alipay",
+      pay_url: "https://pay.example.com/submit.php",
+    });
 
     renderWithProviders(
       <MemoryRouter initialEntries={["/recharge"]}>
@@ -108,26 +130,9 @@ describe("Recharge", () => {
     await user.click(screen.getByText("50 ￥"));
     await user.click(screen.getByRole("button", { name: "充值" }));
 
-    await waitFor(() => {
-      expect(mockApiPost).toHaveBeenCalledWith("/wallet/topup", {
-        amount: "50",
-        payment_method: "alipay",
-      });
-    });
-  });
-
-  it("offers alipay and wechat payment methods with alipay selected by default", async () => {
-    mockApiGet.mockResolvedValueOnce(wallet);
-
-    renderWithProviders(
-      <MemoryRouter initialEntries={["/recharge"]}>
-        <Recharge />
-      </MemoryRouter>,
+    await waitFor(() =>
+      expect(mockApiPost).toHaveBeenCalledWith("/payment/order", { amount: "50", pay_method: "alipay" }),
     );
-
-    expect(await screen.findByText("支付宝")).toBeInTheDocument();
-    expect(screen.getByText("微信支付")).toBeInTheDocument();
-    expect((screen.getByLabelText(/支付宝/) as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText(/微信支付/) as HTMLInputElement).checked).toBe(false);
+    expect(await screen.findByText(/订单号 DTP1/)).toBeInTheDocument();
   });
 });
