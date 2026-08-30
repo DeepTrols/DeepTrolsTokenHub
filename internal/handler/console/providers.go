@@ -32,6 +32,10 @@ type providerResponse struct {
 	CustomHeaders  map[string]string `json:"custom_headers,omitempty"`
 	UpstreamFormat string            `json:"upstream_format,omitempty"`
 	CustomOverride string            `json:"custom_override,omitempty"`
+	PoolType       string            `json:"pool_type,omitempty"`
+	Weight         int               `json:"weight"`
+	MaxConcurrency int               `json:"max_concurrency"`
+	GroupName      string            `json:"group_name,omitempty"`
 	CreatedAt      string            `json:"created_at"`
 	UpdatedAt      string            `json:"updated_at"`
 }
@@ -45,6 +49,10 @@ type createProviderRequest struct {
 	CustomHeaders  map[string]string `json:"custom_headers,omitempty"`
 	UpstreamFormat string            `json:"upstream_format,omitempty"`
 	CustomOverride string            `json:"custom_override,omitempty"`
+	PoolType       string            `json:"pool_type,omitempty"`
+	Weight         int               `json:"weight"`
+	MaxConcurrency int               `json:"max_concurrency"`
+	GroupName      string            `json:"group_name,omitempty"`
 }
 
 // updateProviderRequest is the request body for updating a provider credential.
@@ -56,6 +64,10 @@ type updateProviderRequest struct {
 	CustomOverride string            `json:"custom_override,omitempty"`
 	APIKey         string            `json:"api_key"`
 	CustomHeaders  map[string]string `json:"custom_headers,omitempty"`
+	PoolType       *string           `json:"pool_type,omitempty"`
+	Weight         *int              `json:"weight,omitempty"`
+	MaxConcurrency *int              `json:"max_concurrency,omitempty"`
+	GroupName      *string           `json:"group_name,omitempty"`
 }
 
 // defaultBaseURLs maps provider names to their default API base URLs (no trailing version path).
@@ -114,7 +126,11 @@ func HandleListProviders(a *app.App) http.HandlerFunc {
 					ci.config,
 					ci.config->'custom_headers' AS custom_headers_json,
 					ci.config->>'upstream_format' AS upstream_format,
-					ci.config->>'custom_override' AS custom_override
+					ci.config->>'custom_override' AS custom_override,
+					ch.pool_type,
+					ch.weight,
+					ch.max_concurrency,
+					ch.group_name
 				FROM channels ch
 				LEFT JOIN channel_instances ci ON ci.channel_id = ch.id
 			)
@@ -131,9 +147,14 @@ func HandleListProviders(a *app.App) http.HandlerFunc {
 				COALESCE(MAX(custom_headers_json::text), '') AS custom_headers,
 				COALESCE(MAX(upstream_format), '') AS upstream_format,
 				COALESCE(MAX(custom_override), '') AS custom_override,
+				COALESCE(MAX(pool_type), 'shared') AS pool_type,
+				MAX(weight) AS weight,
+				MAX(max_concurrency) AS max_concurrency,
+				COALESCE(MAX(group_name), '') AS group_name,
 				CASE WHEN BOOL_OR(status = 'active') THEN 'active' ELSE 'inactive' END AS status
 			FROM creds
 			GROUP BY base_url, api_key
+			HAVING BOOL_OR(status = 'active')
 			ORDER BY display_name, base_url`,
 		)
 		if err != nil {
@@ -155,13 +176,17 @@ func HandleListProviders(a *app.App) http.HandlerFunc {
 			customHeaders  string
 			upstreamFormat string
 			customOverride string
+			poolType       string
+			weight         int
+			maxConcurrency int
+			groupName      string
 			status         string
 		}
 
 		var rows2 []row
 		for rows.Next() {
 			var r row
-			if err := rows.Scan(&r.id, &r.displayName, &r.providerType, &r.baseURL, &r.apiKey, &r.modelCount, &r.channelIDsCSV, &r.createdAt, &r.updatedAt, &r.customHeaders, &r.upstreamFormat, &r.customOverride, &r.status); err != nil {
+			if err := rows.Scan(&r.id, &r.displayName, &r.providerType, &r.baseURL, &r.apiKey, &r.modelCount, &r.channelIDsCSV, &r.createdAt, &r.updatedAt, &r.customHeaders, &r.upstreamFormat, &r.customOverride, &r.poolType, &r.weight, &r.maxConcurrency, &r.groupName, &r.status); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read provider"})
 				return
 			}
@@ -196,6 +221,10 @@ func HandleListProviders(a *app.App) http.HandlerFunc {
 				CustomHeaders:  customHeaders,
 				UpstreamFormat: r.upstreamFormat,
 				CustomOverride: r.customOverride,
+				PoolType:       r.poolType,
+				Weight:         r.weight,
+				MaxConcurrency: r.maxConcurrency,
+				GroupName:      r.groupName,
 				CreatedAt:      r.createdAt.Format(time.RFC3339),
 				UpdatedAt:      r.updatedAt.Format(time.RFC3339),
 			})
@@ -245,6 +274,18 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 
 		now := time.Now().UTC()
 		created := 0
+		weight := req.Weight
+		if weight <= 0 {
+			weight = 100
+		}
+		maxConcurrency := req.MaxConcurrency
+		if maxConcurrency <= 0 {
+			maxConcurrency = 10
+		}
+		poolType := req.PoolType
+		if poolType == "" {
+			poolType = "shared"
+		}
 
 		if len(discovered) > 0 {
 			tmpl, hasTemplate := provider.Lookup(req.Provider)
@@ -291,10 +332,10 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 
 				// Create channel
 				_, err = a.Pool.Exec(dbCtx,
-					`INSERT INTO channels (id, name, model_id, pool_type, health_score, health_status, status, weight, max_concurrency, created_at, updated_at)
-				 VALUES ($1,$2,$3,'shared',100,'healthy','active',100,10,$4,$4)
+					`INSERT INTO channels (id, name, model_id, pool_type, health_score, health_status, status, weight, max_concurrency, group_name, created_at, updated_at)
+				 VALUES ($1,$2,$3,$4,100,'healthy','active',$5,$6,$7,$8,$8)
 				 ON CONFLICT DO NOTHING`,
-					channelID, req.Name+"-"+code, resolvedModelID, now,
+					channelID, req.Name+"-"+code, resolvedModelID, poolType, weight, maxConcurrency, req.GroupName, now,
 				)
 				if err != nil {
 					log.Printf("provider: create channel for %s: %v", code, err)
@@ -351,9 +392,9 @@ func HandleCreateProvider(a *app.App) http.HandlerFunc {
 				mid, placeholderCode, req.Provider, req.Name+" (待配置)", now,
 			)
 			a.Pool.Exec(dbCtx,
-				`INSERT INTO channels (id, name, model_id, pool_type, health_score, health_status, status, weight, max_concurrency, created_at, updated_at)
-				 VALUES ($1,$2,$3,'shared',100,'healthy','active',100,10,$4,$4) ON CONFLICT DO NOTHING`,
-				cid, req.Name+"-pending", mid, now,
+				`INSERT INTO channels (id, name, model_id, pool_type, health_score, health_status, status, weight, max_concurrency, group_name, created_at, updated_at)
+				 VALUES ($1,$2,$3,$4,100,'healthy','active',$5,$6,$7,$8,$8) ON CONFLICT DO NOTHING`,
+				cid, req.Name+"-pending", mid, poolType, weight, maxConcurrency, req.GroupName, now,
 			)
 			cfg, _ := json.Marshal(map[string]any{
 				"api_key":         req.APIKey,
@@ -615,6 +656,7 @@ func HandleTestProvider(a *app.App) http.HandlerFunc {
 
 		dbCtx := r.Context()
 		var pv, baseURL, apiKey string
+		// 第一步：读取凭证配置（任意实例均可，仅用于确认 provider 存在并定位凭证）。
 		err = a.Pool.QueryRow(dbCtx,
 			`SELECT COALESCE(ci.config->>'provider', m.provider),
 			        COALESCE(ci.base_url, ''),
@@ -622,8 +664,8 @@ func HandleTestProvider(a *app.App) http.HandlerFunc {
 			 FROM channel_instances ci
 			 JOIN channels ch ON ci.channel_id = ch.id
 			 JOIN models m ON m.id = ch.model_id
-			 WHERE ch.id = $1 AND ci.status = 'active'
-			 ORDER BY ci.created_at, ci.id
+			 WHERE ch.id = $1
+			 ORDER BY (ci.status = 'active') DESC, ci.created_at, ci.id
 			 LIMIT 1`, providerID).Scan(&pv, &baseURL, &apiKey)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -631,6 +673,30 @@ func HandleTestProvider(a *app.App) http.HandlerFunc {
 				return
 			}
 			log.Printf("provider: test lookup failed for %s: %v", providerID, err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read provider"})
+			return
+		}
+		// 第二步：必须存在携带同一凭证的 active 实例才值得探测——实例已全部
+		// 停用/禁用的渠道不具备路由能力，测试应如实失败而不是"假通过"。
+		var activeInstanceID uuid.UUID
+		err = a.Pool.QueryRow(dbCtx,
+			`SELECT ci.id
+			 FROM channel_instances ci
+			 WHERE ci.status = 'active'
+			   AND COALESCE(ci.base_url, '') = $1
+			   AND COALESCE(ci.config->>'api_key', '') = $2
+			 ORDER BY ci.created_at, ci.id
+			 LIMIT 1`, baseURL, apiKey).Scan(&activeInstanceID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":    false,
+				"ms":    0,
+				"error": "no active instance",
+			})
+			return
+		}
+		if err != nil {
+			log.Printf("provider: active instance lookup failed for %s: %v", providerID, err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read provider"})
 			return
 		}
@@ -725,7 +791,8 @@ func HandleUpdateProvider(a *app.App) http.HandlerFunc {
 
 		// No fields to update
 		if req.Name == "" && req.BaseURL == "" && req.APIKey == "" && req.CustomHeaders == nil &&
-			req.UpstreamFormat == "" && req.CustomOverride == "" {
+			req.UpstreamFormat == "" && req.CustomOverride == "" && req.PoolType == nil &&
+			req.Weight == nil && req.MaxConcurrency == nil && req.GroupName == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "At least one field must be provided"})
 			return
 		}
@@ -767,6 +834,40 @@ func HandleUpdateProvider(a *app.App) http.HandlerFunc {
 			)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update channel names"})
+				return
+			}
+		}
+
+		if req.Weight != nil || req.MaxConcurrency != nil || req.PoolType != nil || req.GroupName != nil {
+			updates := []string{"updated_at = $1"}
+			args := []any{now}
+			if req.Weight != nil {
+				args = append(args, *req.Weight)
+				updates = append(updates, fmt.Sprintf("weight = $%d", len(args)))
+			}
+			if req.MaxConcurrency != nil {
+				args = append(args, *req.MaxConcurrency)
+				updates = append(updates, fmt.Sprintf("max_concurrency = $%d", len(args)))
+			}
+			if req.PoolType != nil {
+				args = append(args, *req.PoolType)
+				updates = append(updates, fmt.Sprintf("pool_type = $%d", len(args)))
+			}
+			if req.GroupName != nil {
+				args = append(args, *req.GroupName)
+				updates = append(updates, fmt.Sprintf("group_name = $%d", len(args)))
+			}
+			args = append(args, baseURL, apiKey)
+			query := fmt.Sprintf(
+				`UPDATE channels SET %s
+				 WHERE id IN (
+				   SELECT ci2.channel_id
+				   FROM channel_instances ci2
+				   WHERE ci2.base_url = $%d AND ci2.config->>'api_key' = $%d
+				 )`,
+				strings.Join(updates, ", "), len(args)-1, len(args))
+			if _, err := tx.Exec(dbCtx, query, args...); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update channel routing settings"})
 				return
 			}
 		}

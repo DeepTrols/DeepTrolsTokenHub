@@ -144,6 +144,16 @@ func seedDomesticModelsForListTest(t *testing.T, a *app.App) {
 		t.Fatalf("insert model2: %v", err)
 	}
 
+	// Only channel-backed models are routable and must appear in catalogs.
+	for _, mid := range []uuid.UUID{model1ID, model2ID} {
+		if _, err := a.Pool.Exec(context.Background(),
+			`INSERT INTO channels (id, name, model_id, pool_type, status, created_at, updated_at)
+			 VALUES ($1, $2, $3, 'shared', 'active', NOW(), NOW())`,
+			uuid.New(), "seed-channel", mid); err != nil {
+			t.Fatalf("seed channel: %v", err)
+		}
+	}
+
 	for _, row := range []struct {
 		modelID uuid.UUID
 		input   string
@@ -277,6 +287,14 @@ func TestHandleListModels_OnlyActiveModels(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("insert inactive model: %v", err)
+	}
+	// The active model needs a channel to be routable and listable.
+	_, err = a.Pool.Exec(ctx,
+		`INSERT INTO channels (id, name, model_id, pool_type, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, 'shared', 'active', NOW(), NOW())`,
+		uuid.New(), "active-model-channel", activeID)
+	if err != nil {
+		t.Fatalf("insert active channel: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/console/models", nil)

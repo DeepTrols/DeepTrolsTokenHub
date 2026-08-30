@@ -64,25 +64,31 @@ test("核心链路冒烟：建渠道→模型目录→网关调用→账单/审�
   await page.getByPlaceholder(/例如: DeepSeek 深度求索 生产环境/).fill("E2E 冒烟渠道");
   await page.getByPlaceholder("sk-...").fill("sk-e2e");
   await page.getByPlaceholder("默认自动填充").fill(ECHO);
+  // echo 发现的是官方 V4 模型名，与真实 DeepSeek 渠道同名；把 E2E 渠道权重调高，
+  // 让网关路由确定性地打到本地 echo（否则可能按请求哈希选中真实 DeepSeek）。
+  await page.getByRole("tab", { name: "高级配置" }).click();
+  await page.locator('input[type="number"]').nth(1).fill("1000");
   await page.getByRole("button", { name: "提交" }).click();
   await expect(page.getByText("E2E 冒烟渠道")).toBeVisible({ timeout: 30_000 });
 
   // 3) 模型目录出现 echo 发现的模型
   await page.goto("/admin/models");
-  await expect(page.getByText("deepseek-chat", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("deepseek-v4-flash", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
 
   // 4) 网关真实调用一次（创建 API key → chat → echo 返回）
   const keyResp = await context.request.post("/api/console/api-keys", {
-    data: { name: "E2E 冒烟密钥", allowed_models: ["deepseek-chat"], monthly_limit: "500" },
+    data: { name: "E2E 冒烟密钥", allowed_models: ["deepseek-v4-flash"], monthly_limit: "500" },
   });
   expect(keyResp.ok()).toBeTruthy();
   const keyJson = (await keyResp.json()) as { ID?: string; plaintext: string };
   const keyId = keyJson.ID;
   expect(keyJson.plaintext).toBeTruthy();
 
+  // 请求内容每次唯一：网关 Redis 响应缓存按 (用户+模型+消息) 命中，若消息固定，
+  // 上一次失败运行缓存的真实上游响应会让本用例跳过路由、直接命中缓存。
   const chatResp = await context.request.post("/v1/chat/completions", {
     headers: { Authorization: `Bearer ${keyJson.plaintext}` },
-    data: { model: "deepseek-chat", messages: [{ role: "user", content: "hi" }] },
+    data: { model: "deepseek-v4-flash", messages: [{ role: "user", content: `hi ${Date.now()}` }] },
   });
   expect(chatResp.ok()).toBeTruthy();
   const chat = (await chatResp.json()) as { choices?: Array<{ message?: { content?: string } }> };

@@ -27,6 +27,13 @@ func TestHandlePublicPricing_IncludesTierConditions(t *testing.T) {
 		modelID); err != nil {
 		t.Fatalf("insert model: %v", err)
 	}
+	// Only channel-backed models are routable and appear in the public catalog.
+	if _, err := a.Pool.Exec(ctx,
+		`INSERT INTO channels (id, name, model_id, pool_type, status, created_at, updated_at)
+		 VALUES ($1, 'tiers-channel', $2, 'shared', 'active', NOW(), NOW())`,
+		uuid.New(), modelID); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
 	for _, row := range []struct {
 		dim, price, cond string
 	}{

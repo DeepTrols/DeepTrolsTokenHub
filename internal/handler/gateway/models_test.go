@@ -44,31 +44,44 @@ func seedModelsForGatewayTest(t *testing.T, a *app.App) {
 	t.Helper()
 	ctx := context.Background()
 
+	chatID := uuid.New()
 	_, err := a.Pool.Exec(ctx,
 		`INSERT INTO models (id, code, provider, category, display_name, description, context_window, status, release_stage, created_at, updated_at)
 		 VALUES ($1, 'deepseek-chat', 'deepseek', 'chat', 'DeepSeek Chat', 'DeepSeek V3 chat model', 128000, 'active', 'GA', NOW(), NOW())`,
-		uuid.New(),
+		chatID,
 	)
 	if err != nil {
 		t.Fatalf("insert model deepseek-chat: %v", err)
 	}
 
+	glmID := uuid.New()
 	_, err = a.Pool.Exec(ctx,
 		`INSERT INTO models (id, code, provider, category, display_name, description, context_window, status, release_stage, created_at, updated_at)
 		 VALUES ($1, 'glm-4', 'zhipu', 'chat', 'GLM-4', 'Zhipu GLM-4 model', 200000, 'active', 'GA', NOW(), NOW())`,
-		uuid.New(),
+		glmID,
 	)
 	if err != nil {
 		t.Fatalf("insert model glm-4: %v", err)
 	}
 
+	qwenID := uuid.New()
 	_, err = a.Pool.Exec(ctx,
 		`INSERT INTO models (id, code, provider, category, display_name, description, context_window, status, release_stage, created_at, updated_at)
 		 VALUES ($1, 'qwen-max', 'alibaba', 'chat', 'Qwen Max', 'Qwen max model', 128000, 'beta', 'beta', NOW(), NOW())`,
-		uuid.New(),
+		qwenID,
 	)
 	if err != nil {
 		t.Fatalf("insert model qwen-max: %v", err)
+	}
+
+	// Only channel-backed models are routable and appear in /v1/models.
+	for _, mid := range []uuid.UUID{chatID, glmID, qwenID} {
+		if _, err := a.Pool.Exec(ctx,
+			`INSERT INTO channels (id, name, model_id, pool_type, status, created_at, updated_at)
+			 VALUES ($1, $2, $3, 'shared', 'active', NOW(), NOW())`,
+			uuid.New(), "gw-channel", mid); err != nil {
+			t.Fatalf("insert channel: %v", err)
+		}
 	}
 
 	// Create an inactive model that should NOT appear in results.

@@ -113,7 +113,12 @@ func customHandler(w http.ResponseWriter, r *http.Request) {
 func modelsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"data": []map[string]any{{"id": "deepseek-chat"}},
+		// DeepSeek 官方目录只有 V4 三模型（deepseek-chat 已于 2026-07-24 停用）。
+		"data": []map[string]any{
+			{"id": "deepseek-v4-flash"},
+			{"id": "deepseek-v4-pro"},
+			{"id": "deepseek-v4-flash-vision-exp"},
+		},
 	})
 }
 

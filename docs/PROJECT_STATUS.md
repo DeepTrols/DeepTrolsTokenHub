@@ -3130,3 +3130,136 @@ cd web && npm run test:e2e
   `{"duration_days":"30","token_quota":"0","sort_order":"0","enabled":false}`
   → `{"ok":true}`，列表 `enabled=false` 且 `duration_days=30`；随后恢复
   `enabled=true`。
+
+## 九十九、2026-08-30 修复：渠道管理「同步模型/停用/测试」三个按钮问题
+
+> 用户反馈：渠道管理「同步模型」按钮显示有问题、「停用」按钮未删除、
+> 「测试」按钮都有问题。以下均经实机复现后修复。
+
+### 99.1 问题与根因
+
+1. **同步模型对话框空白**：`ProviderSyncDialog` 按 `{id, exists}` 渲染，
+   但 `GET /api/admin/channels/{id}/models/preview` 实际返回
+   `{upstream, code, model_id, status, enabled}` —— 模型名全空、全部显示
+   「新增」、数量不准，并触发 React "unique key" 告警。
+2. **「停用」按钮未删除**：大版本重构把原「删除」按钮（旧标签为停用）
+   替换成渠道「停用/启用」状态切换按钮，用户要求删除该按钮；同时页面失去
+   删除入口，`handleDeleteCredential` / `deleteMut` / `Trash2` 变成死代码
+   （lint 报未使用）。
+3. **「测试」按钮 404**：`HandleTestProvider` 只读取「与 provider 同 id 的
+   channel 上 status=active 的实例」的配置；该实例被自动禁用/清理后，即使
+   凭证仍为激活，测试也误报 "Provider not found"（实机复现 E2E 冒烟渠道
+   404，同 credential 的其他渠道可正常探测）。
+
+### 99.2 变更
+
+- 前端 `web/src/components/ProviderSyncDialog.tsx`：按真实响应结构渲染——
+  以 `code/upstream` 显示模型名，按 新增/已绑定/已停用 分组并带徽标；
+  新增 `auto_create` 开关（默认关，符合改造方案）；提交
+  `{model_ids, auto_create}`；同步成功后 toast 展示 applied/created/skipped
+  并刷新绑定列表；删除错误的 `ProviderModelPreview` 类型。
+- 前端 `web/src/pages/Channels.tsx`：移除卡片「停用/启用」按钮，恢复
+  「删除」按钮（Trash2 + confirm 确认，复用原 `handleDeleteCredential`），
+  清理 `statusMut` 死代码；i18n 删除确认文案改「删除」。
+- 后端 `internal/handler/console/providers.go` / `provider_sync.go` /
+  `channel_sync.go` / `channel_batch.go`：`HandleTestProvider` 改为两步——
+  先定位凭证配置（确认 provider 存在，不再把"无可用实例"误报成
+  "Provider not found"），再要求存在携带同一凭证的 active 实例才探测；
+  无 active 实例返回 `ok:false + "no active instance"`（测试如实失败，
+  不读取停用实例的配置"假通过"）。同步/预览/渠道测试/批量测试保持
+  active 实例限定；`HandleListProviders` 增加
+  `HAVING BOOL_OR(status='active')`——软删除（渠道全部 inactive）的凭证
+  不再出现在列表里，「删除」后卡片立即消失（对齐用户管理页删除语义）。
+- 测试：
+  - `providers_test.go` 新增
+    `TestHandleTestProvider_NoActiveInstanceFailsWithClearError`（实例全部
+    停用时测试返回 `ok:false + "no active instance"` 而非 404/假通过）；
+  - `Channels.test.tsx` 新增按钮组断言（有 删除、无 停用/启用）与删除流程；
+    新增无可用实例时显示友好中文文案的用例；
+  - 新增 `ProviderSyncDialog.test.tsx`（分组/徽标/数量渲染、提交
+    model_ids + auto_create、空选禁用应用）。
+
+### 99.3 验证
+
+- Go：`go build ./...`、`go vet ./...`、gofmt、`go test ./... -count=1`
+  （真实 PG，`deeptrols_test`）全绿；
+- 前端：`npm test`（43 文件 / 278 用例）、`npm run build` 全绿；
+  Channels/ProviderSyncDialog 相关 lint 错误清零（剩余 4 处为本次改动前
+  已有、位于其他文件：smoke.spec.ts、AdminSubscriptionPlans.tsx、
+  UsageHistory.tsx、SiteSettingsSection.test.tsx 的未使用变量）；
+- 实机（重启 API 容器 + 恢复 echo 上游）：
+  - 错误 Key + 真实 DeepSeek 地址 → 测试如实返回
+    `ok:false + HTTP 401 ... invalid`（证明探测是真实 HTTP 调用）；
+  - 实例全部停用的 E2E 冒烟渠道 → 测试如实返回
+    `ok:false + "no active instance"`（不再 404、也不再对停用实例假通过）；
+  - 有 active 实例的 DeepSeek → `ok:true`（3 模型，真实延迟）；
+  - 同步对话框正确显示模型名/分组/数量；点击「应用同步」toast
+    「同步完成：应用 1 个，创建 0 个，跳过 0 个」；卡片按钮组为
+    测试/同步模型/编辑/删除，无 停用/启用。
+
+## 一百、2026-08-30 修正：渠道/目录不再出现非官方模型 deepseek-chat
+
+> 用户反馈「官方根本没有 deepseek-chat 这个模型」。根因：echo 模拟上游
+> 的 `/models` 固定返回已停用模型 `deepseek-chat`，而创建渠道的 upsert 会
+> 把它重新激活，导致平台目录和渠道管理把它当成官方 DeepSeek 模型展示。
+
+### 100.1 变更
+
+- `scripts/echo_upstream/main.go`：`/models` 改为返回官方 V4 三模型
+  （deepseek-v4-flash / deepseek-v4-pro / deepseek-v4-flash-vision-exp），
+  与 DeepSeek 真实目录一致（deepseek-chat 已于 2026-07-24 停用）。
+- 开发库数据清理：`deepseek-chat` 模型置 inactive（不再出现在活跃目录），
+  删除探测残留的 `deepseek-pending` 模型与渠道、E2E 冒烟残留渠道/密钥。
+- `web/e2e/smoke.spec.ts`：目录断言/API key/聊天模型由 `deepseek-chat`
+  改为 `deepseek-v4-flash`；E2E 渠道权重设为 1000（与真实 DeepSeek 渠道
+  同名模型并存时保证路由确定打到 echo）；聊天消息加时间戳（网关 Redis
+  响应缓存按 用户+模型+消息 命中，固定消息会命中上一次运行缓存的真实
+  上游响应而跳过路由）。
+- 顺手修复真实 bug：`HandleCreateProvider` / `HandleUpdateProvider` 原本
+  完全丢弃表单提交的 `weight` / `max_concurrency` / `pool_type` /
+  `group_name`（channels 硬编码 100/10/shared），列表响应也不返回这些
+  字段；现在创建/更新均落库、列表回显、编辑表单回填。
+- 测试：`TestHandleCreateProvider_PersistsRoutingSettings`（权重/并发/
+  池类型/分组落库）；`Channels.test.tsx` 新增高级配置权重提交断言；
+  e2e 6 用例全绿。
+
+### 100.2 验证
+
+- Go：`gofmt` + `go build ./...` + `go vet ./...` +
+  `go test ./... -count=1`（真实 PG）45 包全绿；
+- 前端：`npm test`（43 文件 / 280 用例）、`npm run build` 全绿；
+  `npm run test:e2e` 6 passed（建渠道→目录→网关调用→账单/审计全链路，
+  聊天确认打到 echo）；
+- 实机：渠道管理测试返回 V4 三模型（Custom Echo 与 DeepSeek 均 3 模型）；
+  同步对话框显示 deepseek-v4-*；模型目录 DeepSeek 仅 active 三模型，
+  `deepseek-chat` 为 inactive；公开统计不再把 deepseek-chat 计为活跃模型。
+
+## 一百零一、2026-08-30 模型管理/目录只展示已配渠道的模型
+
+> 用户反馈「模型管理界面不应该只显示配了渠道的模型吗」。实测 `/api/admin/models`
+> 返回 351 个 active 模型（目录同步导入的全量目录），但其中只有 3 个有活跃渠道
+> 真正可路由，其余 348 个调用必然报无渠道——目录不应展示这些不可用模型。
+
+### 101.1 变更
+
+- `internal/repository/model/postgres.go`：`ListActive` 增加
+  `EXISTS (SELECT 1 FROM channels WHERE model_id=m.id AND status='active')`
+  过滤——所有模型列表（模型管理、模型广场、网关 `/v1/models`、公开定价）
+  只返回有活跃渠道的可路由模型，与"删除渠道后停用无渠道模型"的既有
+  设计意图一致。
+- `internal/app/public_stats.go`：`/api/public/stats` 的模型数改为只统计
+  有活跃渠道的模型（登录页"在线模型"计数与目录口径一致）。
+- 测试：仓库 `TestListActive`、`TestHandleListModels_*`、
+  `TestHandlePublicPricing_IncludesTierConditions`、网关 `/v1/models` 用例
+  的种子数据补活跃渠道；公开统计用例断言不变。
+
+### 101.2 验证
+
+- Go：`gofmt` + `go build ./...` + `go vet ./...` +
+  `go test ./... -count=1`（真实 PG）全绿；
+- 前端：`npm test`（43 文件 / 280 用例）、`npm run build` 全绿；
+  `npm run test:e2e` 6 passed（建渠道后目录出现 deepseek-v4-flash 的断言
+  仍然成立——渠道创建后模型即成为可路由模型）；
+- 实机：`/api/admin/models`、`/api/public/pricing` 均只返回 3 个
+  deepseek-v4-* 模型；`/api/public/stats` = 3；模型管理页只渲染 3 张
+  模型卡，deepseek-chat/gpt-4o/claude 等无渠道模型不再出现。

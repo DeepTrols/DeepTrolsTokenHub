@@ -25,6 +25,10 @@ interface CredentialData {
   custom_headers?: Record<string, string>;
   upstream_format?: string;
   custom_override?: string;
+  pool_type?: string;
+  weight?: number;
+  max_concurrency?: number;
+  group_name?: string;
 }
 
 interface ProbeResult {
@@ -66,11 +70,6 @@ export default function Channels() {
   const createMut = useAdminMutation<unknown, Record<string, unknown>>("post", "/providers");
   const updateMut = useAdminMutation<unknown, { id: string } & Record<string, unknown>>("put", (v) => `/providers/${v.id}`, "/providers");
   const deleteMut = useAdminMutation<unknown, { id: string }>("delete", (v) => `/providers/${v.id}`, "/providers");
-  const statusMut = useAdminMutation<{ ok: boolean }, { id: string; status: string }>(
-    "put",
-    (v) => `/providers/${v.id}/status`,
-    "/providers",
-  );
   const batchTest = useAdminMutation<{ results: { ok: boolean }[]; total: number }, void>(
     "post",
     "/channels/test-all",
@@ -95,7 +94,9 @@ export default function Channels() {
           ms: res.ms ?? 0,
           detail: res.ok
             ? t("channels.probeModels", { count: res.models ?? 0 })
-            : (res.error || t("channels.probeFailed")),
+            : (res.error === "no active instance"
+              ? t("channels.noActiveInstance")
+              : (res.error || t("channels.probeFailed"))),
         },
       }));
     } catch (e) {
@@ -156,10 +157,10 @@ export default function Channels() {
   const openEditCredential = (cred: CredentialData) => {
     setEditingId(cred.id);
     setChName(cred.name); setChProvider(cred.provider); setChApiKey("");
-    setChBaseURL(cred.base_url); setChPriority(0); setChWeight(100);
-    setChPoolType("shared"); setChMaxConcurrency(10);
+    setChBaseURL(cred.base_url); setChPriority(0); setChWeight(cred.weight || 100);
+    setChPoolType(cred.pool_type || "shared"); setChMaxConcurrency(cred.max_concurrency || 10);
     setChModelMapping(""); setChParamOverride(""); setChAutoDisable(false);
-    setChRoundMode("round_robin"); setChTags([]); setTagInput("");
+    setChRoundMode("round_robin"); setChTags([]); setChGroupName(cred.group_name || ""); setTagInput("");
     setChCustomHeaders(cred.custom_headers ? formatHeaderLines(cred.custom_headers) : "");
     setChUpstreamFormat(cred.upstream_format || "openai");
     setChCustomOverride(cred.custom_override || "");
@@ -242,9 +243,10 @@ export default function Channels() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => statusMut.mutate({ id: cred.id, status: cred.status === "inactive" ? "active" : "inactive" })}
+                      className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                      onClick={() => handleDeleteCredential(cred)}
                     >
-                      {cred.status === "inactive" ? t("channels.enable") : t("channels.disable")}
+                      <Trash2 size={12} className="mr-1" />{t("channels.delete")}
                     </Button>
                   </div>
                 </div>

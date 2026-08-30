@@ -169,11 +169,6 @@ export interface CreatePaymentOrderResponse {
   pay_url: string;
 }
 
-export interface ProviderModelPreview {
-  id: string;
-  exists: boolean;
-}
-
 export interface ChannelModelItem {
   upstream: string;
   code: string;

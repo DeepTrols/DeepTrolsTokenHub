@@ -19,6 +19,7 @@ vi.mock("../lib/auth", () => ({
 import { adminApi } from "../lib/api";
 const mockAdminGet = adminApi.get as ReturnType<typeof vi.fn>;
 const mockAdminPost = adminApi.post as ReturnType<typeof vi.fn>;
+const mockAdminDelete = adminApi.delete as ReturnType<typeof vi.fn>;
 
 function seedCredentials() {
   return [
@@ -56,6 +57,32 @@ describe("Channels", () => {
     renderWithProviders(<Channels />);
     expect(await screen.findByText("3 个模型")).toBeInTheDocument();
     expect(screen.getByText("2 个模型")).toBeInTheDocument();
+  });
+
+  it("shows test/sync/edit/delete actions and no disable toggle", async () => {
+    mockAdminGet.mockResolvedValue({ data: seedCredentials() });
+    renderWithProviders(<Channels />);
+    expect(await screen.findAllByText("测试")).toHaveLength(2);
+    expect(screen.getAllByText("同步模型")).toHaveLength(2);
+    expect(screen.getAllByText("编辑")).toHaveLength(2);
+    expect(screen.getAllByText("删除")).toHaveLength(2);
+    expect(screen.queryByText("停用")).not.toBeInTheDocument();
+    expect(screen.queryByText("启用")).not.toBeInTheDocument();
+  });
+
+  it("deletes a provider credential after confirmation", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockAdminGet.mockResolvedValue({ data: seedCredentials() });
+    mockAdminDelete.mockResolvedValue({ status: "deleted" });
+
+    renderWithProviders(<Channels />);
+    await user.click((await screen.findAllByText("删除"))[0]);
+
+    await waitFor(() => {
+      expect(mockAdminDelete).toHaveBeenCalledWith("/providers/c1");
+    });
+    confirmSpy.mockRestore();
   });
 
   it("shows empty state", async () => {
@@ -103,6 +130,18 @@ describe("Channels", () => {
     expect(await screen.findByText(/测试失败 · HTTP 401: invalid api key/)).toBeInTheDocument();
   });
 
+  it("shows a friendly message when the provider has no active instance", async () => {
+    const user = userEvent.setup();
+    mockAdminGet.mockResolvedValue({ data: seedCredentials() });
+    mockAdminPost.mockResolvedValue({ ok: false, ms: 0, error: "no active instance" });
+
+    renderWithProviders(<Channels />);
+
+    await user.click((await screen.findAllByText("测试"))[0]);
+
+    expect(await screen.findByText(/测试失败 · 无可用实例/)).toBeInTheDocument();
+  });
+
   it("sends custom request headers when creating a provider", async () => {
     const user = userEvent.setup();
     mockAdminGet.mockResolvedValue({ data: [] });
@@ -124,6 +163,31 @@ describe("Channels", () => {
       expect(mockAdminPost).toHaveBeenCalledWith("/providers", expect.objectContaining({
         name: "Headers Provider",
         custom_headers: { "X-Gateway-Id": "gw-east-1", "X-Tenant": "acme" },
+      }));
+    });
+  });
+
+  it("submits weight and max concurrency from the advanced config", async () => {
+    const user = userEvent.setup();
+    mockAdminGet.mockResolvedValue({ data: [] });
+    mockAdminPost.mockResolvedValue({ provider: "deepseek", name: "Weighted Provider", status: "active" });
+
+    renderWithProviders(<Channels />);
+
+    await user.click(await screen.findByText("添加渠道"));
+    await user.type(screen.getByPlaceholderText(/例如: DeepSeek 深度求索 生产环境/), "Weighted Provider");
+    await user.type(screen.getByPlaceholderText("sk-..."), "sk-deepseek-1234");
+    await user.click(screen.getByText("高级配置"));
+    const weightInput = screen.getAllByRole("spinbutton")[1];
+    await user.clear(weightInput);
+    await user.type(weightInput, "1000");
+    await user.click(screen.getByRole("button", { name: /提交/ }));
+
+    await waitFor(() => {
+      expect(mockAdminPost).toHaveBeenCalledWith("/providers", expect.objectContaining({
+        name: "Weighted Provider",
+        weight: 1000,
+        max_concurrency: 10,
       }));
     });
   });

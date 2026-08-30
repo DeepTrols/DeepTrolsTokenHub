@@ -304,6 +304,56 @@ func TestHandleListProviders_MasksShortKeys(t *testing.T) {
 	}
 }
 
+// TestHandleListProviders_HidesSoftDeletedCredentials 复现"删除后应立即从列表
+// 消失"：凭证的渠道全部 inactive（软删除）时，不应再出现在渠道管理列表里。
+func TestHandleListProviders_HidesSoftDeletedCredentials(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "admin-deleted@example.com", "pass", "Admin Deleted")
+	modelID := seedModelForProviderTest(t, a, "deepseek-v4-flash", "deepseek")
+
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	now := time.Now().UTC()
+	ctx := context.Background()
+
+	_, err := a.Pool.Exec(ctx,
+		`INSERT INTO channels (id, name, model_id, pool_type, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, 'shared', 'inactive', $4, $4)`,
+		channelID, "Soft Deleted Provider", modelID, now)
+	if err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	configJSON, _ := json.Marshal(map[string]string{"api_key": "sk-gone", "provider": "deepseek"})
+	_, err = a.Pool.Exec(ctx,
+		`INSERT INTO channel_instances (id, channel_id, instance_type, base_url, config, status, created_at, updated_at)
+		 VALUES ($1, $2, 'deepseek', 'https://api.deepseek.com', $3, 'inactive', $4, $4)`,
+		instanceID, channelID, configJSON, now)
+	if err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/providers", nil)
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	handler := HandleListProviders(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	var resp struct {
+		Data []providerResponse `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, p := range resp.Data {
+		if p.ID == channelID.String() {
+			t.Fatalf("soft-deleted credential %s should not appear in the list", p.ID)
+		}
+	}
+}
+
 func TestHandleListProviders_MissingInstance(t *testing.T) {
 	a := appForProviderTest(t)
 	user := seedUserForProviderTest(t, a, "admin-no-instance@example.com", "pass", "Admin No Instance")
@@ -558,6 +608,66 @@ func TestHandleCreateProvider_Success(t *testing.T) {
 	}
 	if config["api_key"] != "sk-proj-deadbeef12345678" {
 		t.Errorf("stored api_key = %s, want 'sk-proj-deadbeef12345678'", config["api_key"])
+	}
+}
+
+// TestHandleCreateProvider_PersistsRoutingSettings 复现真实问题：前端高级配置的
+// 权重/最大并发/池类型/分组在创建时被硬编码（weight=100, max_concurrency=10），
+// 表单提交的值被丢弃。现在应落库。
+func TestHandleCreateProvider_PersistsRoutingSettings(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "admin-weight@example.com", "pass", "Admin Weight")
+
+	orig := discoverModelsFn
+	discoverModelsFn = func(provider, baseURL, apiKey string) ([]modelRef, error) {
+		return []modelRef{{ID: "gpt-4o"}}, nil
+	}
+	defer func() { discoverModelsFn = orig }()
+
+	body := map[string]any{
+		"name":            "Weighted Provider",
+		"provider":        "openai",
+		"base_url":        "https://api.openai.com/v1",
+		"api_key":         "sk-proj-deadbeef12345678",
+		"pool_type":       "dedicated",
+		"weight":          1000,
+		"max_concurrency": 3,
+		"group_name":      "primary",
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+
+	handler := HandleCreateProvider(a)
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+
+	var poolType, groupName string
+	var weight, maxConcurrency int
+	err := a.Pool.QueryRow(context.Background(),
+		`SELECT pool_type, weight, max_concurrency, group_name
+		 FROM channels WHERE name LIKE 'Weighted Provider%'`,
+	).Scan(&poolType, &weight, &maxConcurrency, &groupName)
+	if err != nil {
+		t.Fatalf("query channel settings: %v", err)
+	}
+	if poolType != "dedicated" {
+		t.Errorf("pool_type = %q, want dedicated", poolType)
+	}
+	if weight != 1000 {
+		t.Errorf("weight = %d, want 1000", weight)
+	}
+	if maxConcurrency != 3 {
+		t.Errorf("max_concurrency = %d, want 3", maxConcurrency)
+	}
+	if groupName != "primary" {
+		t.Errorf("group_name = %q, want primary", groupName)
 	}
 }
 
@@ -1445,5 +1555,60 @@ func TestHandleTestProvider_MissingProviderInConfig(t *testing.T) {
 	}
 	if resp.Models != 1 {
 		t.Errorf("models = %d, want 1", resp.Models)
+	}
+}
+
+// TestHandleTestProvider_NoActiveInstanceFailsWithClearError 复现真实场景：凭证的
+// 渠道实例全部停用/禁用（如 E2E 清理、连续失败自动停用）后，测试应如实失败
+// （ok=false + "no active instance"），而不是误报 "Provider not found"、
+// 更不能对停用实例"假通过"。
+func TestHandleTestProvider_NoActiveInstanceFailsWithClearError(t *testing.T) {
+	a := appForProviderTest(t)
+	user := seedUserForProviderTest(t, a, "test-inactive@example.com", "pass", "Inactive Instance")
+	modelID := seedModelForProviderTest(t, a, "probe-model", "deepseek")
+
+	channelID := uuid.New()
+	instanceID := uuid.New()
+	now := time.Now().UTC()
+	ctx := context.Background()
+	_, err := a.Pool.Exec(ctx,
+		`INSERT INTO channels (id, name, model_id, pool_type, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, 'shared', 'active', $4, $4)`,
+		channelID, "Probe inactive-instance", modelID, now)
+	if err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	configJSON, _ := json.Marshal(map[string]string{"api_key": "sk-probe", "provider": "deepseek"})
+	_, err = a.Pool.Exec(ctx,
+		`INSERT INTO channel_instances (id, channel_id, instance_type, base_url, config, status, created_at, updated_at)
+		 VALUES ($1, $2, 'deepseek', 'https://api.deepseek.com', $3, 'inactive', $4, $4)`,
+		instanceID, channelID, configJSON, now)
+	if err != nil {
+		t.Fatalf("seed instance: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers/"+channelID.String()+"/test", nil)
+	req = setAdminContext(req, user.ID.String())
+	w := httptest.NewRecorder()
+	router := chi.NewRouter()
+	router.Post("/api/admin/providers/{id}/test", HandleTestProvider(a))
+	router.ServeHTTP(w, req)
+
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.OK {
+		if resp.Error != "no active instance" {
+			t.Errorf("error = %q, want %q", resp.Error, "no active instance")
+		}
+	} else {
+		t.Errorf("ok = true, want false (no active instance must not report a fake pass)")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (probe failure is a valid 200 response), body: %s", w.Code, http.StatusOK, w.Body.String())
 	}
 }

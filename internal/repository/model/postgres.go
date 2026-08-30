@@ -26,13 +26,21 @@ var (
 	_ PricingRepository = (*PostgresRepository)(nil)
 )
 
-// ListActive returns all active (including beta) models.
+// ListActive returns all active (including beta) models that are routable,
+// i.e. have at least one active channel. Models without channels cannot be
+// called, so they must not be advertised in any catalog.
 func (r *PostgresRepository) ListActive(ctx context.Context) ([]domain.Model, error) {
 	const query = `
-		SELECT id, code, provider, category, display_name, description,
-			context_window, max_output_tokens, capabilities,
-			status, release_stage, created_at, updated_at
-		FROM models WHERE status IN ('active', 'beta') ORDER BY code
+		SELECT m.id, m.code, m.provider, m.category, m.display_name, m.description,
+			m.context_window, m.max_output_tokens, m.capabilities,
+			m.status, m.release_stage, m.created_at, m.updated_at
+		FROM models m
+		WHERE m.status IN ('active', 'beta')
+		  AND EXISTS (
+			SELECT 1 FROM channels c
+			WHERE c.model_id = m.id AND c.status = 'active'
+		  )
+		ORDER BY m.code
 	`
 	rows, err := r.pool.Query(ctx, query)
 	if err != nil {

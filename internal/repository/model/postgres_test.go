@@ -31,6 +31,18 @@ func seedModel(t *testing.T, ctx context.Context, repo *PostgresRepository, code
 	return m
 }
 
+// seedActiveChannel links an active channel to a model so it is routable.
+func seedActiveChannel(t *testing.T, ctx context.Context, repo *PostgresRepository, modelID uuid.UUID) {
+	t.Helper()
+	_, err := repo.pool.Exec(ctx,
+		`INSERT INTO channels (id, name, model_id, pool_type, status, weight, max_concurrency, created_at, updated_at)
+		 VALUES ($1, $2, $3, 'shared', 'active', 100, 10, NOW(), NOW())`,
+		uuid.New(), "channel-"+modelID.String()[:8], modelID)
+	if err != nil {
+		t.Fatalf("seedActiveChannel: %v", err)
+	}
+}
+
 // seedTenantModel creates a tenant and tenant_model link, returns tenantID and tmID.
 func seedTenantModel(t *testing.T, ctx context.Context, repo *PostgresRepository, tenantCode string, modelID uuid.UUID) (uuid.UUID, uuid.UUID) {
 	t.Helper()
@@ -60,6 +72,8 @@ func TestListActive(t *testing.T) {
 	code2 := "claude-3-" + uuid.New().String()[:8]
 	m1 := seedModel(t, ctx, repo, code1)
 	m2 := seedModel(t, ctx, repo, code2)
+	seedActiveChannel(t, ctx, repo, m1.ID)
+	seedActiveChannel(t, ctx, repo, m2.ID)
 
 	// create an inactive model
 	inactiveID := uuid.New()
