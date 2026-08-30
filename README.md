@@ -63,8 +63,8 @@ internal/
     ratelimit/               # 限流（Redis 优先 + 内存降级）
     redis/                   # go-redis 客户端封装
     usageparser/             # 上游 usage 解析（OpenAI 兼容格式）
-migrations/                  # PostgreSQL DDL（9 次迁移 000001~000009，24+ 张表）
-web/                         # React 前端（21 页面）
+migrations/                  # PostgreSQL DDL（000001~000036，30+ 张表）
+web/                         # React 前端（34 页面组件，含系统设置子分区）
 ```
 
 ## 快速启动
@@ -138,10 +138,17 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 | 端点 | 说明 |
 |------|------|
 | `POST /v1/chat/completions` | 聊天补全（流式 SSE + 非流式，含响应缓存） |
-| `GET /v1/models` | 可用模型列表（按 API Key allowlist 过滤） |
+| `POST /v1/completions` | 兼容补全 |
+| `POST /v1/responses` | Responses API |
+| `POST /v1/messages` | Anthropic Messages 兼容 |
+| `POST /v1/messages/count_tokens` | Anthropic token 预估（免费，不计费） |
+| `GET /v1/models`、`GET /v1/models/{model}` | 可用模型列表（按 API Key allowlist 过滤） |
 | `POST /v1/embeddings` | 嵌入向量（转发 + 计费闭环） |
 | `POST /v1/images/generations` | 图片生成（转发 + 按图计费） |
+| `POST /v1/images/edits` | 图片编辑 |
 | `POST /v1/audio/speech` | 文字转语音（raw 转发 + TTS 字符计费） |
+| `POST /v1/audio/transcriptions` | 语音转文字 |
+| `POST /v1/videos/generations` | 视频生成（异步任务，含查询/取消） |
 
 ### Console（用户端，Cookie 鉴权）
 
@@ -155,8 +162,15 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 | `GET/POST /api/console/api-keys` | API 密钥管理（6 边界 CRUD） |
 | `GET /api/console/api-keys/{id}/secret` | 查看 API Key 明文（仅一次） |
 | `GET /api/console/usage` | 调用日志（含费用明细） |
-| `GET /api/console/wallet` | 钱包余额 + 交易记录 |
+| `GET /api/console/wallet`、`/wallet/transactions` | 钱包余额 + 交易记录 |
+| `GET/PUT /api/console/wallet/alert` | 余额预警阈值 |
 | `POST /api/console/wallet/topup` | 在线充值 |
+| `GET /api/console/billing/statement` | 月度账单（GMT+8 自然月聚合） |
+| `GET/DELETE /api/console/sessions` | 登录会话管理（列表/撤销/撤销其他） |
+| `GET /api/console/payment/methods`、`POST /payment/order` | 支付方式 + 下单 |
+| `POST /api/console/redemption/redeem` | 兑换码兑换 |
+| `POST/GET /api/console/checkin` | 每日签到 |
+| `GET /api/console/subscription/plans`、`/subscription/self` | 订阅套餐与我的订阅 |
 | `GET /api/console/models` | 模型广场（含定价） |
 | `GET /api/console/security/login-history` | 登录历史 |
 
@@ -164,18 +178,29 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 
 | 端点 | 说明 |
 |------|------|
-| `CRUD /api/admin/models` | 模型管理（Provider 下拉 + 9 维定价） |
+| `CRUD /api/admin/models` | 模型管理（多维定价）；`/models/catalog/preview` + `/models/sync_catalog` 目录同步 |
 | `CRUD /api/admin/providers` | Provider 凭证管理（14 家默认 URL + 加密存储） |
 | `POST /api/admin/providers/{id}/sync` | 从上游 API 同步模型 |
-| `CRUD /api/admin/channels` | Channel 管理（模型绑定 + 实例增删） |
+| `POST /api/admin/providers/{id}/test` | 连通性探测（真实调用上游 /models） |
+| `PUT /api/admin/providers/{id}/status` | 凭证启停 |
+| `CRUD /api/admin/channels` | Channel 管理（实例增删） |
+| `POST /api/admin/channels/test-all` | 批量连通性测试 |
+| `GET /api/admin/channels/{id}/models` | 渠道模型绑定（preview/sync/启停） |
 | `CRUD /api/admin/tenants` | 租户管理（5 状态状态机 + 域名） |
-| `GET /api/admin/reconciliation` | 对账结果查看 |
+| `GET /api/admin/reconciliation`、`/reconciliation/summary` | 对账结果 + L2 摘要 |
 | `GET/POST/PUT/DELETE /api/admin/users` | 用户管理（CRUD + 角色/状态） |
-| `GET /api/admin/ledger` | 账号账簿（账务管理） |
+| `GET /api/admin/ledger` | 用户账簿 |
+| `GET /api/admin/audit` | 审计日志 |
+| `GET/PUT /api/admin/settings/site`、`POST /settings/upload` | 站点设置 + Logo 上传 |
+| `GET /api/admin/payment/orders`、`POST /payment/orders/{id}/complete` | 支付订单 + 手工补单 |
+| `GET/POST /api/admin/redemption` | 兑换码管理 |
+| `CRUD /api/admin/subscription-plans`、`GET /api/admin/subscriptions` | 套餐与订阅管理 |
+| `GET /api/admin/gateway/health` | 网关健康（渠道/实例实时状态） |
+| `GET /api/admin/system/info` | 系统信息 |
 
 ## 前端页面
 
-### 用户端（11 页面）
+### 用户端（16 页面）
 
 | 页面 | 路由 | 说明 |
 |------|------|------|
@@ -183,25 +208,34 @@ cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
 | 注册 | `/register` | 新用户注册 |
 | 用量信息 | `/dashboard` | 用量概览 + 关键指标 |
 | API 密钥 | `/api-keys` | 密钥管理（CRUD + 6 边界） |
-| 调用记录 | `/logs` | 用量历史 + 费用明细 |
 | 用量统计 | `/usage` | 用量图表 + 统计 |
-| 充值 | `/recharge` | 在线充值（演示造币口） |
+| 充值 | `/recharge` | 在线充值（支付通道配置后可用；开发环境可用造币口） |
 | 账单 | `/bills` | 充值/交易记录 |
 | 模型广场 | `/models` | 模型浏览 + 定价 |
 | 在线体验 | `/playground` | 模型在线测试 |
-| 用户中心 | `/account` | 账户资料 + 团队管理 + 登录历史 |
+| 订阅 | `/subscriptions` | 订阅套餐与续费 |
+| 用户中心 | `/account` | 账户资料 + 登录会话 + 登录历史 |
 | 开发文档 | `/docs` | API 使用指南 |
+| 排行榜 | `/rankings`（公开） | 模型/厂商排行 |
+| 定价 | `/pricing`（公开） | 模型公开定价 |
+| 关于 | `/about`（公开） | 平台信息 |
+| 法律条款 | `/legal/*`（公开） | 用户协议 / 隐私政策 |
 
-### 管理端（6 页面）
+### 管理端（11 页面）
 
 | 页面 | 路由 | 说明 |
 |------|------|------|
-| 模型管理 | `/admin/models` | 模型 CRUD + 多维定价 |
-| 渠道管理 | `/admin/channels` | Provider 凭证 CRUD（创建时自动发现模型并建渠道） |
+| 模型管理 | `/admin/models` | 模型 CRUD + 多维定价（只展示已配渠道的可路由模型） |
+| 渠道管理 | `/admin/channels` | Provider 凭证 CRUD（创建时自动发现模型并建渠道）+ 测试/同步 |
+| 租户管理 | `/admin/tenants` | 租户 CRUD + 审核/状态 |
 | 对账管理 | `/admin/reconciliation` | 对账运行记录 |
-| 企业管理 | `/admin/tenants` | 租户 CRUD + 审核/状态 |
-| 个人管理 | `/admin/users` | 用户 CRUD + 角色/状态 |
-| 账务管理 | `/admin/finance` | 账号账簿 |
+| 用户管理 | `/admin/users` | 用户 CRUD + 角色/状态 + 账簿 |
+| 审计日志 | `/admin/audit` | 管理写操作审计 |
+| 网关健康 | `/admin/gateway-health` | 渠道/实例实时健康 |
+| 兑换码 | `/admin/redemption` | 兑换码生成/管理 |
+| 套餐管理 | `/admin/subscription-plans` | 订阅套餐配置 |
+| 订阅记录 | `/admin/subscriptions` | 全部订阅记录 |
+| 系统设置 | `/admin/settings` | 站点/计费/安全/操作/模型/请求限制/系统信息 |
 
 ## 使用示例
 
@@ -228,7 +262,7 @@ curl -b /tmp/cookies.txt -X POST http://localhost:8080/api/console/auth/logout
 curl -X POST http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer sk-<your-key>" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}'
+  -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ## 核心特性
@@ -291,13 +325,15 @@ make web-dev       # 启动前端 Vite 开发服务器
 make web-build     # 前端生产构建
 ```
 
-开发遵循 ECC Harness 流水线：**planner → tdd-guide → code-reviewer → security-reviewer**，测试覆盖率 ≥ 80%。
+开发遵循 `AGENTS.md`：核心路径（计费/鉴权/网关/证据链）TDD，非核心轻量流程；
+所有变更完成前必须全量并行验证并对现实验证一次；审查只读、按风险分级。
+测试覆盖率 ≥ 80%（愿景目标，CI 尚未强制）。
 
 ## 前端技术细节
 
 - **UI 组件**：shadcn/ui（Radix 原语）+ Tailwind CSS
 - **状态管理**：TanStack Query（服务端状态）+ React Context（认证状态）
-- **路由**：React Router v6
+- **路由**：React Router v7
 - **图表**：Recharts
 - **Toast**：Sonner
 - **统一状态组件**：LoadingState / ErrorState / EmptyState
