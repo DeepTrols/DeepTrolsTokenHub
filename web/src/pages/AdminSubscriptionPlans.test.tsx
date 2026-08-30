@@ -52,7 +52,7 @@ describe("AdminSubscriptionPlans", () => {
     await waitFor(() => {
       expect(mockAdminPost).toHaveBeenCalledWith(
         "/subscription-plans",
-        expect.objectContaining({ name: "季度套餐", price: "25", duration_days: "30" }),
+        expect.objectContaining({ name: "季度套餐", price: "25", duration_days: 30 }),
       );
     });
   });

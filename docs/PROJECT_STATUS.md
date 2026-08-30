@@ -3093,3 +3093,40 @@ cd web && npm run test:e2e
   `POST /v1/messages/count_tokens`（`你好世界你好世界`，8 个中文字符）
   → 200 `{"input_tokens":8}`；无 key → 401（GatewayAuth 生效）；
   验证后已删除探针 key 并清理 cookie，echo 探针已恢复。
+
+## 九十八、2026-08-30 修复：订阅套餐启用按钮报 Invalid request body
+
+### 98.1 问题
+
+- 管理端「订阅套餐」页面的启用 Switch / 新建 / 编辑保存均报
+  `Invalid request body`：`PlanForm` 的数字输入（`duration_days` /
+  `token_quota` / `sort_order`）以字符串发送，而后端 Create/Update
+  handler 用严格整型 `int` / `int64` 解码，遇到 `"duration_days":"30"`
+  直接 `json: cannot unmarshal string` → 400。
+
+### 98.2 变更
+
+- `internal/handler/console/subscription.go`：
+  - 新增 `flexInt` / `flexInt64` 自定义 JSON 反序列化（接受数字或数字
+    字符串，空串/null 归零），`parseFlexInt` 统一解析；
+  - `HandleCreateSubscriptionPlan` / `HandleUpdateSubscriptionPlan` 的
+    `duration_days` / `token_quota` / `sort_order` 改用 flex 类型，更新
+    路径转换为 `*int` / `*int64` 后写库。
+- `web/src/pages/AdminSubscriptionPlans.tsx`：
+  - 新增 `PlanPayload`（数字字段）+ `toNumericPlan()`，保存与启用 Switch
+    发送前把表单字符串转数字，载荷与后端类型一致。
+- 测试：
+  - `subscription_test.go` 新增 `TestSubscription_AdminPlanFlexIntFields`：
+    字符串字段创建 + 字符串全表单切换 enabled，断言 200 且 DB 状态正确；
+  - `AdminSubscriptionPlans.test.tsx` 创建用例断言改为数字
+    `duration_days: 30`。
+
+### 98.3 验证
+
+- Go `gofmt` + `go build ./...` + `go test ./...`（真实 PG）全绿；
+- 前端 `tsc --noEmit` 通过，vitest 42 文件 / 273 用例全绿；
+- 实机（管理端 Bearer token）：
+  `PUT /api/admin/subscription-plans/{id}` 发送
+  `{"duration_days":"30","token_quota":"0","sort_order":"0","enabled":false}`
+  → `{"ok":true}`，列表 `enabled=false` 且 `duration_days=30`；随后恢复
+  `enabled=true`。

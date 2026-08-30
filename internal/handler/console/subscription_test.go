@@ -161,6 +161,55 @@ func TestSubscription_AdminCRUDAndUserList(t *testing.T) {
 	}
 }
 
+func TestSubscription_AdminPlanFlexIntFields(t *testing.T) {
+	a, _ := subscriptionApp(t)
+	admin := seedUserForWalletTest(t, a, "sub-admin-flex@example.com", "pass12345", "Sub Admin Flex")
+
+	// Create with string numeric fields, exactly like the admin form sends them.
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/subscription-plans",
+		strings.NewReader(`{"name":"Flex","description":"d","price":"10","duration_days":"30","group_name":"g","token_quota":"100","sort_order":"2"}`))
+	req = setAdminCtx(req, admin.ID.String())
+	w := httptest.NewRecorder()
+	HandleCreateSubscriptionPlan(a).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("create with string fields status = %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.ID == "" {
+		t.Fatal("create returned empty id")
+	}
+
+	var durationDays int
+	var tokenQuota int64
+	var sortOrder int
+	_ = a.Pool.QueryRow(context.Background(),
+		`SELECT duration_days, token_quota, sort_order FROM subscription_plans WHERE id = $1`, resp.ID).
+		Scan(&durationDays, &tokenQuota, &sortOrder)
+	if durationDays != 30 || tokenQuota != 100 || sortOrder != 2 {
+		t.Fatalf("stored = %d/%d/%d, want 30/100/2", durationDays, tokenQuota, sortOrder)
+	}
+
+	// Toggle enabled off with the full string form, like the row switch does.
+	upd := httptest.NewRequest(http.MethodPut, "/api/admin/subscription-plans/"+resp.ID,
+		strings.NewReader(`{"name":"Flex","description":"d","price":"10","duration_days":"30","group_name":"g","token_quota":"100","sort_order":"2","enabled":false}`))
+	upd = chiRouteMultiCtx(upd, map[string]string{"id": resp.ID})
+	upd = setAdminCtx(upd, admin.ID.String())
+	updW := httptest.NewRecorder()
+	HandleUpdateSubscriptionPlan(a).ServeHTTP(updW, upd)
+	if updW.Code != http.StatusOK {
+		t.Fatalf("update with string fields status = %d: %s", updW.Code, updW.Body.String())
+	}
+	var enabled bool
+	_ = a.Pool.QueryRow(context.Background(),
+		`SELECT enabled FROM subscription_plans WHERE id = $1`, resp.ID).Scan(&enabled)
+	if enabled {
+		t.Fatal("plan still enabled after toggle")
+	}
+}
+
 func TestSubscription_AdminListAndCancel(t *testing.T) {
 	a, user := subscriptionApp(t)
 	admin := seedUserForWalletTest(t, a, "sub-admin4@example.com", "pass12345", "Sub Admin 4")

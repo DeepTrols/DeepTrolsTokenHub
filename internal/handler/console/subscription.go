@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/deeptrols/api/internal/app"
@@ -15,6 +17,53 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
+
+// flexInt accepts a JSON number or a numeric string (e.g. "30"), so admin
+// forms that keep inputs as strings do not fail strict integer decoding.
+type flexInt int
+
+func (f *flexInt) UnmarshalJSON(b []byte) error {
+	n, err := parseFlexInt(b)
+	if err != nil {
+		return err
+	}
+	*f = flexInt(n)
+	return nil
+}
+
+func (f *flexInt) Int() int {
+	if f == nil {
+		return 0
+	}
+	return int(*f)
+}
+
+// flexInt64 is the 64-bit variant of flexInt.
+type flexInt64 int64
+
+func (f *flexInt64) UnmarshalJSON(b []byte) error {
+	n, err := parseFlexInt(b)
+	if err != nil {
+		return err
+	}
+	*f = flexInt64(n)
+	return nil
+}
+
+func (f *flexInt64) Int64() int64 {
+	if f == nil {
+		return 0
+	}
+	return int64(*f)
+}
+
+func parseFlexInt(b []byte) (int64, error) {
+	raw := strings.TrimSpace(strings.Trim(string(b), `"`))
+	if raw == "" || raw == "null" {
+		return 0, nil
+	}
+	return strconv.ParseInt(raw, 10, 64)
+}
 
 type subscriptionPlan struct {
 	ID           string `json:"id"`
@@ -86,20 +135,20 @@ func HandleCreateSubscriptionPlan(a *app.App) http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Name         string `json:"name"`
-			Description  string `json:"description"`
-			Price        string `json:"price"`
-			DurationDays int    `json:"duration_days"`
-			GroupName    string `json:"group_name"`
-			TokenQuota   int64  `json:"token_quota"`
-			SortOrder    int    `json:"sort_order"`
+			Name         string    `json:"name"`
+			Description  string    `json:"description"`
+			Price        string    `json:"price"`
+			DurationDays flexInt   `json:"duration_days"`
+			GroupName    string    `json:"group_name"`
+			TokenQuota   flexInt64 `json:"token_quota"`
+			SortOrder    flexInt   `json:"sort_order"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 			return
 		}
 		price, err := decimal.NewFromString(req.Price)
-		if err != nil || price.LessThanOrEqual(decimal.Zero) || req.DurationDays <= 0 || req.Name == "" {
+		if err != nil || price.LessThanOrEqual(decimal.Zero) || req.DurationDays.Int() <= 0 || req.Name == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name, positive price and duration_days are required"})
 			return
 		}
@@ -107,7 +156,7 @@ func HandleCreateSubscriptionPlan(a *app.App) http.HandlerFunc {
 		if _, err := a.Pool.Exec(r.Context(),
 			`INSERT INTO subscription_plans (id, name, description, price, duration_days, group_name, token_quota, sort_order, enabled)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)`,
-			id, req.Name, req.Description, price, req.DurationDays, req.GroupName, req.TokenQuota, req.SortOrder); err != nil {
+			id, req.Name, req.Description, price, req.DurationDays.Int(), req.GroupName, req.TokenQuota.Int64(), req.SortOrder.Int()); err != nil {
 			log.Printf("console: create plan: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create plan"})
 			return
@@ -127,14 +176,14 @@ func HandleUpdateSubscriptionPlan(a *app.App) http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Name         *string `json:"name"`
-			Description  *string `json:"description"`
-			Price        *string `json:"price"`
-			DurationDays *int    `json:"duration_days"`
-			GroupName    *string `json:"group_name"`
-			TokenQuota   *int64  `json:"token_quota"`
-			SortOrder    *int    `json:"sort_order"`
-			Enabled      *bool   `json:"enabled"`
+			Name         *string    `json:"name"`
+			Description  *string    `json:"description"`
+			Price        *string    `json:"price"`
+			DurationDays *flexInt   `json:"duration_days"`
+			GroupName    *string    `json:"group_name"`
+			TokenQuota   *flexInt64 `json:"token_quota"`
+			SortOrder    *flexInt   `json:"sort_order"`
+			Enabled      *bool      `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -145,6 +194,21 @@ func HandleUpdateSubscriptionPlan(a *app.App) http.HandlerFunc {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid price"})
 				return
 			}
+		}
+		var durationDays *int
+		if req.DurationDays != nil {
+			v := req.DurationDays.Int()
+			durationDays = &v
+		}
+		var tokenQuota *int64
+		if req.TokenQuota != nil {
+			v := req.TokenQuota.Int64()
+			tokenQuota = &v
+		}
+		var sortOrder *int
+		if req.SortOrder != nil {
+			v := req.SortOrder.Int()
+			sortOrder = &v
 		}
 		if _, err := a.Pool.Exec(r.Context(),
 			`UPDATE subscription_plans SET
@@ -158,7 +222,7 @@ func HandleUpdateSubscriptionPlan(a *app.App) http.HandlerFunc {
 				enabled = COALESCE($9, enabled),
 				updated_at = NOW()
 			 WHERE id = $1`,
-			planID, req.Name, req.Description, req.Price, req.DurationDays, req.GroupName, req.TokenQuota, req.SortOrder, req.Enabled); err != nil {
+			planID, req.Name, req.Description, req.Price, durationDays, req.GroupName, tokenQuota, sortOrder, req.Enabled); err != nil {
 			log.Printf("console: update plan: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update plan"})
 			return

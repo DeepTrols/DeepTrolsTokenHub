@@ -50,6 +50,28 @@ interface PlanForm {
 
 const emptyForm: PlanForm = { name: "", description: "", price: "", duration_days: "30", group_name: "", token_quota: "0", sort_order: "0" };
 
+type PlanPayload = {
+  name: string;
+  description: string;
+  price: string;
+  duration_days: number;
+  group_name: string;
+  token_quota: number;
+  sort_order: number;
+};
+
+function toNumericPlan(form: PlanForm): PlanPayload {
+  return {
+    name: form.name,
+    description: form.description,
+    price: form.price,
+    duration_days: Number(form.duration_days),
+    group_name: form.group_name,
+    token_quota: Number(form.token_quota),
+    sort_order: Number(form.sort_order),
+  };
+}
+
 export default function AdminSubscriptionPlans() {
   const { t } = useTranslation();
   const listQuery = useAdminQuery<{ data: AdminPlan[] }>("/subscription-plans");
@@ -58,8 +80,8 @@ export default function AdminSubscriptionPlans() {
   const [form, setForm] = useState<PlanForm>(emptyForm);
 
   const invalidate = "/subscription-plans";
-  type PlanUpdate = PlanForm & { id: string; enabled?: boolean };
-  const save = useAdminMutation<{ ok: boolean }, PlanForm>(
+  type PlanUpdate = PlanPayload & { id: string; enabled?: boolean };
+  const save = useAdminMutation<{ ok: boolean }, PlanPayload>(
     "post",
     "/subscription-plans",
     invalidate,
@@ -113,9 +135,9 @@ export default function AdminSubscriptionPlans() {
       return;
     }
     if (editing) {
-      update.mutate({ ...form, id: editing.id });
+      update.mutate({ ...toNumericPlan(form), id: editing.id });
     } else {
-      save.mutate(form);
+      save.mutate(toNumericPlan(form));
     }
   };
 
@@ -167,7 +189,7 @@ export default function AdminSubscriptionPlans() {
                   <TableCell>
                     <Switch
                       checked={p.enabled}
-                      onCheckedChange={(v) => update.mutate({ ...formFromPlan(p), id: p.id, enabled: v })}
+                      onCheckedChange={(v) => update.mutate({ ...toNumericPlan(formFromPlan(p)), id: p.id, enabled: v })}
                     />
                   </TableCell>
                   <TableCell className="text-right">
