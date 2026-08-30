@@ -172,7 +172,6 @@ func main() {
 			r.Post("/redemption/redeem", console.HandleRedeem(application))
 			r.Post("/checkin", console.HandleCheckIn(application))
 			r.Get("/checkin/status", console.HandleCheckInStatus(application))
-			r.Get("/chat/presets", console.HandleChatPresets(application))
 			r.Get("/subscription/plans", console.HandleListPlans(application))
 			r.Post("/subscription/purchase", console.HandlePurchaseSubscription(application))
 			r.Post("/subscription/auto-renew", console.HandleSetAutoRenew(application))

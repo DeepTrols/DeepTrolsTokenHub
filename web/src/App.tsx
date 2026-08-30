@@ -31,8 +31,6 @@ import About from "./pages/About";
 import Legal from "./pages/Legal";
 import RedemptionCodes from "./pages/RedemptionCodes";
 import Rankings from "./pages/Rankings";
-import Chat from "./pages/Chat";
-import ChatPresetsSection from "./pages/settings/ChatPresetsSection";
 import ModelsSettingsSection from "./pages/settings/ModelsSettingsSection";
 import Pricing from "./pages/Pricing";
 import Subscriptions from "./pages/Subscriptions";
@@ -68,11 +66,11 @@ export default function App() {
         <Route path="bills" element={<Bills />} />
         <Route path="models" element={<ModelMarket />} />
         <Route path="playground" element={<Playground />} />
+        <Route path="chat" element={<Navigate to="/playground" replace />} />
         <Route path="account" element={<UserCenter />} />
         <Route path="profile" element={<Navigate to="/account" replace />} />
         <Route path="docs" element={<Docs />} />
         <Route path="usage" element={<UsageHistory />} />
-        <Route path="chat" element={<Chat />} />
         <Route path="subscriptions" element={<Subscriptions />} />
       </Route>
 
@@ -103,7 +101,6 @@ export default function App() {
           <Route path="billing" element={<BillingSettingsSection />} />
           <Route path="security" element={<SecuritySettingsSection />} />
           <Route path="operations" element={<OperationsSettingsSection />} />
-          <Route path="content" element={<ChatPresetsSection />} />
           <Route path="models" element={<ModelsSettingsSection />} />
           <Route path="request-limits" element={<RequestLimitsSettingsSection />} />
           <Route path="system-info" element={<SystemInfoSection />} />

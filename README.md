@@ -342,5 +342,3 @@ make web-build     # 前端生产构建
 | `docs/PROJECT_STATUS.md` | 项目进度与变更记录 |
 | `docs/AI聚合网关_完整文档.md` | 完整架构文档（10 篇 + 附录） |
 | `docs/AI聚合平台_产品需求文档_PRD.md` | 产品需求文档 |
-| `docs/architecture-audit-2026-08-04.md` | 架构审计报告 |
-| `docs/全面审核报告-2026-08-05.md` | 全面审核报告（P0 修复清单） |

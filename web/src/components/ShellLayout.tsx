@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { setLanguage } from "../i18n";
 import {
   Key, Wallet, Receipt, Box, Play, LogOut, LayoutDashboard, Book,
-  UserCircle, Radio, Users, Settings, Ticket, MessageSquare, Crown,
+  UserCircle, Radio, Users, Settings, Ticket, Crown,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
@@ -30,7 +30,6 @@ const userItems: NavItem[] = [
   { to: "/bills", icon: Receipt, labelKey: "nav.bills", color: "text-[#0FA88B]" },
   { to: "/models", icon: Box, labelKey: "nav.models", color: "text-[#D3A94E]" },
   { to: "/playground", icon: Play, labelKey: "nav.playground", color: "text-[#4F6BED]" },
-  { to: "/chat", icon: MessageSquare, labelKey: "nav.chat", color: "text-[#8B6FE8]" },
   { to: "/docs", icon: Book, labelKey: "nav.docs", color: "text-[#0FA88B]" },
   { to: "/account", icon: UserCircle, labelKey: "nav.account", color: "text-[#4F6BED]" },
 ];

@@ -55,9 +55,6 @@ const (
 	KeyCheckinEnabled  = "checkin.enabled"
 	KeyCheckinMinQuota = "checkin.min_quota"
 	KeyCheckinMaxQuota = "checkin.max_quota"
-	// External chat-client presets (new-api chat2link parity): JSON array of
-	// {"name": "https://chat.example/?api_key={key}&base_url={serverAddress}"}.
-	KeyChatPresets = "chat_presets"
 	// OAuth login (new-api oauth parity, GitHub first).
 	KeyOAuthGithubEnabled  = "oauth_github_enabled"
 	KeyOAuthGithubClientID = "oauth_github_client_id"
@@ -133,7 +130,6 @@ var defaults = map[string]json.RawMessage{
 	KeyCheckinEnabled:              json.RawMessage(`true`),
 	KeyCheckinMinQuota:             json.RawMessage(`"1"`),
 	KeyCheckinMaxQuota:             json.RawMessage(`"5"`),
-	KeyChatPresets:                 json.RawMessage(`[]`),
 	KeyOAuthGithubEnabled:          json.RawMessage(`false`),
 	KeyOAuthGithubClientID:         json.RawMessage(`""`),
 	KeyOAuthGithubSecret:           json.RawMessage(`""`),

@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { Palette, CreditCard, ShieldCheck, Settings2, Gauge, Info, MessageSquare, Box } from "lucide-react";
+import { Palette, CreditCard, ShieldCheck, Settings2, Gauge, Info, Box } from "lucide-react";
 import { cn } from "@/lib/utils";
 import "../i18n";
 import { useTranslation } from "react-i18next";
@@ -10,7 +10,6 @@ const sections = [
   { to: "/admin/settings/billing", labelKey: "settings.navBilling", icon: CreditCard },
   { to: "/admin/settings/security", labelKey: "settings.navSecurity", icon: ShieldCheck },
   { to: "/admin/settings/operations", labelKey: "settings.navOperations", icon: Settings2 },
-  { to: "/admin/settings/content", labelKey: "settings.navContent", icon: MessageSquare },
   { to: "/admin/settings/models", labelKey: "settings.navModels", icon: Box },
   { to: "/admin/settings/request-limits", labelKey: "settings.navLimits", icon: Gauge },
   { to: "/admin/settings/system-info", labelKey: "settings.navSystem", icon: Info },

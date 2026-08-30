@@ -3263,3 +3263,63 @@ cd web && npm run test:e2e
 - 实机：`/api/admin/models`、`/api/public/pricing` 均只返回 3 个
   deepseek-v4-* 模型；`/api/public/stats` = 3；模型管理页只渲染 3 张
   模型卡，deepseek-chat/gpt-4o/claude 等无渠道模型不再出现。
+
+## 一百零二、2026-08-30 移除「聊天」页面与聊天预设功能
+
+> 用户要求「删掉聊天」。移除外部聊天客户端启动页（/chat）及其配套的
+> 管理端「内容（聊天预设）」配置与后端 `/chat/presets` 接口。
+
+### 102.1 变更
+
+- 前端删除：`pages/Chat.tsx`、`pages/Chat.test.tsx`、
+  `pages/settings/ChatPresetsSection.tsx`、`lib/chat-links.ts`、
+  `lib/chat-links.test.ts`；
+- `App.tsx`：移除 `/chat` 路由（旧链接重定向到 `/playground`）与
+  `/admin/settings/content` 路由；
+- `ShellLayout.tsx`：移除「聊天」导航项（MessageSquare 图标随之清理）；
+- `AdminSettingsLayout.tsx`：移除「内容」设置分区；
+- i18n：删除 `nav.chat`、`chat.*` 分区及 settings 中聊天预设相关键；
+- 后端：删除 `HandleChatPresets` 与 `/api/console/chat/presets` 路由，
+  `setting.KeyChatPresets` 常量及默认值；开发库 `chat_presets` 设置行一并清理。
+
+### 102.2 验证
+
+- Go `gofmt` + `go build ./...` + `go vet ./...` +
+  `go test ./... -count=1`（真实 PG）全绿；
+- 前端 `npm test`（41 文件 / 268 用例）、`npm run build` 全绿；
+  `npm run test:e2e` 6 passed；
+- 实机：导航无「聊天」、/chat 重定向到 /playground、管理端设置无「内容」
+  分区、`GET /api/console/chat/presets` 返回 404。
+
+## 一百零三、2026-08-30 清理 docs 目录过时文档
+
+> 用户要求删除不需要的文档。删除一次性工作日志/会话恢复指南/旧计划/
+> 历史快照对比/一次性审计报告，保留核心参考与运维文档。
+
+### 103.1 删除
+
+- 2026-07-27/28 会话恢复指南、2026-07-28/29/30 工作日志、
+  2026-07-31 质量加固进度追踪（`2026-07-29-work-log.md` 除外——第七十节
+  曾明确决定保留为历史工作日志，本次按原决定保留）；
+- 2026-08-03 批次 17 份一次性任务记录（audit-log/costs/db-schema-fix/
+  error-boundaries/frontend-gaps/frontend-tests/frontend-three-state/
+  pricing-markup/reconciler-tests/reconciliation-l1/redis-ratelimit/
+  tanstack-query-migration/totp-login-fix/user-ledger/user-management/
+  wallet-topup/work-log）；
+- `docs/plans/` 旧计划 5 份（billing_correctness / billing_security_gateway /
+  domestic_enterprise_gateway / non_stream_usage_evidence / observability_step3）；
+- 历史快照对比：`coai-vs-deeptrols-comparison.md`、`new-api-vs-deeptrols-comparison.md`
+  （文首均标注 ⚠️ 历史快照）；
+- 一次性审计报告：`architecture-audit-2026-08-04.md`、
+  `全面审核报告-2026-08-05.md`（README 文档表同步移除两行引用）。
+
+### 103.2 保留
+
+`AI聚合平台_产品需求文档_PRD.md`、`AI聚合网关_完整文档.md`、
+`DEEPTROLS_完整功能清单.md`、`PROJECT_STATUS.md`、`DEPLOYMENT.md`、
+`PRODUCTION_READINESS.md`、`official-prices.md`、
+`改造方案_站点品牌_支付网关_渠道同步.md`、`2026-07-29-work-log.md`。
+
+### 103.3 验证
+
+- 全仓搜索无残留引用（README 已同步）；文档目录由 35 项收敛到 9 项。
