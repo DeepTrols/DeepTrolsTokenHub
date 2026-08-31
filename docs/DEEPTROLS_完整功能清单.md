@@ -12,6 +12,11 @@
 > 详见 PROJECT_STATUS.md 三十节）
 > 本次：2026-08-25（OEM 进阶取消：租户级定价管理入口、客户等级/AI 折扣、Owner 发额度、可见性裁剪、
 > API Key 代管不再计划实施；详见 PROJECT_STATUS.md 三十二节）
+> 本次：2026-08-30（端点/计费/运营状态同步：/v1/responses、/v1/messages、count_tokens、images/edits、
+> videos/generations（异步任务含查询/取消）、audio/transcriptions 已实现；登录会话管理（JWT jti + 列表/撤销）、
+> gzip 响应压缩、分组折扣（group_ratio + volume 阶梯）、月度账单、余额预警、订阅套餐/签到/兑换码/邀请奖励、
+> 易支付（epay）M0 已接入；API Key 前缀统一 sk-；企业/团队体系已移除（/team/*、team_balance 代充值删除）。
+> 详见 PROJECT_STATUS.md 九十七/九十八节）
 
 ---
 
@@ -35,6 +40,8 @@
 | OEM 模型定价 | 租户级独立定价 | ✅ 数据层支持（model_pricing.tenant_id 覆盖 + 平台回退）；OEM 自助管理入口不做（2026-08-25 明确取消） |
 | MFA/TOTP | 注册 + 验证 | ❌ 已移除（2026-08-11 与兑换码/邀请奖励一并删除） |
 | 登录历史 | 记录 + 查询 | ✅ 已实现 |
+| 登录会话管理 | 列表/撤销/撤销其他 + JWT jti | ✅ 已实现（000036_auth_sessions） |
+| API Key 前缀 | 统一 `sk-`（2026-08-26 去掉 `dt-`） | ✅ 已实现 |
 
 ### 执行面 (Execution Plane)
 | 能力 | 架构要求 | 实现状态 |
@@ -45,19 +52,19 @@
 | Channel 实例管理 | base_url + provider_route | ✅ 已实现 |
 | 流式 SSE 转发 | text/event-stream | ✅ 已实现 |
 | Provider 模型同步 | 调用上游 /v1/models API 自动发现 | ✅ 已实现 |
-| POST /v1/responses | OpenAI Responses API | ❌ 未实现 |
-| POST /v1/messages | Anthropic Messages API | ❌ 未实现 |
-| POST /v1/messages/count_tokens | Anthropic token 预估 | ❌ 未实现 |
+| POST /v1/responses | OpenAI Responses API | ✅ 已实现（直连上游 /v1/responses；chat-only 渠道自动转换，见 responses_via_chat） |
+| POST /v1/messages | Anthropic Messages API | ✅ 已实现（OpenAI SSE ⇄ Anthropic Messages SSE） |
+| POST /v1/messages/count_tokens | Anthropic token 预估 | ✅ 已实现（免费，不路由不计费） |
 | POST /v1/embeddings | 嵌入向量 | ✅ 已实现（转发 + 计费闭环） |
 | POST /v1/images/generations | 图片生成 | ✅ 已实现（转发 + 计费闭环） |
-| POST /v1/images/edits | 图片编辑 | ❌ 未实现 |
-| POST /v1/videos/generations | Seedance 视频创建 | ❌ 未实现 |
-| GET/DELETE /v1/videos/generations/:id | 视频任务查询/取消 | ❌ 未实现 |
+| POST /v1/images/edits | 图片编辑 | ✅ 已实现（multipart 管线） |
+| POST /v1/videos/generations | Seedance 视频创建 | ✅ 已实现（异步任务：创建后查询/取消） |
+| GET/DELETE /v1/videos/generations/:id | 视频任务查询/取消 | ✅ 已实现（content/:index 下载未提供） |
 | GET /v1/videos/generations/:id/content/:index | 视频下载 | ❌ 未实现 |
 | POST /v1/providers/doubao/seedance/callback | Seedance 回调（⚠️ 上游→平台的 webhook，非客户端 API：需独立验签，不应走 /v1 Bearer 鉴权） | ❌ 未实现 |
-| POST /v1/audio/transcriptions | 语音转文字 | ❌ 未实现 |
+| POST /v1/audio/transcriptions | 语音转文字 | ✅ 已实现（multipart 管线） |
 | POST /v1/audio/speech | 文字转语音 | ✅ 已实现（raw 转发 + TTS 字符计费） |
-| POST /v1beta/models/{model}:generateContent | Gemini 原生图片 | ❌ 未实现 |
+| POST /v1beta/models/{model}:generateContent | Gemini 原生端点 | ❌ 未提供（内部 GeminiAdapter 已支持 chat → generateContent 转换） |
 | Redis 实时负载追踪 | ai:channel:load 键 + Lua | ✅ 已实现（2026-08-19 LoadTracker：请求开始 INCR / 结束 DECR；Redis 故障回退 DB current_load + 每分钟限流告警，不静默降级） |
 | 多实例并发跟踪 | INCR/DECR + 显式 DECR（defer 兜底）+ 心跳刷新 TTL（⚠️ 不能只靠 TTL 过期，否则活跃计数器会被清零、负载信号失真） | ✅ 已实现（显式 DECR + defer 兜底，双释放不为负；心跳每 TTL/2 刷新，进程崩溃计数随 TTL 自动消失） |
 
@@ -74,13 +81,16 @@
 | Price Snapshot | 价格快照存入 usage_log | ✅ 已实现（pricer 写入 price_version / source / currency / captured_at / rows，非空快照） |
 | 成本/售价分离 + 峰谷定价 | cost/sell × peak/off_peak 定价行；售价 = 显式售价行 或 成本原价（无加价）；缓存命中按 cache_read 维度计费 | ✅ 已实现（migration 000011 + pricer 双通道） |
 | Durable Outbox | 异步计费事件 + Committer | ❌ 已移除（计费已同步化；Committer 已删，outbox_events 表随迁移 000013 正式删除） |
-| 多维定价 | model_pricing 表 + conditions JSONB | 🟡 表就绪，conditions 未评估 |
+| 多维定价 | model_pricing 表 + conditions JSONB | ✅ 已实现（000034 pricing_tiers：按 max_total_tokens 匹配阶梯价） |
 | 配额消费 | 网关 Check→429 + Deduct→ledger + Restore（best-effort） | ❌ 已移除（2026-08-25） |
 | 租户级定价 | tenant_id 覆盖平台价格 | ✅ 数据层支持（tenant_id 优先、NULL 回退平台价）；管理入口不做（2026-08-25 明确取消） |
-| 阶梯折扣 | volume-based discount + 月度计数器 | ❌ 未实现 |
-| 支付/充值 | 真实支付集成 | ❌ mock 数据 |
-| 月度账单 | 汇总账单 | ❌ 未实现 |
-| 余额预警 | 低于阈值通知 | ❌ 未实现 |
+| 阶梯折扣 | volume-based discount + 月度计数器 | ✅ 已实现（分组倍率 group_ratio + 月度累计 volume 阶梯；price_snapshot 记录 price_ratio） |
+| 支付/充值 | 真实支付集成 | 🟡 易支付（epay）M0 已接入（下单/回调验签 + 幂等）；官方渠道适配器待接 |
+| 月度账单 | 汇总账单 | ✅ 已实现（GET /api/console/billing/statement，GMT+8 自然月） |
+| 余额预警 | 低于阈值通知 | ✅ 已实现（wallet/alert 阈值） |
+| 订阅套餐 | 套餐 CRUD + 购买 + 订单 + 自动续费 + 过期回收 | ✅ 已实现（000028-000032） |
+| 签到 / 兑换码 / 邀请奖励 | 每日签到、兑换码、邀请返利 | ✅ 已实现（000025/000026/000033） |
+| 响应缓存失效 | 渠道凭据更新时清空 Redis 响应缓存 | ✅ 已实现（cache.Service.Purge，2026-08-26） |
 | FX 汇率 | 多币种支持（⚠️ 国内 CNY 场景暂非必需，标注为按需启用，非 MVP 必做） | ❌ 未实现 |
 
 ### 证据面 (Evidence Plane)
@@ -105,23 +115,23 @@
 | # | 端点 | 实现 | 计费 |
 |---|------|------|------|
 | 1 | `POST /v1/chat/completions` | ✅ | ✅ 完整 |
-| 2 | `POST /v1/responses` | ❌ | — |
-| 3 | `POST /v1/messages` | ❌ | — |
-| 4 | `POST /v1/messages/count_tokens` | ❌ | — |
+| 2 | `POST /v1/responses` | ✅ | ✅ 完整（直连 /v1/responses；chat-only 渠道自动转换） |
+| 3 | `POST /v1/messages` | ✅ | ✅ 完整（SSE 格式转换 + 计费闭环） |
+| 4 | `POST /v1/messages/count_tokens` | ✅ | N/A 免费（不路由不计费） |
 | 5 | `GET /v1/models` | ✅ | N/A |
 | 6 | `POST /v1/embeddings` | ✅ | ✅ 完整（估算 token 计费） |
 | 7 | `POST /v1/images/generations` | ✅ | ✅ 完整（按图计费） |
-| 8 | `POST /v1/images/edits` | ❌ | — |
-| 9 | `POST /v1/videos/generations` | ❌ | — |
-| 10 | `GET /v1/videos/generations/:id` | ❌ | — |
+| 8 | `POST /v1/images/edits` | ✅ | ✅ 完整（multipart 管线） |
+| 9 | `POST /v1/videos/generations` | ✅ | ✅ 完整（异步任务 + 预留生命周期） |
+| 10 | `GET /v1/videos/generations/:id` | ✅ | N/A（任务状态查询） |
 | 11 | `GET /v1/videos/generations/:id/content/:index` | ❌ | — |
-| 12 | `DELETE /v1/videos/generations/:id` | ❌ | — |
+| 12 | `DELETE /v1/videos/generations/:id` | ✅ | N/A（任务取消） |
 | 13 | `POST /v1/providers/doubao/seedance/callback` | ❌ | — |
-| 14 | `POST /v1/audio/transcriptions` | ❌ | — |
+| 14 | `POST /v1/audio/transcriptions` | ✅ | ✅ 完整（multipart 管线） |
 | 15 | `POST /v1/audio/speech` | ✅ | ✅ 完整（TTS 字符计费） |
 | 16 | `POST /v1beta/models/{model}:generateContent` | ❌ | — |
 
-**实现率**: 5/16（31.3%）
+**实现率**: 13/16（81.3%）
 
 ---
 
@@ -130,10 +140,11 @@
 | 组件 | 作用 | 状态 |
 |------|------|------|
 | OpenAI 兼容直连 | OpenAI-compatible chat 执行 | ✅ 已实现（内置 LiteLLM 已于 2026-08-19 移除） |
+| Channel Adapter（Anthropic/Azure/Ollama/Custom/Gemini） | `upstream_format` 选择转换器（OpenAI chat ⇄ 各协议） | ✅ 已实现 |
 | Provider Sync | 调用上游 /v1/models API 自动发现模型 | ✅ POST /providers/{id}/sync |
-| Gemini Native Adapter | 图片生成（非 chat 协议） | ❌ |
-| Seedance Native Adapter | 视频创建/查询/下载/取消/回调 | ❌ |
-| Audio Native Adapter | 语音转文字、文字转语音 | ❌ |
+| Gemini Native Adapter | /v1beta 原生端点（非 chat 协议） | ❌ 未提供；内部 GeminiAdapter 已支持 chat → generateContent 转换 |
+| Seedance Native Adapter | 视频创建/查询/下载/取消/回调 | 🟡 创建/查询/取消已实现（OpenAI 兼容直连异步任务）；content/:index 下载与回调未提供 |
+| Audio Native Adapter | 语音转文字、文字转语音 | ✅ multipart 管线（无独立 native adapter） |
 
 ---
 
@@ -143,10 +154,10 @@
 |------|------|------|
 | 定价 | 模型基础定价（9 维） | ✅ |
 | 定价 | 多维定价表（model_pricing） | ✅ |
-| 定价 | 条件定价（conditions JSONB） | ❌ |
+| 定价 | 条件定价（conditions JSONB） | ✅ |
 | 定价 | 租户级覆盖定价 | 🟡 数据层已支持（model_pricing.tenant_id），管理入口未提供 |
 | 定价 | 上游成本独立记录 | ✅ |
-| 折扣 | 阶梯用量折扣 | ❌ |
+| 折扣 | 阶梯用量折扣（分组倍率 + volume 阶梯） | ✅ |
 | 配额 | quota_pools/allocations/ledger 三层 + 网关强制 | ❌ 已移除（2026-08-25） |
 | 钱包 | balance + frozen + 乐观锁 | ✅ |
 | 钱包 | reserve → commit/release | ✅ |
@@ -154,7 +165,11 @@
 | 账本 | usage_log + charge_line 双写 | ✅ |
 | 账本 | Price Snapshot | ✅ |
 | 账本 | 流式计费闭环 | ✅ |
-| 充值 | 支付集成 | ❌ |
+| 充值 | 支付集成（易支付 M0；官方渠道待接） | 🟡 |
+| 账本 | 月度账单（GMT+8 自然月聚合） | ✅ |
+| 钱包 | 余额预警阈值 | ✅ |
+| 钱包 | 订阅套餐（购买/订单/自动续费/过期回收） | ✅ |
+| 钱包 | 签到 / 兑换码 / 邀请奖励入账 | ✅ |
 
 ---
 
@@ -172,8 +187,8 @@
 | 模型选品（平台目录 × 租户配置） | ✅ tenant_models |
 | 模型定价（租户级独立价格） | ✅ 数据层已支持（tenant_id 覆盖 + 平台回退）；OEM 自助管理入口不做 |
 | PAYG 门禁（价格不完整拒绝） | ✅ 网关估算阶段 422 pricing_incomplete；结算阶段按预留额计费并留 evidence（pricing_incomplete） |
-| 客户管理（CRUD + 封禁 + 角色） | ✅ 子账号 CRUD / 封禁 / 角色已实现（/team/*）；等级不做 |
-| 代充值（同租户钱包转账） | ✅ 已实现（team_balance.go：企业主/管理员同租户转账，幂等） |
+| 客户管理（CRUD + 封禁 + 角色） | ❌ 已移除（2026-08-25 企业/团队体系收敛，/team/* 子账号删除；等级不做） |
+| 代充值（同租户钱包转账） | ❌ 已移除（2026-08-25 随团队体系删除） |
 
 ---
 
@@ -212,22 +227,26 @@
 
 | 页面 | 状态 |
 |------|------|
-| 工作台 | ✅ |
+| 工作台（Dashboard） | ✅ |
 | API 密钥（六边界 CRUD） | ✅ |
-| 调用日志 | ✅ |
-| 用量统计 | ✅ |
-| 钱包账单 | ✅ |
-| 模型广场 | ✅ 平铺列表（2026-08-19 起去除商家/Plan/工厂分组） |
+| 调用日志（用量信息 + 按模型查看） | ✅ |
+| 月度账单（Bills） | ✅ |
+| 充值（Recharge） | ✅ 易支付 M0 |
+| 订阅（Subscriptions） | ✅ 套餐/购买/自动续费 |
+| 模型广场（ModelMarket） | ✅ 平铺列表 + 定价 |
 | 在线体验（Playground） | ✅ |
-| 用户中心 | ✅ 账户资料 + 团队管理 + 登录历史（原安全设置并入；TOTP 已移除） |
-| 开发文档 | ✅ |
+| 用户中心（UserCenter） | ✅ 账户资料 + 安全设置 + 登录历史 + 会话管理 |
+| 排行榜（Rankings）/ 价格（Pricing）/ 开发文档（Docs）/ 关于 / 法律 | ✅ |
 | 模型管理（Admin CRUD） | ✅ Provider 下拉 + badge 同名区分 |
 | Provider 凭证（Admin） | ✅ Sync 按钮 + 14 家默认 URL + 自动发现 |
-| Channel 管理（Admin） | ✅ |
-| 路由策略（Admin） | ❌ 已移除（2026-08-25） |
+| Channel 管理（Admin） | ✅ 实例增删/测试/批量测试/模型绑定 |
 | 租户管理（Admin） | ✅ |
-| 配额管理（Admin 创建/分配） | ❌ 已移除（2026-08-25） |
+| 用户管理（Admin） | ✅ |
 | 对账管理（Admin 只读） | ✅ |
+| 审计日志（Admin） | ✅ |
+| 网关健康（Admin） | ✅ 渠道/实例实时健康总览 |
+| 兑换码 / 订阅套餐 / 订阅管理（Admin） | ✅ |
+| 系统设置（Admin） | ✅ 站点/计费/模型/请求限制/安全/运营/系统信息分区 |
 
 ---
 
@@ -240,10 +259,10 @@
 | 路由决策（RouteContext：候选排序 + 实例选择） | ✅ |
 | 配额检查（Check→429） | ❌ 已移除（2026-08-25） |
 | 预算预留（上游调用前 Reserve） | ✅ |
-| 执行转发（OpenAI 兼容直连 / Native Adapter） | 🟡 仅 Chat |
+| 执行转发（OpenAI 兼容直连 / Channel Adapter） | ✅ Chat + Responses/Messages + 多模态 |
 | 流式 usage 提取（最后 chunk） | ✅ |
 | 计费提交 | ✅ 同步（Reserve→Settle→Release 单请求内完成；Outbox 已移除） |
-| 幂等保护（request identity 去重） | 🟡 |
+| 幂等保护（request identity 去重） | ✅ pkg/idempotency + 支付幂等 |
 | 字段保护（拒绝覆盖 api_key/headers/base_url） | ✅（7 字段过滤） |
 | Console Playground（JWT + owned key_id） | ✅ |
 
@@ -253,13 +272,13 @@
 
 | OpenRouter 能力 | DeepTrols 对照 |
 |----------------|---------------|
-| 统一 API 入口 | ✅ Chat |
+| 统一 API 入口 | ✅ Chat / Responses / Messages |
 | 统一计费 | ✅ 9 维 |
 | 统一 API Key | ✅ 6 边界 |
 | 模型市场 + 定价透明 | ✅ 平铺列表 |
 | BYOK | ❌ |
 | 路由（权重 + 延迟 + 价格） | 🟡 权重 + 负载 |
-| 多模态（图片/音频/视频） | ❌ |
+| 多模态（图片/音频/视频） | ✅ 图片生成/编辑、音频 TTS/转写、视频异步生成 |
 | 组织/项目/成员/Key 治理 | ❌ |
 | Workspace 隔离 | 🟡 租户雏形 |
 | Agent Runtime | ❌ |
@@ -270,23 +289,24 @@
 
 | 分类 | 总数 | ✅ 完成 | 🟡 部分 | ❌ 未开始 |
 |------|------|--------|--------|----------|
-| Gateway 端点 | 16 | 5 | 0 | 11 |
-| 鉴权方式 | 4 | 2 | 0 | 2 |
-| 计费能力 | 16 | 14 | 0 | 2 |
+| Gateway 端点 | 16 | 13 | 0 | 3 |
+| 鉴权方式 | 4 | 2 | 1 | 1 |
+| 计费能力 | 18 | 17 | 1 | 0 |
 | 对账级别 | 4 | 2 | 0 | 2 |
-| OEM 能力 | 12 | 12 | 0 | 0 |
-| Console 页面 | 13 | 13 | 0 | 0 |
-| Worker 能力 | 5 | 4 | 1 | 0 |
-| Adapter 类型 | 4 | 1 | 0 | 3 |
+| OEM 能力 | 12 | 10 | 0 | 2（已移除） |
+| Console 页面 | 34 | 34 | 0 | 0 |
+| Worker 能力 | 5 | 5 | 0 | 0 |
+| Adapter 类型 | 6 | 4 | 2 | 0 |
 
 ### 建议实施顺序
 
 **短期（质量加固）**:
-- 前端：TanStack Query 数据层、错误边界、loading/error/empty 三态
-- 后端：限流 Redis 化、reconciliation 测试、对账 L1
+- 对账 L2/L3 差异分类与自动修复；监控指标与告警（Prometheus + 告警规则）
+- 干净环境部署演练 + 备份恢复演练（见 PRODUCTION_READINESS B7/B8）
 
 **中期**:
-- Embeddings + Images 端点、前端测试补完（TOTP 已移除，不再实施）
+- 官方支付渠道（支付宝/微信）适配器，替代易支付 M0；视频下载 content/:index 与 Seedance 回调验签
+- 多币种/FX、BYOK
 
 **长期**:
-- Messages/Audio/Video 端点、Gemini Adapter、BYOK、HA、支付充值
+- /v1beta Gemini 原生端点、对账 L3 上游账单核对、公开市场数据报告

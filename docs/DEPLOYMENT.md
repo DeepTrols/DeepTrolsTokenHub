@@ -5,11 +5,11 @@
 
 ## 0. 上线前置条件（必须全部满足）
 
-- [ ] 已接入真实支付（`ENABLE_FAKE_PAYMENT=false` 时演示充值/兑换码/注册送余额全部关闭）。若尚未接入支付，则只允许内部 Beta，不允许公开收费。
+- [ ] 已接入支付通道：当前为易支付（epay）M0（下单/回调验签 + 幂等）。`ENABLE_FAKE_PAYMENT=false` 时演示充值/兑换码/注册送余额全部关闭。官方支付渠道（支付宝/微信）接入前，仅允许内部 Beta，不允许公开收费。
 - [ ] 生产配置基线通过启动校验：config 在 `ENABLE_FAKE_PAYMENT=false` 时强制
       `COOKIE_SECURE=true`、`ADMIN_PASSWORD` ≥ 12 字节、所有密钥非弱默认值，
       不满足则拒绝启动（fail-fast）。
-- [ ] 至少一个实例的 Worker 已启用（健康检查与对账）。多实例部署必须配合 Redis
+- [ ] 至少一个实例的 Worker 已启用（健康检查、对账、订阅过期/自动续费）。多实例部署必须配合 Redis
       lease（见「多实例注意事项」）。
 - [ ] TLS 在反向代理 / 云 LB 终止，后端只监听内网回环。
 
@@ -26,6 +26,9 @@
 | `COOKIE_SAMESITE` | `Strict`（默认） | — |
 | `ENABLE_FAKE_PAYMENT` | `false`（强制） | — |
 | `CORS_ORIGIN` | 仅前端正式域名 | — |
+| `API_HOST` | 生产建议绑定内网回环（默认 `0.0.0.0`） | — |
+| `LOAD_TTL_SECONDS` | 渠道实时负载计数器 TTL（默认 60） | — |
+| `JWT_EXPIRY_HOURS` | 登录态有效期（默认 24） | — |
 
 生产校验由 `internal/config/config.go` 的 `validate()` 执行；任何不满足的配置都会在进程启动时报错退出，部署流水线应把「启动即退出」视为失败。
 
@@ -85,8 +88,8 @@ pg_dump "$DATABASE_URL" -Fc -f deeptrols_$(date +%F).dump
 
 ## 6. 多实例注意事项
 
-- Worker（健康检查 / 对账）**必须**启用 Redis lease（`internal/pkg/lease`）；
-  否则两个 worker 实例会重复执行对账、产生冲突结果。
+- Worker（健康检查 / 对账 / 订阅过期与自动续费）**必须**启用 Redis lease（`internal/pkg/lease`）；
+  否则多个 worker 实例会重复执行对账或订阅回收、产生冲突结果。
 - API 无状态，可水平扩展；Redis 与 PostgreSQL 是共享状态。
 
 ## 7. 灰度与回滚
@@ -100,6 +103,7 @@ pg_dump "$DATABASE_URL" -Fc -f deeptrols_$(date +%F).dump
 ## 8. 上线后第一周观察项
 
 - 对账 L0/L1 跑批无差异、无残留 pending。
+- 订阅到期回收与自动续费任务按计划执行，无重复扣费。
 - 非流式/流式失败请求全部能在 `usage_logs` 找到（`status=failed/partial`），
   不存在"账外请求"。
 - 4xx 错误率、网关延迟 P95、Redis 命中率、DB 连接数处于基线内。

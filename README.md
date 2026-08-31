@@ -39,8 +39,8 @@ internal/
     user.go                  #   User（角色 + 状态）
     wallet.go                #   Wallet（乐观锁版本号）
   handler/
-    gateway/                 # OpenAI-compatible 网关（/v1/chat/completions + /v1/models + embeddings/images/audio 转发）
-    console/                 # 控制台 API（认证/密钥/用量/钱包/模型/团队/租户）
+    gateway/                 # OpenAI-compatible 网关（chat/responses/messages + 多模态转发）
+    console/                 # 控制台 API（认证/密钥/用量/钱包/模型/订阅/租户）
     middleware/              # 鉴权/租户/限流/安全头/CORS
   service/
     billing/                 # 计费引擎（Reserve/Commit/Release + 定价）
@@ -51,6 +51,7 @@ internal/
   worker/
     health_checker/          # 渠道实例健康探测（60s 周期，渐进评分）
     reconciliation/          # 对账 Worker（L0 漏记账 + L1 证据不匹配）
+    subscriptions/           # 订阅过期回收 + 自动续费 Worker
   pkg/
     db/                      # pgxpool 封装 + 事务工具
     decimal/                 # shopspring/decimal 辅助

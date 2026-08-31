@@ -1,6 +1,6 @@
 # DeepTrols AI Token 聚合平台 · 项目进度报告
 
-> 报告日期: 2026-08-04
+> 报告日期: 2026-08-04（顶部摘要已按 2026-08-31 同步刷新，见一百零四节）
 
 ---
 
@@ -26,6 +26,8 @@
 | 计费同步化 | Reserve → Settle（按真实用量多退少补）→ Release 单请求内完成 |
 | 配额强制 | ❌ 已移除（2026-08-25，迁移 000014 删表） |
 | 响应缓存 | SHA256(request)→Redis，命中零计费，X-Cache: HIT |
+| 阶梯折扣 | 分组倍率（group_ratio）+ 月度累计 volume 阶梯；price_snapshot 记录 price_ratio |
+| usage 缺失估算 | 上游无 usage 时回退请求体估算并标记 estimated，禁止静默免费 |
 
 ### 2.2 5 不变量
 
@@ -45,6 +47,13 @@
 | POST /v1/chat/completions（流式 SSE） | ✅ 完整计费链路 |
 | GET /v1/models | ✅ 按 API Key allowlist 过滤 |
 | 请求字段保护 | ✅ 过滤 api_key/headers/base_url 等 7 个字段 |
+| POST /v1/responses | ✅ 直连上游 /v1/responses；chat-only 渠道自动转换 |
+| POST /v1/messages | ✅ OpenAI SSE ⇄ Anthropic Messages SSE |
+| POST /v1/messages/count_tokens | ✅ 免费 token 预估（不路由不计费） |
+| POST /v1/embeddings / images/generations / images/edits | ✅ 转发 + 计费闭环 |
+| POST /v1/audio/speech / audio/transcriptions | ✅ TTS 字符计费 / multipart 管线 |
+| POST /v1/videos/generations（创建/查询/取消） | ✅ 异步任务 + 预留生命周期 |
+| gzip 响应压缩 | ✅ Accept-Encoding: gzip（跳过 /uploads，保留 SSE 实时性） |
 
 ### 2.4 鉴权与安全
 
@@ -56,22 +65,33 @@
 | 租户识别 | Host header → tenant_domains，fail-closed（未知域名 403） |
 | 安全头 | CSP/HSTS/X-Frame-Options/X-Content-Type-Options/Referrer-Policy |
 | 限流 | Redis 优先 + 内存降级，网关按 Key 限流，登录按 IP 限流 |
+| 登录会话管理 | JWT jti + 000036_auth_sessions：列表/撤销/撤销其他 |
+| OAuth 登录 | GitHub / 微信 / Google（系统设置开关） |
+| API Key 前缀 | 统一 sk-（2026-08-26 去掉 dt-） |
 
 ### 2.5 管理后台 API
 
 | 模块 | 接口 |
 |------|------|
-| 模型管理 | CRUD + 多维定价 |
-| Provider 凭证 | CRUD + 14 家默认 URL + Sync 自动发现模型 |
-| 渠道管理 | CRUD + 实例管理（添加/删除）+ 健康/权重 |
+| 模型管理 | CRUD + 多维定价 + 阶梯条件定价（000034）+ 目录预览/同步 |
+| Provider 凭证 | CRUD + 14 家默认 URL + Sync 自动发现 + 真实连通性测试 + 启停 |
+| 渠道管理 | CRUD + 实例增删 + 测试/批量测试 + 模型绑定/启停 |
 | 租户管理 | CRUD + 域名管理 + 5 状态状态机 |
 | 用户管理 | 列表 + 创建 + 角色/状态编辑 + 删除 |
 | 对账管理 | 查看对账运行记录与差异 |
 | 审计日志 | 全量 Admin 操作记录 |
+| 站点设置 | site 设置 + Logo 上传 |
+| 支付订单 | 列表 + 手工补单 |
+| 兑换码 | 创建 + 列表 |
+| 订阅 | 套餐 CRUD + 订阅列表 + 取消 |
+| 网关健康 | 渠道/实例实时健康总览 |
+| 系统信息 | 平台计数 + 运行时信息 |
 
-### 2.6 用户控制台 API (23/23)
+### 2.6 用户控制台 API
 
-登录、注册、登出、个人信息、修改密码、API Key CRUD（6 边界）、密钥明文查看、用量历史（含费用明细）、钱包余额、交易记录、在线充值、模型列表、登录历史
+登录、注册、登出、个人信息、修改密码、API Key CRUD（6 边界 + sk- 前缀）、密钥明文查看、用量历史（含费用明细 + 按模型查看）、
+钱包余额、交易记录、余额预警、在线充值（易支付 M0）、月度账单、登录会话管理（列表/撤销/撤销其他）、支付方式与下单、
+兑换码兑换、每日签到、订阅套餐/购买/自动续费/订单、邀请信息、模型广场、登录历史
 
 ### 2.7 Worker 后台任务
 
@@ -79,16 +99,20 @@
 |--------|------|
 | Health Checker | 每 60s 探测所有渠道实例 /health 端点 |
 | Reconciler | 每 1h 运行 L0（漏记账）+ L1（证据不匹配）对账 |
+| Subscription Expirer | 过期订阅回收 |
+| Subscription Renewer | 到期前从钱包自动续费 |
 
 ### 2.8 前端
 
 | 项目 | 说明 |
 |------|------|
-| UI 框架 | shadcn/ui（Radix 原语），21 页面全部迁移 |
+| UI 框架 | shadcn/ui（Radix 原语），34 页面组件 |
+| i18n | 中英双语全覆盖（2026-08-30 大版本重构） |
 | 页面结构 | SectionPageLayout 统一组件 |
 | 状态组件 | LoadingState / ErrorState / EmptyState |
-| 用户端页面 | 用量信息、API keys、调用记录、用量统计、充值、账单、模型广场、在线体验、用户中心、开发文档 |
-| 管理端页面 | 模型管理、渠道管理、对账管理、企业管理、个人管理、账务管理 |
+| 用户端页面 | 工作台、用量信息、API keys、月度账单、充值、订阅、模型广场、在线体验、用户中心、排行榜、开发文档、价格 |
+| 管理端页面 | 模型管理、渠道管理、用户管理、租户管理、对账管理、审计日志、网关健康、兑换码、订阅套餐/订阅、系统设置分区 |
+| e2e 冒烟 | Playwright 核心链路（登录→建渠道→模型目录→网关调用→账单/审计） |
 
 ### 2.9 部署与运维
 
@@ -101,25 +125,26 @@
 
 ## 三、未完成功能
 
-### 3.1 架构文档明确要求（需要做）
+### 3.1 网关/能力缺口（当前未实现）
 
-| # | 功能 | 当前状态 | 预计 |
-|---|------|---------|------|
-| 1 | 流式错误不伪装成功 | [DONE] 无条件发送，usage log 始终 completed | 1天 |
-| 2 | HMAC 认证 | 只有 Bearer Token，文档要求 method+path+body SHA256 + 时间窗口 + nonce | 2-3天 |
-| 3 | 折扣引擎 | DiscountAmount/DiscountApplied 字段存在，计算逻辑为空 | 2周 |
-| 4 | Worker 分布式选主 | 无 Redis lease，多实例重复执行 health check + 对账 | 1天 |
+| # | 功能 | 当前状态 |
+|---|------|---------|
+| 1 | 视频任务下载 `/v1/videos/generations/:id/content/:index` | 未提供（创建/查询/取消已实现） |
+| 2 | Seedance 异步回调 webhook | 未提供（需独立验签，不应走 /v1 Bearer） |
+| 3 | `/v1beta/models/{model}:generateContent` 原生端点 | 未提供；内部 GeminiAdapter 已支持 chat → generateContent 转换 |
+| 4 | 对账 L2/L3 | L0/L1 已实现；L2（L0↔L1 内部对账）、L3（上游账单核对）未实现 |
+| 5 | Gemini usageMetadata 解析 | 未实现（OpenAI/Anthropic 已归一化） |
+| 6 | 多币种 / FX 汇率 | 未实现（当前统一 CNY） |
+| 7 | BYOK（自带上游 Key） | 未实现 |
+| 8 | 监控指标与告警 | 未实现（有结构化日志 + 健康检查） |
 
-### 3.2 有代码但不符合文档要求
+### 3.2 设计层可选/已明确不做
 
-| # | 功能 | 当前 | 文档要求 | 预计 |
-|---|------|------|---------|------|
-| 5 | 健康检查评分 | 只有 healthy/unhealthy 二级 | 渐进：<30 degraded，>70 recovering | 1天 |
-| 6 | 路由负载计数 | 读 DB current_load | 必须用 Redis INCR/DECR + Lua | 1天 |
-| 7 | final_chunk 标记 | 常量定义但从未使用 | 流式应标记 final_chunk | 0.5天 |
-| 8 | 租户 DB 故障 | 穿透到平台 | 未知域名不能落到平台 | 0.5天 |
-| 9 | 无钱包用户 | 跳过 reserve 直接调用 | 必须拦截 | 0.5天 |
-| 10 | 价格快照 | 始终为空 map | 记录定价版本和数据来源 | 0.5天 |
+| # | 功能 | 当前状态 |
+|---|------|---------|
+| 1 | HMAC 请求签名 | 仅建议用于平台回调/webhook 验签（不适用于 OpenAI 兼容网关入口），未实现 |
+| 2 | OEM 进阶（租户级定价管理入口、客户等级/AI 折扣、Owner 发额度、可见性裁剪、API Key 代管） | 2026-08-25 明确取消 |
+| 3 | 企业/团队/预算体系 | 2026-08-25 收敛为单一开发者账号模型，已移除 |
 
 ### 3.3 OEM 体系缺失
 
@@ -145,11 +170,11 @@
 | 维度 | DeepTrols | CoAI | New API |
 |------|-----------|------|---------|
 | 资金面（计费/对账/5 不变量） | ⭐⭐⭐ | ⭐ | ⭐⭐ |
-| 网关面（Provider/格式转换） | ⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
+| 网关面（Provider/格式转换） | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
 | 用户体验（聊天 UI/订阅/支付） | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ |
 | 工程质量（测试/幂等/精度） | ⭐⭐⭐ | ⭐ | ⭐⭐ |
 | 多租户 | ⭐⭐⭐ | ❌ | ❌ |
-| Provider 覆盖 | LiteLLM 间接 | 17+ 内置 | 50+ 内置 |
+| Provider 覆盖 | 14 家默认 URL + 自研 Channel Adapter（Anthropic/Azure/Ollama/Gemini/Custom） | 17+ 内置 | 50+ 内置 |
 
 ---
 
@@ -157,10 +182,9 @@
 
 | 阶段 | 时间 | 内容 |
 |------|------|------|
-| 本周 | 2天 | 流式错误修复 + 租户DB故障 + 无钱包拦截 |
-| 两周内 | 6天 | HMAC 认证 + Worker选主 + 健康评分 + 路由Redis |
-| 一月内 | 3-4周 | 折扣引擎 |
-| 后续 | 按需 | 支付网关 → 网关扩展端点 → 多币种 |
+| 短期 | 2周 | 对账 L2/L3 差异分类与自动修复；监控指标与告警；部署/恢复演练 |
+| 中期 | 按需 | 官方支付渠道（支付宝/微信）替代易支付 M0；视频下载与 Seedance 回调；多币种/FX；BYOK |
+| 长期 | 按需 | /v1beta Gemini 原生端点；对账 L3 上游账单核对；公开市场数据 |
 
 ---
 
@@ -3323,3 +3347,36 @@ cd web && npm run test:e2e
 ### 103.3 验证
 
 - 全仓搜索无残留引用（README 已同步）；文档目录由 35 项收敛到 9 项。
+
+---
+
+## 一百零四、2026-08-31 文档与代码注释同步
+
+### 104.1 背景
+
+用户反馈「文档过时」。对照当前代码（截至 2026-08-30 之后的工作区状态）逐文档核对后，同步了
+7 份文档；同时按用户要求移除代码注释中的 "new-api parity" 表述。
+
+### 104.2 代码注释
+
+- 移除全部 `new-api parity` / `new-api … parity` 表述（约 33 个文件），覆盖 tiered pricing、
+  group_ratio、/user/sessions、oauth、affiliate、subscription、rankings、channel adapter 等；
+  注释其余含义保留。纯注释变更，gofmt 校验通过。
+
+### 104.3 文档同步
+
+| 文档 | 同步内容 |
+|------|---------|
+| `README.md` | 结构注释更新（console 去掉「团队」、worker 补 subscriptions、网关注释补多模态） |
+| `DEEPTROLS_完整功能清单.md` | 端点 5/16 → 13/16；conditions/阶梯折扣/月度账单/余额预警/订阅/签到/兑换码/邀请/epay M0 转 ✅；OEM 客户管理/代充值标记已移除；Console 页面表与汇总数字刷新 |
+| `PRODUCTION_READINESS.md` | 复核日期；TOTP 表述替换为登录会话管理；B3 ✅；B4 → 易支付 M0；P1/P5/F1 状态更新 |
+| `PROJECT_STATUS.md` | 顶部摘要（一/二/三/四/五）刷新至当前状态；新增本节 |
+| `DEPLOYMENT.md` | 支付前置条件（易支付 M0）、Worker 订阅任务、env 基线补充 |
+| `AI聚合平台_产品需求文档_PRD.md` | 修订记录 V1.2.0；§5 范围与 §7.3 OEM 同步企业/团队/配额池收敛 |
+| `AI聚合网关_完整文档.md` | 顶部横幅补充 2026-08-31 代码现状说明 |
+
+### 104.4 验证
+
+- 全仓搜索：代码注释已无 `new-api parity` 组合；
+- 改动文档均与当前路由表、迁移（000001-000036）、web 页面（34 个页面组件）逐项核对；
+- 纯注释/文档变更，不影响构建与运行；gofmt 校验通过。

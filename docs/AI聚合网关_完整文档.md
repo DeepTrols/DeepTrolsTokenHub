@@ -6,6 +6,13 @@
 > 仅建议用于平台回调/webhook 验签"，不适用于 OpenAI 兼容网关入口。正文中"LiteLLM 转发 /
 > spend 证据 / HMAC 企业客户签名"等描述属于原设计意图，落地以代码与
 > docs/PROJECT_STATUS.md 十九节为准。
+>
+> **代码现状（2026-08-31 补充）**：网关已进一步补齐 `/v1/responses`、`/v1/messages`（含 count_tokens）、
+> `/v1/images/edits`、`/v1/audio/transcriptions` 与 `/v1/videos/generations`（异步任务，含查询/取消）；
+> 新增 gzip 响应压缩、登录会话管理（JWT jti + 列表/撤销）、分组折扣（group_ratio + volume 阶梯）、
+> 月度账单、余额预警、订阅套餐/签到/兑换码/邀请奖励、易支付（epay）M0；
+> 企业/团队/预算/配额体系已于 2026-08-25 移除，收敛为单一开发者账号模型 + 租户/OEM 基础能力。
+> 端点与功能最新状态以 `docs/PROJECT_STATUS.md` 与 `docs/DEEPTROLS_完整功能清单.md` 为准。
 
 ## 目录
 
