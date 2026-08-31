@@ -1289,7 +1289,7 @@ func TestHandleUpdateModel_AuditRecordsOldPricing(t *testing.T) {
 
 // ============================================================================
 // Tiered pricing: model_pricing.conditions must survive create/update/list/get
-// roundtrips so admins can edit tiers from the console (new-api parity), and
+// roundtrips so admins can edit tiers from the console, and
 // malformed conditions must be rejected instead of silently disabling a tier.
 // ============================================================================
 

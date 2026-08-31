@@ -85,13 +85,13 @@ func main() {
 	// Public, unauthenticated site/brand info for the login page and frontend boot.
 	r.Get("/api/public/site", console.HandlePublicSite(application))
 
-	// Public model/vendor rankings (new-api rankings parity).
+	// Public model/vendor rankings.
 	r.Get("/api/public/rankings", console.HandleRankings(application))
 
-	// Public model catalog + pricing for the /pricing page (new-api parity).
+	// Public model catalog + pricing for the /pricing page.
 	r.Get("/api/public/pricing", console.HandlePublicPricing(application))
 
-	// GitHub OAuth login (new-api oauth parity).
+	// GitHub OAuth login.
 	r.Get("/api/oauth/github/authorize",
 		middleware.IPRateLimit(application.RateLimiter, 10, 1*time.Minute)(console.HandleOAuthAuthorize(application)).ServeHTTP)
 	r.Get("/api/oauth/github/callback",

@@ -10,7 +10,7 @@ import (
 
 // HandleResponses implements POST /v1/responses (OpenAI Responses API, non-streaming).
 // It forwards to the routed upstream's /v1/responses endpoint and settles billing
-// from the upstream usage (new-api Responses parity, no format conversion yet).
+// from the upstream usage (no format conversion yet).
 func HandleResponses(application *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, modelName, ok := decodeForwardedRequest(w, r, application, validateResponsesRequest, estimateResponsesUsage)

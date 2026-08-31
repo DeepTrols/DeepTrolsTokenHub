@@ -383,7 +383,7 @@ func HandleUpdateAPIKey(a *app.App) http.HandlerFunc {
 
 // userMayUseGroup reports whether the caller may bind an API key to a channel
 // group: admins always may; regular users need an active subscription whose
-// plan grants the group (subscription-benefit parity with new-api).
+// plan grants the group.
 func userMayUseGroup(ctx context.Context, a *app.App, userID uuid.UUID, groupName string) bool {
 	if role, err := jwtutil.RoleFromContext(ctx); err == nil && role == "admin" {
 		return true

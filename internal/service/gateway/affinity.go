@@ -18,7 +18,7 @@ const affinityNamespace = "deeptrols:affinity:v1"
 
 // AffinityStore remembers the last channel chosen for a routing key (user +
 // model) so subsequent requests prefer the same upstream, improving upstream
-// cache-hit rates (new-api channel-affinity parity).
+// cache-hit rates.
 type AffinityStore interface {
 	Get(ctx context.Context, key string) (string, error)
 	Set(ctx context.Context, key, channelID string, ttl time.Duration) error

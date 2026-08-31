@@ -360,7 +360,7 @@ func oauthLoginURL(r *http.Request, cfg oauthSettings, a *app.App, key, value st
 	return oauthBase(r, cfg, a) + "/login?" + key + "=" + url.QueryEscape(value)
 }
 
-// --- WeChat QR login (new-api wechat oauth parity) ---
+// --- WeChat QR login ---
 
 type wechatSettings struct {
 	Enabled      bool
@@ -524,7 +524,7 @@ func fetchWechatUser(ctx context.Context, a *app.App, cfg wechatSettings, access
 	return out.Nickname, nil
 }
 
-// --- Google OAuth login (new-api oauth parity) ---
+// --- Google OAuth login ---
 
 type googleSettings struct {
 	Enabled      bool

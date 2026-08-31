@@ -9,7 +9,7 @@ import (
 )
 
 // HandleCountTokens implements POST /v1/messages/count_tokens (Anthropic
-// compatibility, new-api parity): a free token-count estimate for a messages
+// compatibility): a free token-count estimate for a messages
 // payload. No routing, no billing — the endpoint only estimates input tokens
 // from message/system text (and tool definitions).
 func HandleCountTokens(application *app.App) http.HandlerFunc {

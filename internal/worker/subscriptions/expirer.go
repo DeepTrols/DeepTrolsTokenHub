@@ -1,5 +1,5 @@
-// Package subscriptions runs maintenance tasks for the subscription lifecycle
-// (new-api subscription parity): expiring subscriptions whose term has ended.
+// Package subscriptions runs maintenance tasks for the subscription lifecycle,
+// including expiring subscriptions whose term has ended.
 package subscriptions
 
 import (

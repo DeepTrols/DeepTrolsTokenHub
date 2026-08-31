@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// maxUploadBytes caps admin brand-asset uploads (new-api logo/favicon parity).
+// maxUploadBytes caps admin brand-asset uploads.
 const maxUploadBytes = 2 << 20 // 2 MiB
 
 // allowedUploadExts whitelists image extensions. SVG is deliberately excluded

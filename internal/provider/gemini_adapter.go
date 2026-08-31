@@ -15,7 +15,7 @@ import (
 )
 
 // GeminiAdapter executes OpenAI chat requests against a Gemini native
-// generateContent endpoint (new-api gemini channel adapter parity). It is
+// generateContent endpoint. It is
 // stateless like OpenAICompatAdapter; base URL and key arrive per call.
 type GeminiAdapter struct {
 	client *http.Client

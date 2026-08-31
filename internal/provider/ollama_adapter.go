@@ -14,7 +14,7 @@ import (
 )
 
 // OllamaAdapter executes OpenAI chat requests against an Ollama /api/chat
-// endpoint (new-api ollama channel adapter parity). Ollama speaks a near-OpenAI
+// endpoint. Ollama speaks a near-OpenAI
 // messages format; only the endpoint, response envelope and usage counters
 // differ.
 type OllamaAdapter struct {

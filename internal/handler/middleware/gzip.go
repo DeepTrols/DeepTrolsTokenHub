@@ -7,7 +7,7 @@ import (
 )
 
 // Gzip compresses response bodies for clients that advertise
-// Accept-Encoding: gzip (new-api parity). It skips /uploads (binary assets)
+// Accept-Encoding: gzip. It skips /uploads (binary assets)
 // and preserves SSE flushing so streaming responses stay live.
 func Gzip(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

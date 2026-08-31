@@ -17,7 +17,7 @@ import (
 const renewWindow = 24 * time.Hour
 
 // Renewer auto-renews opted-in subscriptions from the user's wallet balance
-// shortly before expiry (new-api subscription auto-renew parity).
+// shortly before expiry.
 type Renewer struct {
 	pool    *pgxpool.Pool
 	wallets wallet.Repository

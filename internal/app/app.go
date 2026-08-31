@@ -170,7 +170,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 	// back to the database current_load column.
 	a.LoadTracker = gateway.NewLoadTracker(a.Redis, time.Duration(cfg.LoadTTLSeconds)*time.Second)
 	a.Router.SetLoadSource(a.LoadTracker)
-	// Channel affinity (new-api parity): prefer the last channel per user+model
+	// Channel affinity: prefer the last channel per user+model
 	// to improve upstream cache-hit rates. Redis-backed when available.
 	a.Router.EnableAffinity(gateway.NewAffinityStore(a.Redis, time.Hour))
 

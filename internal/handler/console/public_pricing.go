@@ -9,7 +9,7 @@ import (
 )
 
 // HandlePublicPricing returns active domestic models with their pricing for
-// the unauthenticated /pricing page (new-api pricing parity). No sensitive
+// the unauthenticated /pricing page. No sensitive
 // fields are exposed: only catalog + pricing rows.
 func HandlePublicPricing(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

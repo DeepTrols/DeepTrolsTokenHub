@@ -17,7 +17,7 @@ import (
 const azureDefaultAPIVersion = "2025-04-01-preview"
 
 // AzureAdapter executes OpenAI chat requests against an Azure OpenAI
-// deployment endpoint (new-api ChannelTypeAzure parity). The body and response
+// deployment endpoint. The body and response
 // are OpenAI-compatible; only the URL shape (deployment path + api-version) and
 // the api-key auth header differ.
 type AzureAdapter struct {

@@ -159,9 +159,7 @@ func TestHandleClaudeMessagesStreaming_Success(t *testing.T) {
 	if usageRepo.lastUsageLog.ListCost.Equal(decimal.Zero) {
 		t.Error("ListCost should be non-zero")
 	}
-	if usageRepo.lastEvidence == nil {
-		t.Fatal("provider evidence was never recorded")
-	}
+	waitForEvidence(t, usageRepo)
 }
 
 func TestHandleClaudeMessagesStreaming_TruncatedStream_NoMessageStop(t *testing.T) {
@@ -186,6 +184,12 @@ func TestHandleClaudeMessagesStreaming_TruncatedStream_NoMessageStop(t *testing.
 			fmt.Fprintf(buf, "data: %s\n\n", c)
 			buf.Flush()
 		}
+		// Give the client time to read both chunks out of the socket buffer:
+		// on Windows an immediate RST (linger(0)) discards send-buffer data
+		// that has not been consumed yet, which would drop the second chunk
+		// and make the "partial content should still be forwarded" assertion
+		// fail before the handler ever sees it.
+		time.Sleep(200 * time.Millisecond)
 		if tc, ok := conn.(*net.TCPConn); ok {
 			tc.SetLinger(0) // RST instead of FIN
 		}

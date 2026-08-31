@@ -22,7 +22,7 @@ var gatewayZone = time.FixedZone("Asia/Shanghai", 8*3600)
 const monthlyUsageCacheTTL = 5 * time.Minute
 
 // groupRatio resolves the pricing multiplier for the request's API-key group
-// from the user_groups setting (new-api group_ratio parity). Unset, unknown or
+// from the user_groups setting. Unset, unknown or
 // malformed entries fall back to ratio 1 — never to a negative/zero price.
 func groupRatio(application *app.App, r *http.Request) decimal.Decimal {
 	group := apiKeyGroup(r)

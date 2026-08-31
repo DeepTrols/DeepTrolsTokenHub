@@ -18,7 +18,7 @@ import (
 const anthropicAPIVersion = "2023-06-01"
 
 // AnthropicAdapter executes OpenAI chat requests against an Anthropic Messages
-// API endpoint (new-api anthropic channel adapter parity). The OpenAI request
+// API endpoint. The OpenAI request
 // is converted to Claude format and the Claude response converted back, so the
 // gateway's billing pipeline sees a normal OpenAI chat completion.
 type AnthropicAdapter struct {

@@ -83,7 +83,7 @@ func (r *Router) EnableAffinity(store AffinityStore) {
 }
 
 // RecordAffinity remembers the channel chosen for a user + model so the next
-// request prefers the same upstream (cache-hit parity with new-api).
+// request prefers the same upstream to improve cache-hit rates.
 func (r *Router) RecordAffinity(ctx context.Context, userID, model, channelID string) {
 	if r.affinity == nil || userID == "" || model == "" || channelID == "" {
 		return

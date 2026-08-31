@@ -14,7 +14,7 @@ import (
 )
 
 // CustomChannelAdapter forwards requests to an admin-defined arbitrary
-// endpoint (new-api advanced-custom channel parity): the instance config
+// endpoint: the instance config
 // `custom_override` may set method/url/headers/body templates with the
 // placeholders {model}, {api_key}, {base_url} and {request_body}.
 type CustomChannelAdapter struct {

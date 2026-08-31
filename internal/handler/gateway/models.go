@@ -112,7 +112,7 @@ func HandleListModels(application *app.App) http.HandlerFunc {
 }
 
 // HandleRetrieveModel implements GET /v1/models/{model}: return a single active
-// model by code (OpenAI-compatible retrieve semantics, new-api parity).
+// model by code (OpenAI-compatible retrieve semantics).
 func HandleRetrieveModel(application *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := chi.URLParam(r, "model")

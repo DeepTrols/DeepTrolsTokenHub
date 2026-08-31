@@ -1,5 +1,5 @@
 -- 000036_auth_sessions.up.sql
--- Server-side login sessions (new-api /user/sessions parity): each issued
+-- Server-side login sessions: each issued
 -- JWT gets a row keyed by its SHA-256 hash so users can list active sessions
 -- and revoke them (Redis denylist + revoked_at).
 CREATE TABLE IF NOT EXISTS auth_sessions (

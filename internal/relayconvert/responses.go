@@ -130,8 +130,7 @@ func ResponsesToOpenAIChatResponse(resp *ResponsesResponse) *OpenAIChatResponse 
 // ResponsesRequestToOpenAIChatRequest converts an OpenAI Responses request to a
 // Chat Completions request: instructions → system message, input messages →
 // chat messages, function_call → assistant tool_calls, function_call_output →
-// tool results. Used when the routed upstream only exposes chat/completions
-// (new-api responses_via_chat parity).
+// tool results. Used when the routed upstream only exposes chat/completions.
 func ResponsesRequestToOpenAIChatRequest(req *ResponsesRequest) *OpenAIChatRequest {
 	out := &OpenAIChatRequest{
 		Model:       req.Model,
@@ -191,7 +190,7 @@ func responsesContentText(content []ResponsesContent) string {
 
 // OpenAIChatResponseToResponses converts an OpenAI Chat Completions response
 // to an OpenAI Responses response (non-streaming), mapping the assistant
-// message/tool calls and usage. new-api relaykit chat → responses parity.
+// message/tool calls and usage (chat → responses).
 func OpenAIChatResponseToResponses(oai *OpenAIChatResponse) *ResponsesResponse {
 	out := &ResponsesResponse{
 		ID:     oai.ID,

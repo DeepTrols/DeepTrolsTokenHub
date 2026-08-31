@@ -60,7 +60,7 @@ func consoleStringSetting(a *app.App, r *http.Request, key, fallback string) str
 }
 
 // HandleInviteInfo returns the authenticated user's invite code, referral
-// count and shareable register link (new-api affiliate parity).
+// count and shareable register link.
 func HandleInviteInfo(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := jwtutil.UserIDFromContext(r.Context())

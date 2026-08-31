@@ -6,7 +6,7 @@ import (
 )
 
 // ResponsesStreamState tracks OpenAI chat.completion.chunk SSE → OpenAI
-// Responses SSE conversion (new-api oai_chat → oai_responses stream parity).
+// Responses SSE conversion (oai_chat → oai_responses).
 // The terminal sequence is deferred until both the finish reason and usage are
 // observed so clients never see a premature response.completed.
 type ResponsesStreamState struct {

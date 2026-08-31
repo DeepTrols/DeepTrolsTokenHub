@@ -77,7 +77,7 @@ func HandleRankings(a *app.App) http.HandlerFunc {
 }
 
 // rankingsConfig resolves the period window, previous-period window and bucket
-// granularity (new-api rankingConfig parity).
+// granularity.
 func rankingsConfig(period string) (rankings.Config, error) {
 	now := time.Now().UTC()
 	day := 24 * time.Hour

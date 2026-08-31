@@ -63,8 +63,8 @@ func (p *Pricer) Calculate(ctx context.Context, modelID uuid.UUID, tenantID *uui
 	return p.CalculateAt(ctx, modelID, tenantID, usage, time.Now().UTC())
 }
 
-// CalculateWithRatio prices usage with a group pricing multiplier (new-api
-// group_ratio parity): every sell price is scaled by ratio (e.g. 0.8 for a VIP
+// CalculateWithRatio prices usage with a group pricing multiplier: every sell
+// price is scaled by ratio (e.g. 0.8 for a VIP
 // group) while the real upstream cost stays untouched.
 func (p *Pricer) CalculateWithRatio(ctx context.Context, modelID uuid.UUID, tenantID *uuid.UUID, usage *usageparser.NormalizedUsage, ratio decimal.Decimal) (*PriceResult, error) {
 	return p.CalculateAtWithRatio(ctx, modelID, tenantID, usage, time.Now().UTC(), ratio)
@@ -279,7 +279,7 @@ func selectPricingRows(rows []domain.ModelPricing, dim, period string, usage *us
 }
 
 // pricingConditionsMatch evaluates model_pricing.conditions against the actual
-// usage so admins can define tiered prices (new-api tiered-pricing parity):
+// usage so admins can define tiered prices:
 //
 //	{"max_total_tokens": 200000} applies to requests up to 200K total tokens.
 //

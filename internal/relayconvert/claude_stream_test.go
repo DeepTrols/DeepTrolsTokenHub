@@ -245,9 +245,9 @@ func TestOpenAIStreamChunkToClaudeEvents_AfterDone(t *testing.T) {
 	}
 }
 
-// TestOpenAIStreamChunkToClaudeEvents_FirstChunkWithContent covers new-api
-// parity: a first chunk that already carries text emits message_start plus the
-// content block start and first delta in the same call.
+// TestOpenAIStreamChunkToClaudeEvents_FirstChunkWithContent covers the case
+// where a first chunk already carries text: message_start plus the content
+// block start and first delta are emitted in the same call.
 func TestOpenAIStreamChunkToClaudeEvents_FirstChunkWithContent(t *testing.T) {
 	state := &ClaudeStreamState{}
 	events := OpenAIStreamChunkToClaudeEvents(oaiChunk(map[string]any{

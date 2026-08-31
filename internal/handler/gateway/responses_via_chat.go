@@ -46,7 +46,7 @@ func configBool(config map[string]any, key string) bool {
 }
 
 // responsesBodyToChatBody converts a Responses request body to an OpenAI chat
-// request body (new-api relaykit responses → chat parity).
+// request body (Responses → chat).
 func responsesBodyToChatBody(body map[string]any) (map[string]any, error) {
 	// OpenAI Responses accepts `input` as a plain string (convenience form);
 	// normalize it to a user message item before conversion.

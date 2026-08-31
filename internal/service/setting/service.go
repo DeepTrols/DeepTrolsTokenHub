@@ -51,36 +51,36 @@ const (
 	KeyReconciliationIntervalHours = "reconciliation_interval_hours"
 	KeyGatewayRateLimitRPM         = "gateway_rate_limit_rpm"
 	KeyLoginRateLimitRPM           = "login_rate_limit_rpm"
-	// Daily sign-in (new-api parity: enabled + min/max reward range).
+	// Daily sign-in: enabled + min/max reward range.
 	KeyCheckinEnabled  = "checkin.enabled"
 	KeyCheckinMinQuota = "checkin.min_quota"
 	KeyCheckinMaxQuota = "checkin.max_quota"
-	// OAuth login (new-api oauth parity, GitHub first).
+	// OAuth login (GitHub first).
 	KeyOAuthGithubEnabled  = "oauth_github_enabled"
 	KeyOAuthGithubClientID = "oauth_github_client_id"
 	KeyOAuthGithubSecret   = "oauth_github_client_secret"
 	KeyOAuthRedirectBase   = "oauth_redirect_base_url"
 	KeyOAuthGithubTokenURL = "oauth_github_token_url"
 	KeyOAuthGithubAPIURL   = "oauth_github_api_url"
-	// WeChat QR login (new-api wechat oauth parity).
+	// WeChat QR login.
 	KeyOAuthWechatEnabled  = "oauth_wechat_enabled"
 	KeyOAuthWechatAppID    = "oauth_wechat_appid"
 	KeyOAuthWechatSecret   = "oauth_wechat_secret"
 	KeyOAuthWechatTokenURL = "oauth_wechat_token_url"
 	KeyOAuthWechatUserURL  = "oauth_wechat_userinfo_url"
-	// Google OAuth login (new-api oauth parity).
+	// Google OAuth login.
 	KeyOAuthGoogleEnabled      = "oauth_google_enabled"
 	KeyOAuthGoogleClientID     = "oauth_google_client_id"
 	KeyOAuthGoogleSecret       = "oauth_google_client_secret"
 	KeyOAuthGoogleAuthorizeURL = "oauth_google_authorize_url"
 	KeyOAuthGoogleTokenURL     = "oauth_google_token_url"
 	KeyOAuthGoogleUserURL      = "oauth_google_userinfo_url"
-	// Invite reward (new-api affiliate parity): CNY credited to both sides.
+	// Invite reward: CNY credited to both sides.
 	KeyInviteReward = "invite_reward"
-	// Model catalog settings (new-api system-settings → models parity).
+	// Model catalog settings.
 	KeyModelsPublicVisible   = "models_public_visible"
 	KeyNewModelDefaultStatus = "new_model_default_status"
-	// User group pricing ratios (new-api group_ratio parity): JSON array of
+	// User group pricing ratios: JSON array of
 	// {"name": "...", "ratio": "0.8"} applied to sell prices per API-key group.
 	KeyUserGroups = "user_groups"
 	// Volume discount tiers (volume-based discount + monthly counter): JSON

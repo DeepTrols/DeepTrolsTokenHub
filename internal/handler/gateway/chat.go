@@ -521,7 +521,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 
 // streamOutput adapts an upstream OpenAI SSE stream to the downstream wire
 // format: OpenAI chat.completion.chunk passthrough or Anthropic Messages SSE
-// (new-api relaykit parity for /v1/messages streaming).
+// (used for /v1/messages streaming).
 type streamOutput interface {
 	writeData(w io.Writer, payload string) error
 	writeDone(w io.Writer) error
