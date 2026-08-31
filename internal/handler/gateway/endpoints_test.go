@@ -480,8 +480,9 @@ func TestHandleForwardedEndpoint_UpstreamHTTPError_LogsFailed(t *testing.T) {
 			if log.RequestType != tc.wantRT {
 				t.Errorf("RequestType = %q, want %q", log.RequestType, tc.wantRT)
 			}
-			if usageRepo.lastEvidence == nil || usageRepo.lastEvidence.StatusCode != http.StatusBadGateway {
-				t.Errorf("evidence = %+v, want status 502", usageRepo.lastEvidence)
+			evidence := waitForEvidence(t, usageRepo)
+			if evidence.StatusCode != http.StatusBadGateway {
+				t.Errorf("evidence = %+v, want status 502", evidence)
 			}
 		})
 	}

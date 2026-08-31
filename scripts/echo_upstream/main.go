@@ -75,8 +75,8 @@ func ollamaChatHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"model": "llama3", "created_at": "2026-08-29T00:00:00Z",
-		"message": map[string]any{"role": "assistant", "content": "echo from ollama"},
-		"done":    true,
+		"message":           map[string]any{"role": "assistant", "content": "echo from ollama"},
+		"done":              true,
 		"prompt_eval_count": 2, "eval_count": 3,
 	})
 }

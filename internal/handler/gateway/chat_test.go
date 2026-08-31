@@ -1228,11 +1228,9 @@ func TestHandleStreamingChat_SuccessWithUsage(t *testing.T) {
 	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusCompleted {
 		t.Errorf("Streaming Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusCompleted)
 	}
-	if usageRepo.lastEvidence == nil {
-		t.Fatal("provider evidence was never recorded for streaming")
-	}
-	if usageRepo.lastEvidence.StatusCode != http.StatusOK {
-		t.Errorf("evidence status = %d, want %d", usageRepo.lastEvidence.StatusCode, http.StatusOK)
+	evidence := waitForEvidence(t, usageRepo)
+	if evidence.StatusCode != http.StatusOK {
+		t.Errorf("evidence status = %d, want %d", evidence.StatusCode, http.StatusOK)
 	}
 }
 
@@ -1440,13 +1438,11 @@ func TestHandleStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
 	if usageRepo.lastUsageLog.ErrorCode != "upstream_http_error" {
 		t.Errorf("ErrorCode = %s, want upstream_http_error", usageRepo.lastUsageLog.ErrorCode)
 	}
-	if usageRepo.lastEvidence == nil {
-		t.Fatal("provider evidence was never recorded")
+	evidence := waitForEvidence(t, usageRepo)
+	if evidence.StatusCode != http.StatusInternalServerError {
+		t.Errorf("evidence status = %d, want %d", evidence.StatusCode, http.StatusInternalServerError)
 	}
-	if usageRepo.lastEvidence.StatusCode != http.StatusInternalServerError {
-		t.Errorf("evidence status = %d, want %d", usageRepo.lastEvidence.StatusCode, http.StatusInternalServerError)
-	}
-	if usageRepo.lastEvidence.ErrorMessage == "" {
+	if evidence.ErrorMessage == "" {
 		t.Error("evidence error_message should be populated on upstream HTTP error")
 	}
 	if !usageRepo.lastUsageLog.WalletCharged.IsZero() {
@@ -2561,6 +2557,22 @@ func waitForUsageLog(t *testing.T, usageRepo *mockUsageRepo) *domain.UsageLog {
 	return usageRepo.lastUsageLog
 }
 
+// waitForEvidence polls the mock usage repo until the async logging goroutine
+// has recorded provider evidence (or fails the test after a deadline). Logger
+// writes the usage log before provider evidence, so waiting for the log alone
+// is not enough to make evidence observable.
+func waitForEvidence(t *testing.T, usageRepo *mockUsageRepo) *domain.ProviderEvidence {
+	t.Helper()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for usageRepo.lastEvidence == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if usageRepo.lastEvidence == nil {
+		t.Fatal("provider evidence was never recorded (timed out)")
+	}
+	return usageRepo.lastEvidence
+}
+
 func TestHandleNonStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
 	userID := uuid.New()
 	apiKeyID := uuid.New()
@@ -2609,13 +2621,11 @@ func TestHandleNonStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
 	if !log.FinalCost.IsZero() {
 		t.Errorf("FinalCost = %s, want 0", log.FinalCost)
 	}
-	if usageRepo.lastEvidence == nil {
-		t.Fatal("provider evidence was never recorded")
+	evidence := waitForEvidence(t, usageRepo)
+	if evidence.StatusCode != http.StatusInternalServerError {
+		t.Errorf("evidence status = %d, want %d", evidence.StatusCode, http.StatusInternalServerError)
 	}
-	if usageRepo.lastEvidence.StatusCode != http.StatusInternalServerError {
-		t.Errorf("evidence status = %d, want %d", usageRepo.lastEvidence.StatusCode, http.StatusInternalServerError)
-	}
-	if usageRepo.lastEvidence.ErrorMessage == "" {
+	if evidence.ErrorMessage == "" {
 		t.Error("evidence error_message should be populated on upstream HTTP error")
 	}
 }
@@ -2648,10 +2658,8 @@ func TestHandleNonStreamingChat_UpstreamConnectionError_LogsFailed(t *testing.T)
 	if log.ErrorCode != "upstream_error" {
 		t.Errorf("ErrorCode = %s, want upstream_error", log.ErrorCode)
 	}
-	if usageRepo.lastEvidence == nil {
-		t.Fatal("provider evidence was never recorded")
-	}
-	if usageRepo.lastEvidence.ErrorMessage == "" {
+	evidence := waitForEvidence(t, usageRepo)
+	if evidence.ErrorMessage == "" {
 		t.Error("evidence error_message should carry the connection error")
 	}
 }
@@ -2691,11 +2699,9 @@ func TestHandleNonStreamingChat_FailoverAllFailed_LogsSingleFailure(t *testing.T
 		t.Errorf("ErrorMessage = %q, want it to mention 'all 2 candidates failed'", log.ErrorMessage)
 	}
 	// Evidence reflects the LAST attempt (connection error -> no status code).
-	if usageRepo.lastEvidence == nil {
-		t.Fatal("provider evidence was never recorded")
-	}
-	if usageRepo.lastEvidence.StatusCode != 0 {
-		t.Errorf("evidence status = %d, want 0 (last attempt was a connection error)", usageRepo.lastEvidence.StatusCode)
+	evidence := waitForEvidence(t, usageRepo)
+	if evidence.StatusCode != 0 {
+		t.Errorf("evidence status = %d, want 0 (last attempt was a connection error)", evidence.StatusCode)
 	}
 }
 
@@ -2761,10 +2767,8 @@ func TestHandleNonStreamingChat_ErrorBodyTruncated(t *testing.T) {
 	if log.Status != domain.UsageLogStatusFailed {
 		t.Fatalf("Status = %s, want %s", log.Status, domain.UsageLogStatusFailed)
 	}
-	if usageRepo.lastEvidence == nil {
-		t.Fatal("provider evidence was never recorded")
-	}
-	raw, err := json.Marshal(usageRepo.lastEvidence.ResponseBody)
+	evidence := waitForEvidence(t, usageRepo)
+	raw, err := json.Marshal(evidence.ResponseBody)
 	if err != nil {
 		t.Fatalf("marshal evidence response body: %v", err)
 	}
@@ -2848,10 +2852,8 @@ func TestHandleNonStreamingChat_EvidenceProviderFromInstanceConfig(t *testing.T)
 		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
 	}
 	waitForUsageLog(t, usageRepo)
-	if usageRepo.lastEvidence == nil {
-		t.Fatal("provider evidence was never recorded")
-	}
-	if got := usageRepo.lastEvidence.Provider; got != "deepseek" {
+	evidence := waitForEvidence(t, usageRepo)
+	if got := evidence.Provider; got != "deepseek" {
 		t.Errorf("evidence provider = %q, want %q (must not be litellm)", got, "deepseek")
 	}
 }
@@ -2877,10 +2879,8 @@ func TestHandleNonStreamingChat_EvidenceProviderFallbackDirect(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
 	}
 	waitForUsageLog(t, usageRepo)
-	if usageRepo.lastEvidence == nil {
-		t.Fatal("provider evidence was never recorded")
-	}
-	if got := usageRepo.lastEvidence.Provider; got != "direct" {
+	evidence := waitForEvidence(t, usageRepo)
+	if got := evidence.Provider; got != "direct" {
 		t.Errorf("evidence provider = %q, want %q", got, "direct")
 	}
 }
