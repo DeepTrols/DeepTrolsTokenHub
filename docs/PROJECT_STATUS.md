@@ -78,7 +78,7 @@
 | 渠道管理 | CRUD + 实例增删 + 测试/批量测试 + 模型绑定/启停 |
 | 租户管理 | CRUD + 域名管理 + 5 状态状态机 |
 | 用户管理 | 列表 + 创建 + 角色/状态编辑 + 删除 |
-| 对账管理 | 查看对账运行记录与差异 |
+| 对账管理 | 查看对账运行记录与差异（L0-L3 + L2 摘要） |
 | 审计日志 | 全量 Admin 操作记录 |
 | 站点设置 | site 设置 + Logo 上传 |
 | 支付订单 | 列表 + 手工补单 |
@@ -98,7 +98,7 @@
 | Worker | 说明 |
 |--------|------|
 | Health Checker | 每 60s 探测所有渠道实例 /health 端点 |
-| Reconciler | 每 1h 运行 L0（漏记账）+ L1（证据不匹配）对账 |
+| Reconciler | 每 1h 运行 L0/L1/L2/L3 对账（漏记账、证据不匹配、L0↔L1 交叉、外部账单核对） |
 | Subscription Expirer | 过期订阅回收 |
 | Subscription Renewer | 到期前从钱包自动续费 |
 
@@ -132,7 +132,7 @@
 | 1 | 视频任务下载 `/v1/videos/generations/:id/content/:index` | 未提供（创建/查询/取消已实现） |
 | 2 | Seedance 异步回调 webhook | 未提供（需独立验签，不应走 /v1 Bearer） |
 | 3 | `/v1beta/models/{model}:generateContent` 原生端点 | 未提供；内部 GeminiAdapter 已支持 chat → generateContent 转换 |
-| 4 | 对账 L2/L3 | L0/L1 已实现；L2（L0↔L1 内部对账）、L3（上游账单核对）未实现 |
+| 4 | 对账差异自动修复 | L0-L3 对账已实现（L3 基于 billing_records 外部账单）；差异自动修正 + 重试未实现 |
 | 5 | Gemini usageMetadata 解析 | 未实现（OpenAI/Anthropic 已归一化） |
 | 6 | 多币种 / FX 汇率 | 未实现（当前统一 CNY） |
 | 7 | BYOK（自带上游 Key） | 未实现 |
@@ -182,7 +182,7 @@
 
 | 阶段 | 时间 | 内容 |
 |------|------|------|
-| 短期 | 2周 | 对账 L2/L3 差异分类与自动修复；监控指标与告警；部署/恢复演练 |
+| 短期 | 2周 | 对账差异自动修复（L2/L3 已实现）；监控指标与告警；部署/恢复演练 |
 | 中期 | 按需 | 官方支付渠道（支付宝/微信）替代易支付 M0；视频下载与 Seedance 回调；多币种/FX；BYOK |
 | 长期 | 按需 | /v1beta Gemini 原生端点；对账 L3 上游账单核对；公开市场数据 |
 
@@ -3380,3 +3380,21 @@ cd web && npm run test:e2e
 - 全仓搜索：代码注释已无 `new-api parity` 组合；
 - 改动文档均与当前路由表、迁移（000001-000036）、web 页面（34 个页面组件）逐项核对；
 - 纯注释/文档变更，不影响构建与运行；gofmt 校验通过。
+
+---
+
+## 一百零五、2026-09-01 修正：对账 L2/L3 状态 + 网关测试竞态修复
+
+### 105.1 对账 L2/L3 状态修正
+
+- 复核 `internal/worker/reconciliation` 与迁移 000015：L2（L0↔L1 交叉核对）与 L3（billing_records
+  外部账单 vs 内部 usage，含 billing_without_usage / usage_without_billing / amount_mismatch）已实现
+  且有测试（`TestRun_L2_InternalCrossCheck` / `TestRun_L3_BillingDiffs`）。
+- 此前 2026-08-30 文档同步（一百零四节 / DEEPTROLS 清单）误标为未实现，本次修正：
+  DEEPTROLS 证据面与第七篇、汇总对账级别、PRODUCTION_READINESS P2、本报告 2.7/3.1/五 同步更新。
+- 仍未实现：对账差异自动修复（自动修正 + 重试）。
+
+### 105.2 网关测试竞态修复（commit 2e50432）
+
+- 新增加锁 `waitForChargeLines`；`waitForUsageLog` / `waitForEvidence` 读取上锁；13 处内联轮询统一替换；
+- gateway 包 `-race` 通过（Docker gcc 环境）；全量 `go test ./...` 全绿；`go vet` / `go build` 干净。

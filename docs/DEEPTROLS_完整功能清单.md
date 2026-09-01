@@ -17,6 +17,8 @@
 > gzip 响应压缩、分组折扣（group_ratio + volume 阶梯）、月度账单、余额预警、订阅套餐/签到/兑换码/邀请奖励、
 > 易支付（epay）M0 已接入；API Key 前缀统一 sk-；企业/团队体系已移除（/team/*、team_balance 代充值删除）。
 > 详见 PROJECT_STATUS.md 九十七/九十八节）
+> 修正：2026-09-01（对账 L2/L3 实际已实现：L2 = L0↔L1 交叉核对，L3 = billing_records 外部账单核对（000015）；
+> 此前 2026-08-30 同步误标为 ❌，已修正；另见 PROJECT_STATUS.md 一百零五节）
 
 ---
 
@@ -104,8 +106,8 @@
 | 审计日志 | audit_logs 表 | ✅ 已实现（AuditAdminWrite 中间件） |
 | 对账 L0 | usage_logs vs charge_lines 计数 | ✅ 已实现 |
 | 对账 L1 | provider_evidence 匹配 | ✅ 已实现（缺口 / token 不匹配 / error 误标） |
-| 对账 L2 | L0 ↔ L1 内部对账 | ❌ 未实现 |
-| 对账 L3 | L1 ↔ 上游账单 | ❌ 未实现 |
+| 对账 L2 | L0 ↔ L1 内部对账 | ✅ 已实现（象限计数 + balanced 判定） |
+| 对账 L3 | 外部账单（billing_records）↔ 内部 usage | ✅ 已实现（billing_without_usage / usage_without_billing / amount_mismatch） |
 | 对账 Diff 自动修复 | 修正 + 重试 | ❌ 未实现 |
 
 ---
@@ -215,8 +217,8 @@
 |------|------|
 | L0：usage_logs vs charge_lines | ✅ |
 | L1：provider_evidence 匹配 | ✅ |
-| L2：L0 ↔ L1 内部对账 | ❌ |
-| L3：L1 ↔ 上游账单 | ❌ |
+| L2：L0 ↔ L1 内部对账 | ✅ |
+| L3：外部账单（billing_records）↔ 内部 usage | ✅ |
 | Usage 归一化（OpenAI/Anthropic/Gemini） | ✅ |
 | Anthropic cache token 解析 | ✅ |
 | Gemini usageMetadata 解析 | ❌ |
@@ -292,7 +294,7 @@
 | Gateway 端点 | 16 | 13 | 0 | 3 |
 | 鉴权方式 | 4 | 2 | 1 | 1 |
 | 计费能力 | 18 | 17 | 1 | 0 |
-| 对账级别 | 4 | 2 | 0 | 2 |
+| 对账级别 | 4 | 4 | 0 | 0 |
 | OEM 能力 | 12 | 10 | 0 | 2（已移除） |
 | Console 页面 | 34 | 34 | 0 | 0 |
 | Worker 能力 | 5 | 5 | 0 | 0 |
@@ -301,7 +303,7 @@
 ### 建议实施顺序
 
 **短期（质量加固）**:
-- 对账 L2/L3 差异分类与自动修复；监控指标与告警（Prometheus + 告警规则）
+- 对账差异自动修复（L2/L3 已实现）；监控指标与告警（Prometheus + 告警规则）
 - 干净环境部署演练 + 备份恢复演练（见 PRODUCTION_READINESS B7/B8）
 
 **中期**:
