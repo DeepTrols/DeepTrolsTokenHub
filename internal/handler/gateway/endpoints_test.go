@@ -152,8 +152,9 @@ func TestHandleAudioTranscriptions_Success(t *testing.T) {
 	if log.RequestType != "audio" {
 		t.Errorf("RequestType = %q, want audio", log.RequestType)
 	}
-	if len(usageRepo.lastChargeLines) == 0 || usageRepo.lastChargeLines[0].Dimension != "audio" {
-		t.Errorf("charge lines = %+v, want first dimension audio", usageRepo.lastChargeLines)
+	lines := waitForChargeLines(t, usageRepo)
+	if lines[0].Dimension != "audio" {
+		t.Errorf("charge lines = %+v, want first dimension audio", lines)
 	}
 	if log.UsageNormalized["audio_seconds"] != float64(1) {
 		t.Errorf("UsageNormalized = %+v, want audio_seconds 1", log.UsageNormalized)
@@ -240,8 +241,9 @@ func TestHandleImagesEdits_Success(t *testing.T) {
 	if log.RequestType != "images" {
 		t.Errorf("RequestType = %q, want images", log.RequestType)
 	}
-	if len(usageRepo.lastChargeLines) == 0 || usageRepo.lastChargeLines[0].Dimension != "image" {
-		t.Errorf("charge lines = %+v, want first dimension image", usageRepo.lastChargeLines)
+	lines := waitForChargeLines(t, usageRepo)
+	if lines[0].Dimension != "image" {
+		t.Errorf("charge lines = %+v, want first dimension image", lines)
 	}
 }
 
@@ -323,8 +325,9 @@ func TestHandleEmbeddings_Success_UpstreamUsage(t *testing.T) {
 	if log.Status != domain.UsageLogStatusCompleted {
 		t.Errorf("Status = %s, want completed", log.Status)
 	}
-	if len(usageRepo.lastChargeLines) == 0 || usageRepo.lastChargeLines[0].Dimension != "input" {
-		t.Errorf("charge lines = %+v, want first dimension input", usageRepo.lastChargeLines)
+	lines := waitForChargeLines(t, usageRepo)
+	if lines[0].Dimension != "input" {
+		t.Errorf("charge lines = %+v, want first dimension input", lines)
 	}
 }
 
@@ -384,8 +387,9 @@ func TestHandleImagesGenerations_Success_ImageCount(t *testing.T) {
 	if log.RequestType != "images" {
 		t.Errorf("RequestType = %q, want images", log.RequestType)
 	}
-	if len(usageRepo.lastChargeLines) == 0 || usageRepo.lastChargeLines[0].Dimension != "image" {
-		t.Errorf("charge lines = %+v, want first dimension image", usageRepo.lastChargeLines)
+	lines := waitForChargeLines(t, usageRepo)
+	if lines[0].Dimension != "image" {
+		t.Errorf("charge lines = %+v, want first dimension image", lines)
 	}
 	if log.UsageNormalized["image_count"] != float64(2) {
 		t.Errorf("UsageNormalized = %+v, want image_count 2", log.UsageNormalized)
@@ -425,8 +429,9 @@ func TestHandleAudioSpeech_Success_TTSCharacters(t *testing.T) {
 	if log.RequestType != "audio" {
 		t.Errorf("RequestType = %q, want audio", log.RequestType)
 	}
-	if len(usageRepo.lastChargeLines) == 0 || usageRepo.lastChargeLines[0].Dimension != "tts" {
-		t.Errorf("charge lines = %+v, want first dimension tts", usageRepo.lastChargeLines)
+	lines := waitForChargeLines(t, usageRepo)
+	if lines[0].Dimension != "tts" {
+		t.Errorf("charge lines = %+v, want first dimension tts", lines)
 	}
 	chars, _ := log.UsageNormalized["tts_characters"].(float64)
 	if chars <= 0 {

@@ -73,8 +73,9 @@ func TestHandleVideoGenerations_SyncSettles(t *testing.T) {
 	if log.RequestType != "video" {
 		t.Errorf("RequestType = %q, want video", log.RequestType)
 	}
-	if len(usageRepo.lastChargeLines) == 0 || usageRepo.lastChargeLines[0].Dimension != "video" {
-		t.Errorf("charge lines = %+v, want first dimension video", usageRepo.lastChargeLines)
+	lines := waitForChargeLines(t, usageRepo)
+	if lines[0].Dimension != "video" {
+		t.Errorf("charge lines = %+v, want first dimension video", lines)
 	}
 }
 

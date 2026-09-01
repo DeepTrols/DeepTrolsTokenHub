@@ -545,18 +545,12 @@ func TestHandleNonStreamingChat_GeminiUpstream(t *testing.T) {
 		t.Errorf("expected reserve+settle, got reserve=%d settle=%d", walletRepo.reserveCalled, walletRepo.settleCalled)
 	}
 
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	log := waitForUsageLog(t, usageRepo)
+	if log.UsageSource != domain.UsageSourceUpstream {
+		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceUpstream)
 	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded (timed out)")
-	}
-	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceUpstream {
-		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceUpstream)
-	}
-	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusCompleted {
-		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusCompleted)
+	if log.Status != domain.UsageLogStatusCompleted {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusCompleted)
 	}
 }
 
@@ -673,27 +667,21 @@ func TestHandleNonStreamingChat_Success(t *testing.T) {
 	}
 
 	// Assert -- log has non-zero costs (wait briefly for goroutine)
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded (timed out)")
-	}
-	if usageRepo.lastUsageLog.ListCost.Equal(decimal.Zero) {
+	log := waitForUsageLog(t, usageRepo)
+	if log.ListCost.Equal(decimal.Zero) {
 		t.Error("ListCost should be non-zero in usage log")
 	}
-	if usageRepo.lastUsageLog.FinalCost.Equal(decimal.Zero) {
+	if log.FinalCost.Equal(decimal.Zero) {
 		t.Error("FinalCost should be non-zero in usage log")
 	}
-	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceUpstream {
-		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceUpstream)
+	if log.UsageSource != domain.UsageSourceUpstream {
+		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceUpstream)
 	}
-	if usageRepo.lastUsageLog.WalletCharged.IsZero() {
+	if log.WalletCharged.IsZero() {
 		t.Error("WalletCharged should be non-zero after a successful settle")
 	}
-	if !usageRepo.lastUsageLog.WalletCharged.Equal(usageRepo.lastUsageLog.FinalCost) {
-		t.Errorf("WalletCharged = %s, want FinalCost %s", usageRepo.lastUsageLog.WalletCharged, usageRepo.lastUsageLog.FinalCost)
+	if !log.WalletCharged.Equal(log.FinalCost) {
+		t.Errorf("WalletCharged = %s, want FinalCost %s", log.WalletCharged, log.FinalCost)
 	}
 }
 
@@ -1209,24 +1197,18 @@ func TestHandleStreamingChat_SuccessWithUsage(t *testing.T) {
 	}
 
 	// Assert -- log has non-zero costs
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded for streaming (timed out)")
-	}
-	if usageRepo.lastUsageLog.ListCost.Equal(decimal.Zero) {
+	log := waitForUsageLog(t, usageRepo)
+	if log.ListCost.Equal(decimal.Zero) {
 		t.Error("ListCost should be non-zero in streaming usage log")
 	}
-	if usageRepo.lastUsageLog.FinalCost.Equal(decimal.Zero) {
+	if log.FinalCost.Equal(decimal.Zero) {
 		t.Error("FinalCost should be non-zero in streaming usage log")
 	}
-	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceFinalChunk {
-		t.Errorf("Streaming UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceFinalChunk)
+	if log.UsageSource != domain.UsageSourceFinalChunk {
+		t.Errorf("Streaming UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceFinalChunk)
 	}
-	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusCompleted {
-		t.Errorf("Streaming Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusCompleted)
+	if log.Status != domain.UsageLogStatusCompleted {
+		t.Errorf("Streaming Status = %s, want %s", log.Status, domain.UsageLogStatusCompleted)
 	}
 	evidence := waitForEvidence(t, usageRepo)
 	if evidence.StatusCode != http.StatusOK {
@@ -1333,24 +1315,18 @@ func TestHandleStreamingChat_TruncatedStream_LogsPartialAndReleases(t *testing.T
 		t.Error("settle should NOT be called on truncated stream")
 	}
 
-	deadline := time.Now().Add(300 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusPartial {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusPartial)
 	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded for truncated stream (timed out)")
+	if log.ErrorCode != "stream_interrupted" {
+		t.Errorf("ErrorCode = %s, want stream_interrupted", log.ErrorCode)
 	}
-	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusPartial {
-		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusPartial)
+	if !log.WalletCharged.IsZero() {
+		t.Errorf("WalletCharged = %s, want 0", log.WalletCharged)
 	}
-	if usageRepo.lastUsageLog.ErrorCode != "stream_interrupted" {
-		t.Errorf("ErrorCode = %s, want stream_interrupted", usageRepo.lastUsageLog.ErrorCode)
-	}
-	if !usageRepo.lastUsageLog.WalletCharged.IsZero() {
-		t.Errorf("WalletCharged = %s, want 0", usageRepo.lastUsageLog.WalletCharged)
-	}
-	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceEstimated {
-		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceEstimated)
+	if log.UsageSource != domain.UsageSourceEstimated {
+		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceEstimated)
 	}
 }
 
@@ -1425,18 +1401,12 @@ func TestHandleStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
 		t.Error("settle should NOT be called on upstream HTTP error")
 	}
 
-	deadline := time.Now().Add(300 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusFailed)
 	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded for upstream HTTP error (timed out)")
-	}
-	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusFailed {
-		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusFailed)
-	}
-	if usageRepo.lastUsageLog.ErrorCode != "upstream_http_error" {
-		t.Errorf("ErrorCode = %s, want upstream_http_error", usageRepo.lastUsageLog.ErrorCode)
+	if log.ErrorCode != "upstream_http_error" {
+		t.Errorf("ErrorCode = %s, want upstream_http_error", log.ErrorCode)
 	}
 	evidence := waitForEvidence(t, usageRepo)
 	if evidence.StatusCode != http.StatusInternalServerError {
@@ -1445,8 +1415,8 @@ func TestHandleStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
 	if evidence.ErrorMessage == "" {
 		t.Error("evidence error_message should be populated on upstream HTTP error")
 	}
-	if !usageRepo.lastUsageLog.WalletCharged.IsZero() {
-		t.Errorf("WalletCharged = %s, want 0", usageRepo.lastUsageLog.WalletCharged)
+	if !log.WalletCharged.IsZero() {
+		t.Errorf("WalletCharged = %s, want 0", log.WalletCharged)
 	}
 }
 
@@ -1530,15 +1500,9 @@ func TestHandleStreamingChat_NoUsageInStream_EstimatedTag(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded (timed out)")
-	}
-	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceEstimated {
-		t.Errorf("UsageSource = %s, want %s for stream without usage", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceEstimated)
+	log := waitForUsageLog(t, usageRepo)
+	if log.UsageSource != domain.UsageSourceEstimated {
+		t.Errorf("UsageSource = %s, want %s for stream without usage", log.UsageSource, domain.UsageSourceEstimated)
 	}
 }
 
@@ -1692,21 +1656,15 @@ func TestHandleStreamingChat_UpstreamConnectionError_LogsFailed(t *testing.T) {
 		t.Error("settle should NOT be called on upstream connection error")
 	}
 
-	deadline := time.Now().Add(300 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusFailed)
 	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded for upstream connection error (timed out)")
+	if log.ErrorCode != "upstream_error" {
+		t.Errorf("ErrorCode = %s, want upstream_error", log.ErrorCode)
 	}
-	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusFailed {
-		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusFailed)
-	}
-	if usageRepo.lastUsageLog.ErrorCode != "upstream_error" {
-		t.Errorf("ErrorCode = %s, want upstream_error", usageRepo.lastUsageLog.ErrorCode)
-	}
-	if !usageRepo.lastUsageLog.WalletCharged.IsZero() {
-		t.Errorf("WalletCharged = %s, want 0", usageRepo.lastUsageLog.WalletCharged)
+	if !log.WalletCharged.IsZero() {
+		t.Errorf("WalletCharged = %s, want 0", log.WalletCharged)
 	}
 }
 
@@ -1777,15 +1735,9 @@ func TestHandleStreamingChat_UpstreamHTTPError_BodyTruncated(t *testing.T) {
 		t.Errorf("response body length = %d, want <= 1 MiB (capped)", w.Body.Len())
 	}
 
-	deadline := time.Now().Add(300 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded for large upstream error (timed out)")
-	}
-	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusFailed {
-		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusFailed)
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusFailed {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusFailed)
 	}
 }
 
@@ -2294,15 +2246,9 @@ func TestHandleNonStreamingChat_UsageSourceTagged(t *testing.T) {
 				t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 			}
 
-			deadline := time.Now().Add(200 * time.Millisecond)
-			for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-				time.Sleep(5 * time.Millisecond)
-			}
-			if usageRepo.lastUsageLog == nil {
-				t.Fatal("usage log timed out")
-			}
-			if usageRepo.lastUsageLog.UsageSource != tt.expectTag {
-				t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, tt.expectTag)
+			log := waitForUsageLog(t, usageRepo)
+			if log.UsageSource != tt.expectTag {
+				t.Errorf("UsageSource = %s, want %s", log.UsageSource, tt.expectTag)
 			}
 		})
 	}
@@ -2548,13 +2494,20 @@ func newNonStreamChatRequest(userID, apiKeyID uuid.UUID, body map[string]any) *h
 func waitForUsageLog(t *testing.T, usageRepo *mockUsageRepo) *domain.UsageLog {
 	t.Helper()
 	deadline := time.Now().Add(500 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
+	var log *domain.UsageLog
+	for {
+		usageRepo.mu.Lock()
+		log = usageRepo.lastUsageLog
+		usageRepo.mu.Unlock()
+		if log != nil || time.Now().After(deadline) {
+			break
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if usageRepo.lastUsageLog == nil {
+	if log == nil {
 		t.Fatal("usage log was never recorded (timed out)")
 	}
-	return usageRepo.lastUsageLog
+	return log
 }
 
 // waitForEvidence polls the mock usage repo until the async logging goroutine
@@ -2564,13 +2517,43 @@ func waitForUsageLog(t *testing.T, usageRepo *mockUsageRepo) *domain.UsageLog {
 func waitForEvidence(t *testing.T, usageRepo *mockUsageRepo) *domain.ProviderEvidence {
 	t.Helper()
 	deadline := time.Now().Add(500 * time.Millisecond)
-	for usageRepo.lastEvidence == nil && time.Now().Before(deadline) {
+	var evidence *domain.ProviderEvidence
+	for {
+		usageRepo.mu.Lock()
+		evidence = usageRepo.lastEvidence
+		usageRepo.mu.Unlock()
+		if evidence != nil || time.Now().After(deadline) {
+			break
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if usageRepo.lastEvidence == nil {
+	if evidence == nil {
 		t.Fatal("provider evidence was never recorded (timed out)")
 	}
-	return usageRepo.lastEvidence
+	return evidence
+}
+
+// waitForChargeLines polls the mock usage repo until the async logging
+// goroutine has recorded charge lines (or fails the test after a deadline).
+// Logger writes the usage log before charge lines, so waiting for the log
+// alone is not enough to make charge lines observable.
+func waitForChargeLines(t *testing.T, usageRepo *mockUsageRepo) []domain.ChargeLine {
+	t.Helper()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var lines []domain.ChargeLine
+	for {
+		usageRepo.mu.Lock()
+		lines = usageRepo.lastChargeLines
+		usageRepo.mu.Unlock()
+		if len(lines) > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(lines) == 0 {
+		t.Fatal("charge lines were never recorded (timed out)")
+	}
+	return lines
 }
 
 func TestHandleNonStreamingChat_UpstreamHTTPError_LogsFailed(t *testing.T) {
@@ -3025,9 +3008,9 @@ func TestHandleStreamingChat_InjectsIncludeUsage(t *testing.T) {
 		t.Fatal("upstream handler never saw the request body")
 	}
 	// The injected usage must flow into the final-chunk billing path.
-	waitForUsageLog(t, usageRepo)
-	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceFinalChunk {
-		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceFinalChunk)
+	log := waitForUsageLog(t, usageRepo)
+	if log.UsageSource != domain.UsageSourceFinalChunk {
+		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceFinalChunk)
 	}
 }
 

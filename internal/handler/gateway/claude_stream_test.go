@@ -143,20 +143,14 @@ func TestHandleClaudeMessagesStreaming_Success(t *testing.T) {
 	}
 
 	// Evidence chain: completed log with final-chunk usage and non-zero cost.
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	log := waitForUsageLog(t, usageRepo)
+	if log.UsageSource != domain.UsageSourceFinalChunk {
+		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceFinalChunk)
 	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded (timed out)")
+	if log.Status != domain.UsageLogStatusCompleted {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusCompleted)
 	}
-	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceFinalChunk {
-		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceFinalChunk)
-	}
-	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusCompleted {
-		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusCompleted)
-	}
-	if usageRepo.lastUsageLog.ListCost.Equal(decimal.Zero) {
+	if log.ListCost.Equal(decimal.Zero) {
 		t.Error("ListCost should be non-zero")
 	}
 	waitForEvidence(t, usageRepo)
@@ -223,17 +217,11 @@ func TestHandleClaudeMessagesStreaming_TruncatedStream_NoMessageStop(t *testing.
 		t.Error("settle should not be called on a truncated stream")
 	}
 
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded (timed out)")
-	}
 	// Chunks were delivered before the interruption: the evidence chain must
 	// record the stream as partial, never as a clean success.
-	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusPartial {
-		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusPartial)
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusPartial {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusPartial)
 	}
 }
 

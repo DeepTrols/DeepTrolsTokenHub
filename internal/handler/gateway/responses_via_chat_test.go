@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/domain"
@@ -98,15 +97,9 @@ func TestHandleResponsesViaChat_NonStreaming(t *testing.T) {
 		t.Errorf("expected reserve+settle, got reserve=%d settle=%d", walletRepo.reserveCalled, walletRepo.settleCalled)
 	}
 
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded (timed out)")
-	}
-	if usageRepo.lastUsageLog.Status != domain.UsageLogStatusCompleted {
-		t.Errorf("Status = %s, want %s", usageRepo.lastUsageLog.Status, domain.UsageLogStatusCompleted)
+	log := waitForUsageLog(t, usageRepo)
+	if log.Status != domain.UsageLogStatusCompleted {
+		t.Errorf("Status = %s, want %s", log.Status, domain.UsageLogStatusCompleted)
 	}
 }
 
@@ -150,15 +143,9 @@ func TestHandleResponsesViaChat_Streaming(t *testing.T) {
 	if walletRepo.reserveCalled == 0 || walletRepo.settleCalled == 0 || walletRepo.releaseCalled > 0 {
 		t.Errorf("billing mismatch: reserve=%d settle=%d release=%d", walletRepo.reserveCalled, walletRepo.settleCalled, walletRepo.releaseCalled)
 	}
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for usageRepo.lastUsageLog == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if usageRepo.lastUsageLog == nil {
-		t.Fatal("usage log was never recorded (timed out)")
-	}
-	if usageRepo.lastUsageLog.UsageSource != domain.UsageSourceFinalChunk {
-		t.Errorf("UsageSource = %s, want %s", usageRepo.lastUsageLog.UsageSource, domain.UsageSourceFinalChunk)
+	log := waitForUsageLog(t, usageRepo)
+	if log.UsageSource != domain.UsageSourceFinalChunk {
+		t.Errorf("UsageSource = %s, want %s", log.UsageSource, domain.UsageSourceFinalChunk)
 	}
 }
 
