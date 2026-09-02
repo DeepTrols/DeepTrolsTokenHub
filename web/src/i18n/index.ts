@@ -905,7 +905,7 @@ const resources = {
         periodPeak: "高峰",
       },
       tenants: {
-        title: "租户管理",
+        title: "企业管理",
         totalCount: "共 {{count}} 家企业",
         loading: "加载企业...",
         createEnterprise: "创建企业",
@@ -2132,7 +2132,7 @@ const resources = {
         periodPeak: "Peak",
       },
       tenants: {
-        title: "Tenant Management",
+        title: "Enterprise Management",
         totalCount: "{{count}} enterprises",
         loading: "Loading enterprises...",
         createEnterprise: "Create Enterprise",

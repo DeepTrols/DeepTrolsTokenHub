@@ -23,6 +23,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Terminology: the code keeps the historical "tenant" identifier, but the
+// platform now serves enterprise customers only (see
+// docs/规划_平台定位与企业化改造方案.md). OEM channel semantics — custom
+// domains, per-tenant branding, model selection, and tenant-level
+// settlement/pricing — are frozen: their database columns are retained, but
+// the admin API no longer reads or writes them. This file manages enterprise
+// customers (企业客户), not resale channels.
+
 // tenantListResponse is the JSON shape for a tenant in list responses.
 type tenantListResponse struct {
 	ID           string  `json:"id"`
@@ -34,19 +42,18 @@ type tenantListResponse struct {
 	CreatedAt    string  `json:"created_at"`
 }
 
-// tenantDetailResponse is the JSON shape for a single tenant.
+// tenantDetailResponse is the JSON shape for a single tenant. OEM config
+// fields (brand/runtime/settlement) were frozen out of the admin surface:
+// the columns stay in the database but are no longer exposed here.
 type tenantDetailResponse struct {
-	ID               string         `json:"id"`
-	Code             string         `json:"code"`
-	Name             string         `json:"name"`
-	Status           string         `json:"status"`
-	OwnerID          *string        `json:"owner_id,omitempty"`
-	BrandConfig      map[string]any `json:"brand_config,omitempty"`
-	RuntimeConfig    map[string]any `json:"runtime_config,omitempty"`
-	SettlementConfig map[string]any `json:"settlement_config,omitempty"`
-	StatusReason     string         `json:"status_reason,omitempty"`
-	CreatedAt        string         `json:"created_at"`
-	UpdatedAt        string         `json:"updated_at,omitempty"`
+	ID           string  `json:"id"`
+	Code         string  `json:"code"`
+	Name         string  `json:"name"`
+	Status       string  `json:"status"`
+	OwnerID      *string `json:"owner_id,omitempty"`
+	StatusReason string  `json:"status_reason,omitempty"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at,omitempty"`
 }
 
 // createTenantRequest is the request body for HandleCreateTenant. An owner can
@@ -69,12 +76,13 @@ var (
 	errOwnerEmailTaken       = errors.New("owner email is already registered")
 )
 
-// updateTenantRequest is the request body for HandleUpdateTenant.
+// updateTenantRequest is the request body for HandleUpdateTenant. OEM config
+// writes (brand_config et al.) were frozen: the platform no longer accepts
+// channel-style overrides for enterprise customers.
 type updateTenantRequest struct {
-	Name         *string        `json:"name,omitempty"`
-	Status       *string        `json:"status,omitempty"`
-	StatusReason *string        `json:"status_reason,omitempty"`
-	BrandConfig  map[string]any `json:"brand_config,omitempty"`
+	Name         *string `json:"name,omitempty"`
+	Status       *string `json:"status,omitempty"`
+	StatusReason *string `json:"status_reason,omitempty"`
 }
 
 // HandleListTenants returns all tenants ordered by creation date descending.
@@ -114,7 +122,7 @@ func HandleListTenants(a *app.App) http.HandlerFunc {
 	}
 }
 
-// HandleGetTenant returns a single tenant with all its domains.
+// HandleGetTenant returns a single enterprise tenant.
 func HandleGetTenant(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if rejectNonAdmin(w, r) {
@@ -134,16 +142,13 @@ func HandleGetTenant(a *app.App) http.HandlerFunc {
 		}
 
 		detail := tenantDetailResponse{
-			ID:               tn.ID.String(),
-			Code:             tn.Code,
-			Name:             tn.Name,
-			Status:           string(tn.Status),
-			BrandConfig:      tn.BrandConfig,
-			RuntimeConfig:    tn.RuntimeConfig,
-			SettlementConfig: tn.SettlementConfig,
-			StatusReason:     tn.StatusReason,
-			CreatedAt:        tn.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:        tn.UpdatedAt.Format(time.RFC3339),
+			ID:           tn.ID.String(),
+			Code:         tn.Code,
+			Name:         tn.Name,
+			Status:       string(tn.Status),
+			StatusReason: tn.StatusReason,
+			CreatedAt:    tn.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:    tn.UpdatedAt.Format(time.RFC3339),
 		}
 		if tn.OwnerID != nil {
 			ownerStr := tn.OwnerID.String()
@@ -373,7 +378,12 @@ func resolveTenantOwnerUser(ctx context.Context, tx pgx.Tx, a *app.App, email, p
 	}
 
 	// The owner is a real platform user: give them a zero-balance wallet just
-	// like any other account.
+	// like any other account. This stays a transaction-scoped INSERT instead
+	// of wallet.Repository.Create so it rolls back atomically with the
+	// tenant/user rows (the pool-based repository cannot join this tx, and
+	// the wallets.user_id FK would reject a wallet created before the user
+	// commits). The balance is zero, so no wallet_transactions row is
+	// required — no money moved.
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO wallets (id, user_id, balance, frozen, currency, version, created_at, updated_at)
 		 VALUES ($1, $2, '0', '0', 'CNY', 0, $3, $3)`,
@@ -419,15 +429,13 @@ func HandleUpdateTenant(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// Apply field updates
+		// Apply field updates. OEM config fields (brand/runtime/settlement)
+		// are frozen and intentionally not assignable from the admin API.
 		if req.Name != nil {
 			tn.Name = *req.Name
 		}
 		if req.StatusReason != nil {
 			tn.StatusReason = *req.StatusReason
-		}
-		if req.BrandConfig != nil {
-			tn.BrandConfig = req.BrandConfig
 		}
 
 		// Status change with transition validation

@@ -632,7 +632,7 @@ func TestHandleDeleteTenant_PlatformTenant_Forbidden(t *testing.T) {
 	a := appForTenantsTest(t)
 	user := seedUserForTenantsTest(t, a, "admin-del-plat@tens.com", "pass", "Admin Del Plat")
 
-	tn := seedTenantForTest(t, a, app.PlatformTenantCode, "DeepTrols 平台企业", domain.TenantStatusActive)
+	tn := seedTenantForTest(t, a, app.PlatformTenantCode, "智曜TokenHub 平台企业", domain.TenantStatusActive)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/admin/tenants/"+tn.ID.String(), nil)
 	req = chiRouteCtx(req, "id", tn.ID.String())
@@ -719,7 +719,7 @@ func TestHandleUpdateTenant_PlatformTenant_StatusChange_Forbidden(t *testing.T) 
 	a := appForTenantsTest(t)
 	user := seedUserForTenantsTest(t, a, "admin-upd-plat@tens.com", "pass", "Admin Upd Plat")
 
-	tn := seedTenantForTest(t, a, app.PlatformTenantCode, "DeepTrols 平台企业", domain.TenantStatusActive)
+	tn := seedTenantForTest(t, a, app.PlatformTenantCode, "智曜TokenHub 平台企业", domain.TenantStatusActive)
 
 	body := map[string]interface{}{
 		"status": string(domain.TenantStatusSuspended),

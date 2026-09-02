@@ -3457,3 +3457,47 @@ cd web && npm run test:e2e
   3.2 / 五节已同步指引。
 - 本次为纯规划，未改动任何代码。
 
+## 一百零七、2026-09-02 [P0] OEM 入口冻结与语义重定义（任务 #10）
+
+### 107.1 冻结范围
+
+全仓核查确认：OEM 管理面实际只剩一个可写入口（`tenants.go` 的 `brand_config`
+更新路径）；`tenant_domains` 无任何代码触点（死表）、`tenant_models` 无管理端
+写入口、租户级定价无非 NULL 写路径、三组 OEM 配置无功能性消费方。据此执行冻结：
+
+- **移除写入口**：`updateTenantRequest` 删除 `BrandConfig` 字段，更新处理器不再
+  接受任何 OEM 配置写入（`internal/handler/console/tenants.go`）。
+- **移除读表面**：`tenantDetailResponse` 不再返回
+  `brand_config` / `runtime_config` / `settlement_config`，管理 API 不再暴露 OEM 配置。
+- **保留项**（按方案「字段保留，管理入口移除」）：数据库列与默认值、
+  `domain.Tenant` 结构字段、仓储层读写（原样回写冻结值，不丢数据）。
+- **不动项**（风险约束）：网关 `router.go` 的 `tenant_models` fail-closed 读取
+  属计费/路由链，未触碰；计费证据链与定价参数未触碰。
+
+### 107.2 语义重定义与术语映射
+
+- `tenants.go` 顶部注释明确：代码保留 `tenant` 标识，产品语义为企业客户；
+  OEM 渠道语义（自定义域名 / 品牌 / 选品 / 结算）冻结。
+- 修正过时注释（`HandleGetTenant` 的 "with all its domains"）。
+- 控制台产品文案：`tenants.title` 中文「租户管理」→「企业管理」、
+  英文 "Tenant Management" → "Enterprise Management"（`web/src/i18n/index.ts`），
+  `Tenants.test.tsx` 断言同步。
+- 前端无 OEM 页面/菜单可隐藏：核查 `web/src` 无
+  `tenant_domains` / 选品 / OEM 配置页面；`Channels` 页为上游凭证管理（执行面
+  核心能力，非 OEM）；平台级「站点与品牌」设置属平台自身品牌，保留。
+
+### 107.3 验证
+
+- `gofmt` 无差异；`go build ./...`、`go vet ./...` 通过（经 `GOPROXY=goproxy.cn`
+  补齐 miniredis 依赖下载；默认 proxy 在本机网络不可达）。
+- `go test ./...` 全量通过，含 `internal/handler/console`（租户处理器测试）与
+  `internal/repository/tenant`（仓储层 BrandConfig 测试验证保留列不受影响）。
+- `web` 端 `Tenants.test.tsx` 5/5 通过。
+
+### 107.4 验收对照
+
+- 管理端无域名 / 品牌 / 结算 / 选品配置入口 ✅（写入口与读表面均已移除）
+- 全量测试通过 ✅
+- 无残留 OEM 路由可达 ✅（`/api/admin/*` 仅保留企业客户 CRUD；审核动作沿用
+  既有状态迁移，留待 P2 任务 #19 重建）
+
