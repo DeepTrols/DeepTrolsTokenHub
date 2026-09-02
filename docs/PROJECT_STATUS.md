@@ -3561,3 +3561,49 @@ TopUp 后乐观锁版本 +1）、`TestRegister_NoBonusWhenFakePaymentDisabled`
   范围；如需拉平，另行数据核对（可参照 106.1 B 系列问题处理模式）。
 - 解锁 #14（支付宝直连）前置条件：支付入账路径从此不再与账外注资并存。
 
+## 一百零九、2026-09-02 [P0] 单域名模式回归验证（任务 #13）
+
+### 109.1 背景
+
+106.1 审计确认「网关租户解析已脱离 Host 域名（改为账号 membership 解析）」，
+但该结论此前只有实现代码支撑，没有回归测试固化。本任务把单域名模式的租户
+解析行为写成回归测试，防止未来改动悄悄退回 Host 域名解析。
+
+### 109.2 新增回归测试
+
+新增 `internal/handler/middleware/single_domain_test.go`（6 个用例）：
+
+**网关链（GatewayAuth，API Key → Key 属主 membership → 租户）：**
+
+| 用例 | 固化的行为 |
+|---|---|
+| `TestGatewayAuth_ActiveMembership_ResolvesTenantFromAccount` | 租户来自 Key 属主的 active membership 记录，而非请求 Host —— 单域名模式核心行为 |
+| `TestGatewayAuth_NoMembership_PersonalStaysTenantless` | 个人用户无 membership 行时以无租户态（共享目录）放行，绝不 fail-closed |
+| `TestGatewayAuth_SuspendedMembership_TenantNotSet` | 仅 ACTIVE membership 授予租户上下文；suspended 降级为无租户态，不拒绝请求 |
+| `TestGatewayAuth_MembershipLookupError_DegradesToTenantless` | 表征当前行为：membership 查询失败降级为无租户态而非失败（租户门为纯限制性、默认开放，降级不扩大权限面） |
+
+**控制台链（ConsoleAuth，JWT → 用户 membership → 租户）：**
+
+| 用例 | 固化的行为 |
+|---|---|
+| `TestConsoleAuth_ActiveMembership_SetsTenantAndRole` | JWT 链解析同一 membership 为租户上下文（`jwtutil.CtxTenantIDKey` + `CtxTenantRole`），企业页面在平台域名下可见正确租户 |
+| `TestConsoleAuth_NoMembership_NoTenantContext` | 个人控制台用户通过 ConsoleAuth 且不设置任何企业专属上下文键 |
+
+### 109.3 配套修复
+
+`oauth_test.go` 的 `oauthApp`：`withDB` 分支补挂 `a.Wallets`（wallet 仓储）。
+B2 修复（§108）后，OAuth 首登建号走 `ProvisionUserWallet` 记账路径，需要
+`a.Wallets` 非 nil；生产代码始终装配该仓储，测试 app 同步。
+
+### 109.4 验证与验收对照
+
+- `gofmt` 无差异；`go build ./...`、`go vet ./...` 通过；`go test ./...`
+  全量 45 包全绿（`GOPROXY=goproxy.cn`），`internal/handler/middleware` 与
+  `internal/handler/console` 显式确认通过。
+- 全仓核查：`internal/handler/middleware` 与 `internal/handler/gateway` 中
+  无任何 `r.Host` / Host header 租户解析代码；`tenant_domains` 在
+  `internal/` 下仅剩测试注释提及，无代码触点（与 §107 冻结结论一致）。
+- 验收「单域名部署模式成立，去 OEM 化最大技术风险消除」✅：账号制租户
+  解析已由测试固化，个人 / 企业双路径行为均被锁定。
+- P0 剩余项：ai-nuxt 纳入 git（版本控制缺失，见 106.1）→ 见 §110 完成。
+

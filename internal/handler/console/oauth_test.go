@@ -16,6 +16,7 @@ import (
 	settingrepo "github.com/deeptrols/api/internal/repository/setting"
 	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/user"
+	"github.com/deeptrols/api/internal/repository/wallet"
 	settingsvc "github.com/deeptrols/api/internal/service/setting"
 )
 
@@ -62,6 +63,10 @@ func oauthApp(t *testing.T, entries []settingrepo.Entry, withDB bool) *app.App {
 		a.Pool = pool
 		a.Users = user.NewPostgresRepository(pool)
 		a.Memberships = membership.NewPostgresRepository(pool)
+		// The OAuth callback provisions the new user's wallet through the
+		// ledgered path (B2 fix); production always wires a.Wallets, so the
+		// test app must too or wallet assertions see a nil repository.
+		a.Wallets = wallet.NewPostgresRepository(pool)
 	}
 	return a
 }
