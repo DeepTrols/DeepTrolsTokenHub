@@ -3501,3 +3501,63 @@ cd web && npm run test:e2e
 - 无残留 OEM 路由可达 ✅（`/api/admin/*` 仅保留企业客户 CRUD；审核动作沿用
   既有状态迁移，留待 P2 任务 #19 重建）
 
+## 一百零八、2026-09-02 [P0] 修复 B2 账外注资（任务 #11）
+
+### 108.1 问题
+
+审计 Blocker：注册赠送（`ENABLE_FAKE_PAYMENT` 下 1000 元）与邀请奖励通过裸
+`INSERT INTO wallets` 直接把余额写进 `balance` 列，不产生
+`wallet_transactions` 流水 → 余额与流水对不上，对账根基被破坏。受影响入口：
+`HandleRegister`（auth.go）、OAuth 首登建号（oauth.go）、管理端建用户
+（users.go）、bootstrap 管理员（cmd/api/main.go，10000 元）。
+
+### 108.2 修复
+
+新增统一收口 `internal/handler/console/wallet_provision.go`：
+
+- `ProvisionUserWallet(ctx, wallets, userID, bonus)`：先经
+  `wallet.Repository.Create` 建零余额钱包；bonus 为正时走带幂等键
+  （`signup-bonus:<userID>`）的 `wallets.TopUp`，每笔发放必有流水。
+  零余额初始化不写流水（无资金移动）。
+- 金额单一出处：`SignupBonusUser = 1000`、`SignupBonusAdmin = 10000`
+  （decimal，消除魔法数字）。
+
+调用点改造：
+
+| 入口 | 改造 |
+|---|---|
+| `HandleRegister` | 裸 INSERT 删除；bonus + 邀请奖励全部走幂等 `TopUp`；奖励失败不再静默吞错，返回 500（幂等键保证可安全重试/手工补账，流水如实反映） |
+| `findOrCreateOAuthUser` | 同上收口，错误向上传播 |
+| `HandleCreateUser`（管理端） | 裸 INSERT 删除，收口到仓储 |
+| `ensureAdminUser`（bootstrap） | 裸 INSERT 删除，收口到 `console.ProvisionUserWallet` |
+| `resolveTenantOwnerUser`（tenants.go） | **保留事务内 INSERT**（文档化例外）：须与租户/用户行同事务回滚，池连接无法加入调用方事务，且 `wallets.user_id` FK 不允许先于用户提交钱包；余额为零、无流水需求 |
+
+附带修复：`HandleTopUp`（demo 充值）在 `TopUp` 出错时对返回的 `tx` 解引用
+（潜在 panic），改为先查错再写元数据；元数据写失败不影响已成功的入账。
+
+### 108.3 回归测试（TDD：先 RED 后 GREEN）
+
+新增 `wallet_provision_test.go`：
+
+- `TestProvisionUserWallet_BonusIsLedgered`：bonus 发放后必有且仅有一条
+  `topup` 流水（金额 / 前后余额 / 幂等键全部断言）；
+- `TestProvisionUserWallet_ZeroBonusWritesNoLedgerRow`：零余额初始化零流水；
+- `TestRegister_AllGrantsReconcileWithLedger`：注册 + 邀请后，双方钱包
+  「流水求和 == 余额」且幂等键逐条匹配（对账不变量）。
+
+同步更新既有测试：`TestRegister_AutoCreatesWallet`（version 0→1，bonus 走
+TopUp 后乐观锁版本 +1）、`TestRegister_NoBonusWhenFakePaymentDisabled`
+（新增「生产模式零流水」断言）、`appForConsoleCookieTest` 补 `Wallets` 仓储。
+
+### 108.4 验证与验收对照
+
+- `gofmt` / `go build` / `go vet` 通过；`go test ./...` 全量通过
+  （`GOPROXY=goproxy.cn`）；B2 相关 7 个测试显式 `-v` 确认全绿。
+- 验收「任意余额变更都能在 `wallet_transactions` 找到对应流水」✅：
+  生产代码中 `INSERT INTO wallets` 仅剩仓储自身与 tenants.go 事务内零余额
+  初始化（文档化例外）；所有余额发放路径（注册 / 邀请 / 充值 / 订阅 /
+  计费）均经仓储幂等流水方法。
+- 遗留说明：存量历史账户的账外余额（旧裸 INSERT 已入库部分）不在本任务
+  范围；如需拉平，另行数据核对（可参照 106.1 B 系列问题处理模式）。
+- 解锁 #14（支付宝直连）前置条件：支付入账路径从此不再与账外注资并存。
+

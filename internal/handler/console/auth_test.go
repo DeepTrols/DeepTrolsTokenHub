@@ -748,8 +748,10 @@ func TestRegister_AutoCreatesWallet(t *testing.T) {
 	if currency != "CNY" {
 		t.Errorf("wallet currency = %s, want CNY", currency)
 	}
-	if version != 0 {
-		t.Errorf("wallet version = %d, want 0", version)
+	// The signup bonus is granted through a ledgered TopUp (B2 fix), which
+	// bumps the optimistic-lock version once after the zero-balance create.
+	if version != 1 {
+		t.Errorf("wallet version = %d, want 1 (one ledgered bonus topup)", version)
 	}
 }
 
@@ -779,13 +781,24 @@ func TestRegister_NoBonusWhenFakePaymentDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByEmail: %v", err)
 	}
+	var walletID uuid.UUID
 	var balance string
 	if err := a.Pool.QueryRow(context.Background(),
-		"SELECT balance::text FROM wallets WHERE user_id = $1", dbUser.ID).Scan(&balance); err != nil {
+		"SELECT id, balance::text FROM wallets WHERE user_id = $1", dbUser.ID).Scan(&walletID, &balance); err != nil {
 		t.Fatalf("wallet query: %v", err)
 	}
 	if balance != "0.000000" {
 		t.Errorf("wallet balance = %s, want 0.000000 (production must not grant signup bonus)", balance)
+	}
+
+	// No money moved, so no ledger row may exist (B2 fix).
+	var txCount int
+	if err := a.Pool.QueryRow(context.Background(),
+		"SELECT COUNT(*) FROM wallet_transactions WHERE wallet_id = $1", walletID).Scan(&txCount); err != nil {
+		t.Fatalf("wallet_transactions count: %v", err)
+	}
+	if txCount != 0 {
+		t.Errorf("wallet_transactions rows = %d, want 0 in production mode", txCount)
 	}
 }
 
@@ -1013,6 +1026,7 @@ func appForConsoleCookieTest(t *testing.T) *app.App {
 		Pool:        pool,
 		Config:      cfg,
 		Users:       user.NewPostgresRepository(pool),
+		Wallets:     wallet.NewPostgresRepository(pool),
 		Memberships: membership.NewPostgresRepository(pool),
 		Healthy:     true,
 	}

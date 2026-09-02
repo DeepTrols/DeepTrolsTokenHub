@@ -14,6 +14,7 @@ import (
 	userRepo "github.com/deeptrols/api/internal/repository/user"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -280,13 +281,13 @@ func HandleCreateUser(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// Also create a wallet for the new user.
-		a.Pool.Exec(r.Context(),
-			`INSERT INTO wallets (id, user_id, balance, frozen, currency, version, created_at, updated_at)
-			 VALUES ($1, $2, '0', '0', 'CNY', 0, $3, $3)
-			 ON CONFLICT DO NOTHING`,
-			uuid.New(), u.ID, now,
-		)
+		// Create the user's wallet through the repository (zero balance; no
+		// ledger row because no money moved).
+		if _, err := ProvisionUserWallet(r.Context(), a.Wallets, u.ID, decimal.Zero); err != nil {
+			log.Printf("HandleCreateUser: provision wallet: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create wallet"})
+			return
+		}
 
 		writeJSON(w, http.StatusCreated, map[string]string{"id": u.ID.String(), "email": u.Email})
 	}

@@ -20,7 +20,7 @@ import (
 const PlatformTenantCode = "deeptrols-platform"
 
 // PlatformTenantName is the display name shown for the platform enterprise.
-const PlatformTenantName = "DeepTrols 平台企业"
+const PlatformTenantName = "智曜TokenHub 平台企业"
 
 // EnsurePlatformTenant finds or creates the platform tenant and ensures the
 // system administrator is its active owner. It is idempotent and safe to call

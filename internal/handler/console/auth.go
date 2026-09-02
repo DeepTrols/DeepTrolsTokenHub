@@ -266,25 +266,38 @@ func HandleRegister(a *app.App) http.HandlerFunc {
 			`UPDATE users SET invite_code = $2, invited_by = $3 WHERE id = $1`,
 			u.ID, u.InviteCode, invitedBy)
 
-		// Create wallet. Bonus balance is granted only when the demo money
-		// faucet is enabled (ENABLE_FAKE_PAYMENT=true); production = 0.
-		bonus := "0"
+		// Create the wallet through the repository. The signup bonus (demo
+		// faucet ENABLE_FAKE_PAYMENT=true only; production = 0) is granted via
+		// an idempotent, ledgered TopUp — never a bare balance write — so the
+		// wallet balance always reconciles with wallet_transactions.
+		bonus := decimal.Zero
 		if a.Config.FakePayment {
-			bonus = "1000"
+			bonus = SignupBonusUser
 		}
-		a.Pool.Exec(ctx,
-			`INSERT INTO wallets (id, user_id, balance, frozen, currency, version, created_at, updated_at)
-			 VALUES ($1, $2, $3, '0', 'CNY', 0, $4, $4)`,
-			uuid.New(), u.ID, bonus, now,
-		)
+		newWallet, err := ProvisionUserWallet(ctx, a.Wallets, u.ID, bonus)
+		if err != nil {
+			log.Printf("HandleRegister: provision wallet: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create wallet"})
+			return
+		}
 
-		// Invite rewards: both sides credited idempotently (unique keys).
-		if invitedBy != nil && !inviteReward.IsZero() {
-			if wal, err := a.Wallets.FindByUser(ctx, u.ID, nil); err == nil && wal != nil {
-				_, _ = a.Wallets.TopUp(ctx, wal.ID, inviteReward, "invite:"+u.ID.String())
+		// Invite rewards: both sides credited through idempotent TopUps.
+		if invitedBy != nil && inviteReward.IsPositive() {
+			if _, err := a.Wallets.TopUp(ctx, newWallet.ID, inviteReward, "invite:"+u.ID.String()); err != nil {
+				log.Printf("HandleRegister: invitee reward: %v", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to grant invite reward"})
+				return
 			}
-			if inviterWal, err := a.Wallets.FindByUser(ctx, *invitedBy, nil); err == nil && inviterWal != nil {
-				_, _ = a.Wallets.TopUp(ctx, inviterWal.ID, inviteReward, "invite:"+u.ID.String()+":inviter")
+			inviterWal, err := a.Wallets.FindByUser(ctx, *invitedBy, nil)
+			if err != nil || inviterWal == nil {
+				log.Printf("HandleRegister: inviter wallet lookup %s: %v", invitedBy, err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to grant invite reward"})
+				return
+			}
+			if _, err := a.Wallets.TopUp(ctx, inviterWal.ID, inviteReward, "invite:"+u.ID.String()+":inviter"); err != nil {
+				log.Printf("HandleRegister: inviter reward: %v", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to grant invite reward"})
+				return
 			}
 		}
 

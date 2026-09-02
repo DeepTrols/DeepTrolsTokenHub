@@ -281,17 +281,21 @@ func HandleTopUp(a *app.App) http.HandlerFunc {
 		}
 
 		tx, err := a.Wallets.TopUp(r.Context(), wallet.ID, amount, idempotencyKey)
-		// Store order metadata.
+		if err != nil {
+			log.Printf("console: topup error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to credit wallet"})
+			return
+		}
+		// Store order metadata on the ledger row that TopUp just created.
 		pm := req.PaymentMethod
 		if pm == "" {
 			pm = "alipay"
 		}
 		orderNo := fmt.Sprintf("TXN%s%04d", time.Now().Format("20060102150405"), time.Now().Nanosecond()%10000)
-		a.Pool.Exec(r.Context(), `UPDATE wallet_transactions SET metadata = $1 WHERE id = $2`, fmt.Sprintf(`{"order_no":"%s","status":"success","payment_method":"%s"}`, orderNo, pm), tx.ID)
-		if err != nil {
-			log.Printf("console: topup error: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to credit wallet"})
-			return
+		if _, err := a.Pool.Exec(r.Context(), `UPDATE wallet_transactions SET metadata = $1 WHERE id = $2`, fmt.Sprintf(`{"order_no":"%s","status":"success","payment_method":"%s"}`, orderNo, pm), tx.ID); err != nil {
+			// The credit already succeeded and is ledgered; a metadata failure
+			// must not be reported as a failed topup.
+			log.Printf("console: topup metadata update: %v", err)
 		}
 
 		writeJSON(w, http.StatusOK, map[string]interface{}{

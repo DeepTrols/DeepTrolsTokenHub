@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/deeptrols/api/internal/app"
@@ -344,18 +345,17 @@ func ensureAdminUser(application *app.App, cfg *config.Config) {
 		return
 	}
 
-	// Also create a wallet for the admin user. Bonus balance is granted only
-	// when the demo money faucet is enabled (ENABLE_FAKE_PAYMENT=true).
-	bonus := "0"
+	// Create the admin wallet through the ledgered provision path (B2 fix).
+	// The bonus is granted only when the demo money faucet is enabled
+	// (ENABLE_FAKE_PAYMENT=true).
+	bonus := decimal.Zero
 	if cfg.FakePayment {
-		bonus = "10000"
+		bonus = console.SignupBonusAdmin
 	}
-	application.Pool.Exec(ctx,
-		`INSERT INTO wallets (id, user_id, balance, frozen, currency, version, created_at, updated_at)
-		 VALUES ($1, $2, $3, '0', 'CNY', 0, $4, $4)
-		 ON CONFLICT DO NOTHING`,
-		uuid.New(), adminID, bonus, now,
-	)
+	if _, provErr := console.ProvisionUserWallet(ctx, application.Wallets, adminID, bonus); provErr != nil {
+		log.Printf("ensureAdminUser: provision wallet: %v", provErr)
+		return
+	}
 
 	log.Printf("ensureAdminUser: admin user created (%s)", email)
 }

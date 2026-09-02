@@ -21,6 +21,7 @@ import (
 	"github.com/deeptrols/api/internal/repository/user"
 	"github.com/deeptrols/api/internal/service/setting"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 // oauthStateTTL mirrors new-api's 10-minute OAuth flow window.
@@ -230,15 +231,16 @@ func findOrCreateOAuthUser(ctx context.Context, a *app.App, email, displayName s
 	if err := a.Users.Create(ctx, u); err != nil {
 		return nil, false, err
 	}
-	bonus := "0"
+	// Wallet + optional signup bonus through the ledgered provision path (B2
+	// fix: no bare balance writes).
+	bonus := decimal.Zero
 	if a.Config != nil && a.Config.FakePayment {
-		bonus = "1000"
+		bonus = SignupBonusUser
 	}
-	if a.Pool != nil {
-		_, _ = a.Pool.Exec(ctx,
-			`INSERT INTO wallets (id, user_id, balance, frozen, currency, version, created_at, updated_at)
-			 VALUES ($1, $2, $3, '0', 'CNY', 0, $4, $4)`,
-			uuid.New(), u.ID, bonus, now)
+	if a.Wallets != nil {
+		if _, err := ProvisionUserWallet(ctx, a.Wallets, u.ID, bonus); err != nil {
+			return nil, false, err
+		}
 	}
 	return u, true, nil
 }
