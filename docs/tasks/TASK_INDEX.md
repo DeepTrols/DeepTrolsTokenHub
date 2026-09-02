@@ -7,7 +7,7 @@
 
 | ID | Title | Phase | Epic | Type | Priority | Dependencies | Estimate | Status |
 |---|---|---|---|---|---|---|---|---|
-| TH-P05-01 | B5 Reserve Maximum Charge Calculation | P0.5 | Production Safety Gate | Backend / Billing | P0 | None | — | TODO |
+| TH-P05-01 | B5 Reserve Maximum Charge Calculation | P0.5 | Production Safety Gate | Backend / Billing | P0 | None | — | DONE |
 | TH-P05-02 | B5 Settle Fallback Visibility Correction | P0.5 | Production Safety Gate | Backend / Billing | P0 | TH-P05-01 | — | TODO |
 | TH-P05-03 | Billing Invariant And Concurrency Tests | P0.5 | Production Safety Gate | Test | P0 | TH-P05-01, TH-P05-02 | — | TODO |
 | TH-P05-04 | Basic Gateway Billing Metrics | P0.5 | Production Safety Gate | Observability | P0 | TH-P05-02 | — | TODO |
