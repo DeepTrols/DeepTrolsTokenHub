@@ -3749,3 +3749,33 @@ hold = pricer 按挂牌价计算的成本 × 分组/阶梯倍率
 
 - 存储位置/保留策略的最终确认、备份供应商选型、加密工具链选型与
   恢复演练不在本任务范围（恢复演练 = TH-P05-07）。
+
+---
+
+## 一百一十四、2026-09-02 [P0.5] 支付订单 pay_url 持久化修复（TH-P05-10）
+
+> 缺陷：`payment_orders` 表与 `Order` 结构体均有 `pay_url`，但
+> `paymentorder.Create` 的 INSERT 遗漏该列 → 充值单刷新后支付链接丢失，
+> 待支付订单不可继续操作。
+
+### 114.1 修复内容
+
+- `internal/repository/paymentorder/postgres.go` `Create`：INSERT 补
+  `pay_url` 列（沿用既有可空列，migration 000022，无新迁移）。
+- `internal/handler/console/payment.go` `paymentOrderDTO` 增加
+  `pay_url,omitempty` 字段。
+
+### 114.2 响应字段可见性规则（pay_url）
+
+- **仅 pending 状态**返回 `pay_url`；`paid / closed / refunded` 一律
+  不返回可用的支付链接（支付 URL 可能携带签名参数，支付完成后必须失效）。
+- **仅订单属主（本人订单列表）与管理端（订单管理列表）**可见，两个端点
+  共用同一 `toOrderDTO` 映射。
+- 历史 NULL 行：字段缺省（`omitempty`），响应仍为 200 合法 JSON。
+- **完整 pay_url 永不落日志 / 指标**（支付服务包无任何日志语句；
+  handler 日志只记录错误与操作结果）。
+
+### 114.3 边界
+
+- 未触碰：支付网关适配器（epay）、支付状态轮询、前端交互 —— 均为任务
+  明示 Out of Scope。

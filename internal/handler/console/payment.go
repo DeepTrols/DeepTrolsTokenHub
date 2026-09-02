@@ -65,6 +65,12 @@ func HandleCreatePaymentOrder(a *app.App) http.HandlerFunc {
 	}
 }
 
+// paymentOrderDTO is the user/admin order list representation.
+// PayURL visibility (TH-P05-10): the pay URL can carry signed parameters, so
+// it is exposed ONLY while the order is pending and ONLY to the owning user /
+// admin; paid/closed/refunded orders and legacy NULL rows serialize it as
+// absent (omitempty), never as a usable URL. The full URL must never be
+// logged or emitted to metrics.
 type paymentOrderDTO struct {
 	ID        string `json:"id"`
 	OrderNo   string `json:"order_no"`
@@ -73,11 +79,12 @@ type paymentOrderDTO struct {
 	Channel   string `json:"channel"`
 	PayMethod string `json:"pay_method"`
 	Status    string `json:"status"`
+	PayURL    string `json:"pay_url,omitempty"`
 	CreatedAt string `json:"created_at"`
 }
 
 func toOrderDTO(o paymentorder.Order) paymentOrderDTO {
-	return paymentOrderDTO{
+	dto := paymentOrderDTO{
 		ID:        o.ID.String(),
 		OrderNo:   o.OrderNo,
 		Amount:    o.Amount.StringFixed(2),
@@ -87,6 +94,10 @@ func toOrderDTO(o paymentorder.Order) paymentOrderDTO {
 		Status:    o.Status,
 		CreatedAt: o.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
+	if o.Status == paymentorder.StatusPending && o.PayURL != nil {
+		dto.PayURL = *o.PayURL
+	}
+	return dto
 }
 
 // HandleListMyPaymentOrders lists the authenticated user's recharge orders.

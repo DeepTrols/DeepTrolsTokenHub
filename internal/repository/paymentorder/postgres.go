@@ -36,9 +36,9 @@ func (r *PostgresRepository) Create(ctx context.Context, o *Order) error {
 	}
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO payment_orders
-			(order_no, user_id, amount, currency, purpose, plan_id, channel, pay_method, status, expires_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		o.OrderNo, o.UserID, o.Amount, o.Currency, o.Purpose, o.PlanID, o.Channel, o.PayMethod, o.Status, o.ExpiresAt)
+			(order_no, user_id, amount, currency, purpose, plan_id, channel, pay_method, status, expires_at, pay_url)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		o.OrderNo, o.UserID, o.Amount, o.Currency, o.Purpose, o.PlanID, o.Channel, o.PayMethod, o.Status, o.ExpiresAt, o.PayURL)
 	if err != nil {
 		return fmt.Errorf("paymentorder create: %w", err)
 	}
