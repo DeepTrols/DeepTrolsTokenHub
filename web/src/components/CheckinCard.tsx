@@ -15,7 +15,7 @@ export interface CheckinStatus {
 
 /**
  * Daily sign-in card (port of new-api's CheckinCalendarCard, simplified for
- * DeepTrols' /checkin/status + /checkin endpoints). Shows today's state, the
+ * 智曜TokenHub's /checkin/status + /checkin endpoints). Shows today's state, the
  * configured reward range and a check-in action; credits land in the wallet.
  */
 export default function CheckinCard() {

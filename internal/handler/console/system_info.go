@@ -11,7 +11,7 @@ import (
 var processStart = time.Now()
 
 // HandleSystemInfo returns aggregate platform counts and runtime info
-// (new-api system-info / dashboard overview, adapted to DeepTrols).
+// (new-api system-info / dashboard overview, adapted to 智曜TokenHub).
 func HandleSystemInfo(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if rejectNonAdmin(w, r) {

@@ -52,7 +52,7 @@ describe("Docs", () => {
     // Assert
     expect(screen.getByText("开发文档")).toBeInTheDocument();
     expect(
-      screen.getByText(/集成 DeepTrols AI 模型聚合平台的完整开发指南/)
+      screen.getByText(/集成 智曜TokenHub AI 模型聚合平台的完整开发指南/)
     ).toBeInTheDocument();
   });
 

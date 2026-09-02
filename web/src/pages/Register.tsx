@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SiteBrand } from "@/components/SiteBrand";
 
 export default function Register() {
   const { t } = useTranslation();
@@ -42,7 +43,11 @@ export default function Register() {
 
       <div className="relative z-10 glass rounded-[22px] w-full max-w-md p-10">
         <div className="text-center pb-2">
-          <img src="/brand-logo.png" alt="DEEPTROLS" className="mx-auto mb-5 w-[196px] h-auto" />
+          <SiteBrand
+            className="mb-5 flex items-center justify-center gap-2.5"
+            imageClassName="h-12 w-10 shrink-0 rounded-xl object-contain"
+            textClassName="text-[24px] font-bold leading-none text-[#161A23]"
+          />
           <p className="text-[13px] text-[#5C6472] mt-1">{t("register.desc")}</p>
         </div>
         <div>

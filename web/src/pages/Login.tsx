@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SiteBrand } from "@/components/SiteBrand";
 
 /** Register-link target (developer/个人 account). */
 const REGISTER_TARGET = "/register";
@@ -91,7 +92,11 @@ export default function Login() {
       <div className="relative z-10 grid w-full max-w-[1280px] grid-cols-1 lg:grid-cols-[1.08fr_0.92fr] gap-6 items-stretch">
         {/* 左：品牌与产品价值 */}
         <div className="glass rounded-[22px] p-[42px] flex flex-col justify-center overflow-hidden">
-          <img src="/brand-logo.png" alt="DEEPTROLS" className="w-[236px] h-auto" />
+          <SiteBrand
+            className="flex items-center gap-3"
+            imageClassName="h-[58px] w-[48px] shrink-0 rounded-xl object-contain"
+            textClassName="text-[29px] font-bold leading-none text-[#161A23]"
+          />
           <div className="text-[12px] font-bold tracking-[0.2em] text-[#5C6472] mt-8">{t("login.platformTag")}</div>
           <h1 className="text-[40px] leading-[1.14] font-bold mt-[16px] mb-3">
             {t("login.heroTitleLine1")}
@@ -138,7 +143,7 @@ export default function Login() {
             <div className="space-y-1.5 text-[#2A3040]">
               <div>
                 <span className="text-[#8B6FE8]">curl</span>{" "}
-                <span className="text-[#4F6BED]">https://api.deeptrols.ai/v1/chat/completions</span>
+                <span className="text-[#4F6BED]">https://api.opcstore.com/v1/chat/completions</span>
               </div>
               <div className="pl-4">
                 <span className="text-[#5C6472]">-H</span> <span className="text-[#0FA88B]">"Authorization: Bearer sk-••••••"</span>

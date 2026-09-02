@@ -81,7 +81,7 @@ export default function ShellLayout() {
     navigate("/login");
   };
 
-  const displayName = user?.name || user?.email?.split("@")[0] || "DeepTrols";
+  const displayName = user?.name || user?.email?.split("@")[0] || "智曜TokenHub";
   const avatarChar = (user?.name || user?.email || "深").slice(0, 1).toUpperCase();
   const currentLang = i18n.language?.startsWith("en") ? "en" : "zh-CN";
 
@@ -119,7 +119,7 @@ export default function ShellLayout() {
               <span className="grid w-9 h-9 shrink-0 place-items-center rounded-[10px] bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white text-[12px] font-bold shadow-[0_6px_18px_rgba(79,107,237,0.35)]">{avatarChar}</span>
               <span className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold truncate">{displayName}</div>
-                <div className="text-[11px] text-[#5C6472] truncate">{user?.email || "DeepTrols"} · {t(admin ? "nav.roleAdmin" : "nav.roleUser")}</div>
+                <div className="text-[11px] text-[#5C6472] truncate">{user?.email || "智曜TokenHub"} · {t(admin ? "nav.roleAdmin" : "nav.roleUser")}</div>
               </span>
               <button
                 onClick={() => (currentLang === "zh-CN" ? setLanguage("en") : setLanguage("zh-CN"))}

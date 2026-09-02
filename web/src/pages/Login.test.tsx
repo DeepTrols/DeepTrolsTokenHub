@@ -18,9 +18,9 @@ const mockOauthProviders: string[] = [];
 vi.mock("../lib/site", () => ({
   useSiteInfo: () => ({
     site: {
-      site_name: "DeepTrols",
-      logo_url: "",
-      favicon_url: "",
+      site_name: "智曜TokenHub",
+      logo_url: "/brand-logo.png",
+      favicon_url: "/brand-logo.png",
       footer_text: "",
       notice: "",
       about: "",

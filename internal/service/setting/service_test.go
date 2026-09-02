@@ -31,8 +31,8 @@ func TestPublicSiteDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PublicSite: %v", err)
 	}
-	if site.SiteName != "DeepTrols" {
-		t.Fatalf("expected default site_name DeepTrols, got %q", site.SiteName)
+	if site.SiteName != "智曜TokenHub" {
+		t.Fatalf("expected default site_name 智曜TokenHub, got %q", site.SiteName)
 	}
 	if site.FooterText != "" {
 		t.Fatalf("expected empty footer default, got %q", site.FooterText)

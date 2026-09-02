@@ -32,7 +32,7 @@ describe("Register", () => {
 
   it("renders the registration form", async () => {
     renderRegister();
-    expect(screen.getByRole("img", { name: "DEEPTROLS" })).toBeInTheDocument();
+    expect(screen.getByText("智曜TokenHub")).toBeInTheDocument();
     expect(screen.getByText("AI 模型聚合平台 · 创建账号")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("请输入昵称")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("请输入邮箱")).toBeInTheDocument();

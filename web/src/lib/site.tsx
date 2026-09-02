@@ -17,9 +17,9 @@ export interface SiteInfo {
 
 function defaultSiteInfo(): SiteInfo {
   return {
-    site_name: "DeepTrols",
-    logo_url: "",
-    favicon_url: "",
+    site_name: "智曜TokenHub",
+    logo_url: "/brand-logo.png",
+    favicon_url: "/brand-logo.png",
     footer_text: "",
     notice: "",
     about: "",
@@ -62,7 +62,7 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
   const site = data ?? defaultSiteInfo();
 
   useEffect(() => {
-    document.title = site.site_name ? `${site.site_name} - AI Token Platform` : "DeepTrols - AI Token Platform";
+    document.title = site.site_name ? `${site.site_name} - AI Token Platform` : "智曜TokenHub - AI Token Platform";
     if (site.favicon_url) {
       let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
       if (!link) {

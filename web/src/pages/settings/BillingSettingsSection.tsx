@@ -411,7 +411,7 @@ function exportOrders(orders: PaymentOrder[], t: (key: string) => string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "deeptrols-orders.csv";
+  a.download = "zhiyao-tokenhub-orders.csv";
   a.click();
   URL.revokeObjectURL(url);
 }

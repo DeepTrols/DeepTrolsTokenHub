@@ -91,9 +91,9 @@ const (
 
 // defaults are the JSON-encoded default values applied when a key is absent.
 var defaults = map[string]json.RawMessage{
-	KeySiteName:                    json.RawMessage(`"DeepTrols"`),
-	KeyLogoURL:                     json.RawMessage(`""`),
-	KeyFaviconURL:                  json.RawMessage(`""`),
+	KeySiteName:                    json.RawMessage(`"智曜TokenHub"`),
+	KeyLogoURL:                     json.RawMessage(`"/brand-logo.png"`),
+	KeyFaviconURL:                  json.RawMessage(`"/brand-logo.png"`),
 	KeyFooterText:                  json.RawMessage(`""`),
 	KeyNotice:                      json.RawMessage(`""`),
 	KeyAbout:                       json.RawMessage(`""`),

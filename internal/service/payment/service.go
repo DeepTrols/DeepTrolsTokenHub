@@ -179,7 +179,7 @@ func (s *Service) CreateOrder(ctx context.Context, userID uuid.UUID, amount deci
 		OrderNo:   orderNo,
 		Amount:    amount,
 		PayMethod: payMethod,
-		Subject:   "DeepTrols 平台充值 " + amount.StringFixed(2) + " 元",
+		Subject:   "智曜TokenHub 平台充值 " + amount.StringFixed(2) + " 元",
 		NotifyURL: cfg.CallbackBase + "/api/payment/notify/epay",
 		ReturnURL: cfg.CallbackBase + "/recharge",
 	})
@@ -235,7 +235,7 @@ func (s *Service) CreateSubscriptionOrder(ctx context.Context, userID, planID uu
 		OrderNo:   orderNo,
 		Amount:    amount,
 		PayMethod: payMethod,
-		Subject:   "DeepTrols 订阅 " + amount.StringFixed(2) + " 元",
+		Subject:   "智曜TokenHub 订阅 " + amount.StringFixed(2) + " 元",
 		NotifyURL: cfg.CallbackBase + "/api/payment/notify/epay",
 		ReturnURL: cfg.CallbackBase + "/subscriptions",
 	})
