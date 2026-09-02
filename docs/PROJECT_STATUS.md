@@ -3671,3 +3671,52 @@ P0 基线干净，下一阶段为 P1 支付自接（支付宝 / 微信 Native �
 
 > 补记说明：本批变更完成于 §106 全仓审计之前（当日上午），当时未即时
 > 记录，随分批提交补录入本报告。
+
+---
+
+## 一百一十二、2026-09-02 [P0.5] B5 最大费用预留规则（TH-P05-01）
+
+> 本节是预留（hold）计算的**计费文档基线**：公式、兜底上限与失败语义。
+> 实现：`internal/handler/gateway/reserve.go`；测试：`reserve_test.go`。
+
+### 112.1 最大费用预留公式（chat 类文本推理路径）
+
+所有 chat 形态路径（`/v1/chat/completions` 流式/非流式、`/v1/responses`
+转 chat、`/v1/messages` 转 chat）在调用上游前按「最大可能费用」预留：
+
+```
+holdUsage.input_tokens  = 提示词估算（与既有 estimateUsageFromBody 一致）
+holdUsage.output_tokens = 声明的 max_completion_tokens / max_tokens（二者取
+                          前者优先；上限 maxChargeOutputCap = 131072）
+hold = pricer 按挂牌价计算的成本 × 分组/阶梯倍率
+     = input_price × input_tokens / 1e6 + output_price × output_tokens / 1e6
+```
+
+金额全程使用 decimal（shopspring/decimal），禁止 float。
+
+### 112.2 兜底上限（fallback cap）与最小预留下限
+
+- `max_tokens` / `max_completion_tokens` 缺失、为 0/负数、非数值等
+  **不可用声明**时：输出按文档化兜底上限
+  `fallbackOutputTokens = 256`（沿用原安全估算）计算，模式记
+  `fallback_cap`；可用声明记 `declared_max`。
+- 无论何种模式，最终预留不得低于历史最小预留
+  `minHoldAmount = 0.0001`（极低单价模型的保底，防止预留失去保护意义）。
+
+### 112.3 失败语义（fail-closed，替代旧的静默兜底）
+
+旧链路在 pricer 出错时**静默**按 `minHoldAmount` 预留（B5 少收洞），现已改为：
+
+- pricer 报错 → 返回 422 `pricing_incomplete`，**不产生预留流水、不调用上游**；
+- 任一已用维度无挂牌价（MissingPricing）→ 同上 422；
+- 预留金额计算模式（`declared_max` / `fallback_cap`）、定价完整性与
+  预留金额分桶（`lt_0.001` / `0.001_0.01` / `0.01_0.1` / `0.1_1` /
+  `gte_1`）写入观测日志，不含请求体文本。
+
+### 112.4 边界与已知缺口（Backlog Gap，不在本任务扩大范围）
+
+- 直连 `/v1/responses`（polymorphic input）与 `/v1/completions` 的估算仍为
+  空估算 + 最小预留，需要单独的输入解析任务。
+- 非文本路径（embeddings / images / STT / TTS / video）仍用单位估算，
+  pricer 出错时保留旧的静默最小预留语义，待后续任务统一治理。
+- chat 消息中的多模态 content parts（非字符串内容）不计入提示词估算。

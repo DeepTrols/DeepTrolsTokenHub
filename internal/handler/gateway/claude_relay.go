@@ -53,20 +53,12 @@ func HandleClaudeMessages(application *app.App) http.HandlerFunc {
 			tenantID = identity.TenantID
 		}
 
-		// Reserve BEFORE upstream (invariant #2).
-		estimated := &usageparser.NormalizedUsage{}
-		priceResult, perr := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimated)
-		hold := decimal.Zero
-		if perr != nil {
-			hold, _ = decimal.NewFromString(minHoldAmount)
-		} else {
-			hold = priceResult.ListCost
-			if rejectIncompletePricing(w, priceResult) {
-				return
-			}
-		}
-		if hold.LessThanOrEqual(decimal.Zero) {
-			hold, _ = decimal.NewFromString(minHoldAmount)
+		// Reserve BEFORE upstream (invariant #2): maximum-charge hold
+		// (TH-P05-01) on the converted chat body (carries max_tokens),
+		// fail-closed on unreliable pricing.
+		hold, _, ok := computeMaxChargeHold(w, application, r, primary.Channel.ModelID, tenantID, upstreamBody)
+		if !ok {
+			return
 		}
 		wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 		if err != nil || wallet == nil {

@@ -49,9 +49,13 @@ func configBool(config map[string]any, key string) bool {
 // request body (Responses → chat).
 func responsesBodyToChatBody(body map[string]any) (map[string]any, error) {
 	// OpenAI Responses accepts `input` as a plain string (convenience form);
-	// normalize it to a user message item before conversion.
+	// normalize it to a user message item before conversion. The item MUST
+	// carry type=message, otherwise ResponsesRequestToOpenAIChatRequest
+	// silently drops it and the upstream chat call loses the prompt (and the
+	// hold calculation loses the prompt estimate).
 	if s, ok := body["input"].(string); ok {
 		body["input"] = []any{map[string]any{
+			"type":    "message",
 			"role":    "user",
 			"content": []any{map[string]any{"type": "input_text", "text": s}},
 		}}
@@ -152,20 +156,11 @@ func handleResponsesViaChatNonStream(w http.ResponseWriter, r *http.Request, app
 		tenantID = identity.TenantID
 	}
 
-	// Reserve BEFORE upstream (invariant #2).
-	estimated := estimateUsageFromBody(chatBody)
-	priceResult, perr := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimated)
-	hold := decimal.Zero
-	if perr != nil {
-		hold, _ = decimal.NewFromString(minHoldAmount)
-	} else {
-		hold = priceResult.ListCost
-		if rejectIncompletePricing(w, priceResult) {
-			return
-		}
-	}
-	if hold.LessThanOrEqual(decimal.Zero) {
-		hold, _ = decimal.NewFromString(minHoldAmount)
+	// Reserve BEFORE upstream (invariant #2): maximum-charge hold (TH-P05-01),
+	// fail-closed on unreliable pricing.
+	hold, _, ok := computeMaxChargeHold(w, application, r, primary.Channel.ModelID, tenantID, chatBody)
+	if !ok {
+		return
 	}
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 	if err != nil || wallet == nil {

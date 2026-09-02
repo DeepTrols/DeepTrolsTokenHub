@@ -711,11 +711,13 @@ func TestHandleNonStreamingChat_SettleUnderfunded_MarksEvidence(t *testing.T) {
 						"finish_reason": "stop",
 					},
 				},
-				// 100k output tokens: far beyond the estimate-based hold.
+				// 1M output tokens: far beyond the maximum-charge hold
+				// (TH-P05-01 floored at minHoldAmount), so settle cannot
+				// cover the final cost and the underfunded path runs.
 				"usage": map[string]any{
 					"prompt_tokens":     float64(20),
-					"completion_tokens": float64(100000),
-					"total_tokens":      float64(100020),
+					"completion_tokens": float64(1000000),
+					"total_tokens":      float64(1000020),
 				},
 			}
 			usage, _ := usageparser.ParseOpenAIUsage(respBody)

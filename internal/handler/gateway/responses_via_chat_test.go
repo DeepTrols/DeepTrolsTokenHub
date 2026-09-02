@@ -14,7 +14,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-func responsesChatApp(t *testing.T, upstreamURL string, walletRepo *mockWalletRepo, usageRepo *mockUsageRepo, viaChat bool) (*app.App, uuid.UUID, uuid.UUID) {
+func responsesChatApp(t *testing.T, upstreamURL string, walletRepo *mockWalletRepo, usageRepo *mockUsageRepo, viaChat bool, pricingRows []domain.ModelPricing) (*app.App, uuid.UUID, uuid.UUID) {
 	t.Helper()
 	userID := uuid.New()
 	apiKeyID := uuid.New()
@@ -41,7 +41,7 @@ func responsesChatApp(t *testing.T, upstreamURL string, walletRepo *mockWalletRe
 	}
 	pricingRepo := &mockPricingRepo{
 		findByModelFn: func(ctx context.Context, mid uuid.UUID, tenantID *uuid.UUID) ([]domain.ModelPricing, error) {
-			return makePricingEntries(), nil
+			return pricingRows, nil
 		},
 	}
 	txID := uuid.New()
@@ -79,7 +79,7 @@ func TestHandleResponsesViaChat_NonStreaming(t *testing.T) {
 
 	walletRepo := &mockWalletRepo{}
 	usageRepo := &mockUsageRepo{}
-	application, userID, apiKeyID := responsesChatApp(t, upstream.URL, walletRepo, usageRepo, true)
+	application, userID, apiKeyID := responsesChatApp(t, upstream.URL, walletRepo, usageRepo, true, makePricingEntries())
 	application.HttpClient = upstream.Client()
 
 	w := responsesRequest(t, application, userID, apiKeyID, `{"model":"deepseek-chat","input":"hi"}`)
@@ -109,7 +109,7 @@ func TestHandleResponsesViaChat_Streaming(t *testing.T) {
 
 	walletRepo := &mockWalletRepo{}
 	usageRepo := &mockUsageRepo{}
-	application, userID, apiKeyID := responsesChatApp(t, upstream.URL, walletRepo, usageRepo, true)
+	application, userID, apiKeyID := responsesChatApp(t, upstream.URL, walletRepo, usageRepo, true, makePricingEntries())
 	application.HttpClient = upstream.Client()
 
 	w := responsesRequest(t, application, userID, apiKeyID, `{"model":"deepseek-chat","stream":true,"input":"hi"}`)
@@ -160,7 +160,7 @@ func TestHandleResponses_WithoutFlag_ForwardsToResponsesEndpoint(t *testing.T) {
 
 	walletRepo := &mockWalletRepo{}
 	usageRepo := &mockUsageRepo{}
-	application, userID, apiKeyID := responsesChatApp(t, upstream.URL, walletRepo, usageRepo, false)
+	application, userID, apiKeyID := responsesChatApp(t, upstream.URL, walletRepo, usageRepo, false, makePricingEntries())
 	application.HttpClient = upstream.Client()
 
 	w := responsesRequest(t, application, userID, apiKeyID, `{"model":"deepseek-chat","input":"hi"}`)

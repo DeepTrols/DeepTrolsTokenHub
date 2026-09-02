@@ -265,21 +265,12 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		tenantID = identity.TenantID
 	}
 
-	// Estimate usage from request body, calculate hold amount via pricer.
-	estimatedUsage := estimateUsageFromBody(body)
-	priceResult, err := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
-	holdAmount := decimal.Zero
-	if err != nil {
-		log.Printf("gateway: pricer estimate error: %v (using minimum hold)", err)
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
-	} else {
-		holdAmount = priceResult.ListCost
-		if rejectIncompletePricing(w, priceResult) {
-			return
-		}
-	}
-	if holdAmount.LessThanOrEqual(decimal.Zero) {
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
+	// Maximum-charge hold (TH-P05-01): reserve the worst-case cost — prompt
+	// estimate plus declared max output — before any upstream call
+	// (invariant #2). Fails closed on unreliable pricing.
+	holdAmount, _, ok := computeMaxChargeHold(w, application, r, primary.Channel.ModelID, tenantID, body)
+	if !ok {
+		return
 	}
 
 	// Tenant budget gate (Phase 1): check estimated cost before upstream.
@@ -597,21 +588,15 @@ func handleStreaming(w http.ResponseWriter, r *http.Request, application *app.Ap
 		requestID = uuid.New().String()
 	}
 
+	// Maximum-charge hold (TH-P05-01): identical calculation to the
+	// non-streaming path (AC-04) — worst-case cost reserved before upstream.
+	holdAmount, _, ok := computeMaxChargeHold(w, application, r, routeResult.Channel.ModelID, tenantID, body)
+	if !ok {
+		return
+	}
+	// Estimate retained for the no-usage settlement fallback below (degraded
+	// "estimated" usage source), separate from the maximum-charge hold.
 	estimatedUsage := estimateUsageFromBody(body)
-	priceResult, err := priceWithAdjustments(application, r, routeResult.Channel.ModelID, tenantID, estimatedUsage)
-	holdAmount := decimal.Zero
-	if err != nil {
-		log.Printf("gateway: stream pricer estimate error: %v (using minimum hold)", err)
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
-	} else {
-		holdAmount = priceResult.ListCost
-		if rejectIncompletePricing(w, priceResult) {
-			return
-		}
-	}
-	if holdAmount.LessThanOrEqual(decimal.Zero) {
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
-	}
 
 	// Tenant budget gate (Phase 1): check estimated cost before upstream.
 
