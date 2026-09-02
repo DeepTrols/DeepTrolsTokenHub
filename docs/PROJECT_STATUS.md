@@ -3720,3 +3720,32 @@ hold = pricer 按挂牌价计算的成本 × 分组/阶梯倍率
 - 非文本路径（embeddings / images / STT / TTS / video）仍用单位估算，
   pricer 出错时保留旧的静默最小预留语义，待后续任务统一治理。
 - chat 消息中的多模态 content parts（非字符串内容）不计入提示词估算。
+
+---
+
+## 一百一十三、2026-09-02 [P0.5] 数据库备份基线（TH-P05-06）
+
+> 备份从「文档里的一行命令」升级为**可执行、可验证的基线**。
+> 实现：`scripts/backup_db.sh`；文档：`docs/DEPLOYMENT.md` §5。
+
+### 113.1 基线命令与产出
+
+- `scripts/backup_db.sh "$DATABASE_URL" [OUTPUT_DIR]`：
+  `pg_dump -Fc` 全量转储 + 行数 manifest + 报告（耗时/字节数/路径）。
+- 产出成对：`deeptrols_<UTC时间戳>.dump` 与 `.manifest`。
+- manifest 固定记录 7 张资金/证据表行数：`users / wallets /
+  wallet_transactions / payment_orders / usage_logs / charge_lines /
+  provider_evidence`。
+
+### 113.2 安全与失败语义
+
+- URL 解析为 libpq 环境变量，密码不进进程命令行；所有子进程输出
+  经 redact 过滤（输出不含 DB 密码）。
+- manifest 原子写入（tmp+mv）：任何失败（无效 URL、连不上、缺表、
+  空转储）→ 非零退出且**不产生 manifest**（杜绝假 manifest）。
+- 退出码：0 成功；1 备份/manifest 失败；2 参数错误；3 缺工具。
+
+### 113.3 边界
+
+- 存储位置/保留策略的最终确认、备份供应商选型、加密工具链选型与
+  恢复演练不在本任务范围（恢复演练 = TH-P05-07）。

@@ -78,13 +78,47 @@ migrate -path migrations -database "$DATABASE_URL" down 1
 
 ## 5. 备份与恢复
 
+### 5.1 基线备份命令（TH-P05-06）
+
 ```bash
-pg_dump "$DATABASE_URL" -Fc -f deeptrols_$(date +%F).dump
+# 全量转储 + 资金/证据表行数 manifest + 报告（耗时/字节数/路径）
+# 产出：<OUTPUT_DIR>/deeptrols_<UTC时间戳>.dump 与同名 .manifest
+scripts/backup_db.sh "$DATABASE_URL" /var/backups/deeptrols
 ```
 
+脚本保证（与手工 `pg_dump "$DATABASE_URL" -Fc -f ...` 同语义，但增加安全与校验）：
+
+- DATABASE_URL 解析为 libpq 环境变量，URL/密码不出现在进程命令行；
+  所有子进程输出经 redact 过滤后才打印（输出不含 DB 密码）。
+- manifest 记录 `users / wallets / wallet_transactions / payment_orders /
+  usage_logs / charge_lines / provider_evidence` 7 张资金/证据表的行数；
+  原子写入：任何失败（无效 URL、连不上、缺表、空转储）都以非零退出且
+  不产生 manifest（杜绝假 manifest）。
+- 退出码：0 成功；1 备份/manifest 失败；2 参数错误；3 环境缺 `pg_dump`/`psql`。
+
+定时执行（示例，错峰）：
+
+```bash
+17 3 * * * /opt/deeptrols/scripts/backup_db.sh "$DATABASE_URL" /var/backups/deeptrols >> /var/log/deeptrols-backup.log 2>&1
+```
+
+### 5.2 存储与加密预期
+
+- 留存位置：本机 `/var/backups/deeptrols`（或等价目录）仅为落地点，
+  必须再上传至批准的异地/对象存储；存储路径与保留策略由运维确认后记录在案。
+- 加密：转储含全量业务数据，落地后、离开本机前必须加密
+  （如 `age`/`gpg` 对称加密，或服务端加密的对象存储桶）。manifest 与
+  dump 成对保存。
 - 备份频率：至少每日；对账/计费库建议 WAL 归档。
-- 恢复演练：每季度在隔离环境执行一次恢复验证。
-- 备份必须异地/对象存储留存，且加密。
+
+### 5.3 恢复
+
+```bash
+pg_restore -d "$RESTORE_DB_URL" --clean <dump 文件>
+```
+
+- 恢复演练（TH-P05-07）只在隔离环境执行，禁止直接在生产库上操作；
+  每季度至少一次，演练结果记入 `docs/PROJECT_STATUS.md`。
 
 ## 6. 多实例注意事项
 
