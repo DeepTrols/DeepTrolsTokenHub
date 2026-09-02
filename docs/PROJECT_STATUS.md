@@ -3607,3 +3607,67 @@ B2 修复（§108）后，OAuth 首登建号走 `ProvisionUserWallet` 记账路�
   解析已由测试固化，个人 / 企业双路径行为均被锁定。
 - P0 剩余项：ai-nuxt 纳入 git（版本控制缺失，见 106.1）→ 见 §110 完成。
 
+## 一百一十、2026-09-02 [P0] ai-nuxt 落地页纳入 git（审计遗留项）
+
+### 110.1 动作
+
+106.1 审计项「ai-nuxt 无版本控制」修复：在 `ai-nuxt/` 初始化独立 git 仓库
+（与 `DeepTrolsTokenHub/` 平级、独立管理，落地页与主仓发布节奏不同），
+完成初始提交 `b465bbf`：54 个文件 / 10,286 行（页面、组件、样式、
+`server/api/*` 快照接口、静态资源、`pnpm-lock.yaml`）。
+
+### 110.2 纳入与排除
+
+- **纳入**：`app/`（pages/components/assets/data/types）、`server/api/`、
+  `public/`、`nuxt.config.ts`、`package.json`、`pnpm-lock.yaml`、
+  `tsconfig.json`、`README.md`。
+- **排除**（既有 `.gitignore`）：`.nuxt` / `.output` / `node_modules` /
+  `dist` / `*.local` / `.DS_Store`。
+- **安全核查**：提交前全量扫描无 `.env`、无硬编码密钥（仅示例占位符
+  `sk-your-api-key`）。
+
+### 110.3 P0 阶段收口
+
+至此 P0「边界冻结与安全网」四项全部完成：
+
+| 项 | 状态 | 记录 |
+|---|---|---|
+| OEM 入口冻结与语义重定义（任务 #10） | ✅ | §107 |
+| 修复 B2 账外注资（任务 #11） | ✅ | §108 |
+| 单域名模式回归验证（任务 #13） | ✅ | §109 |
+| ai-nuxt 纳入 git | ✅ | 本节 |
+
+P0 基线干净，下一阶段为 P1 支付自接（支付宝 / 微信 Native 适配器，
+任务 #14 起；B2 修复已解锁其前置条件）。
+
+**遗留说明**：`DeepTrolsTokenHub` 主仓中 P0 相关改动（§107–§110 对应的
+30 个文件变更与 4 个新增文件）尚未提交，待按仓库提交纪律分批落库。
+
+## 一百一十一、2026-09-02 [补记] 平台品牌统一：DeepTrols → 智曜TokenHub
+
+### 111.1 背景与范围
+
+配合 §106.2「定位收敛：单一运营方平台」，控制台与后端产品文案统一为
+平台品牌「智曜TokenHub」（DeepTrols 仅作仓库 / 模块标识保留）：
+
+- **后端**：`setting/service.go` 默认站点配置改为
+  `site_name=智曜TokenHub`、`logo_url` / `favicon_url` 默认
+  `/brand-logo.png`（`service_test.go` 断言同步）；支付订单主题
+  （充值 / 订阅）同步更名（`payment/service.go`）；`system_info.go`
+  注释同步。
+- **控制台前端**：`site.tsx` 默认站点信息与页面标题；`SiteBrand.tsx`
+  重构为「图标 + 文字」组合并支持样式入参；`ShellLayout` /
+  `CheckinCard` 展示名；`index.html` 标题；登录 / 注册页品牌区
+  （改用 `SiteBrand`）与测试断言；Docs 页示例域名
+  （`api.deeptrols.ai` → `api.opcstore.com`）；i18n 文档 / 计费文案与
+  CSV 文件名（`deeptrols-*.csv` → `zhiyao-tokenhub-*.csv`）。
+- **资产**：`web/public/brand-logo.png` 更新为正式品牌图标。
+
+### 111.2 边界说明
+
+- 任务 #10 的 `tenants.title` 术语变更（租户管理 → 企业管理）属语义
+  重定义，与本批品牌更名分属不同提交，不混入。
+- 仓库名 / Go 模块名 / 目录名保留 `DeepTrols` 标识，不在本次范围。
+
+> 补记说明：本批变更完成于 §106 全仓审计之前（当日上午），当时未即时
+> 记录，随分批提交补录入本报告。
