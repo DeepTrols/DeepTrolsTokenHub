@@ -3779,3 +3779,53 @@ hold = pricer 按挂牌价计算的成本 × 分组/阶梯倍率
 
 - 未触碰：支付网关适配器（epay）、支付状态轮询、前端交互 —— 均为任务
   明示 Out of Scope。
+
+## 一百一十五、2026-09-03 [P0.5] B5 非 chat / 多模态覆盖收口（TH-P05-12）
+
+> Batch 1 审计发现三类资金缺口：C-1 `/v1/completions` 与 `/v1/responses`
+> 估算器为空 → 预留静默落到最小值；C-2 定价出错时四个转发管线静默以
+> `minHoldAmount` 预留并照调 Provider；C-3 chat 多模态 content parts
+> 未计入输入估算。本任务将全部计费入口收口为三种允许策略之一，
+> **禁止的第四种策略（"无法计算所以静默使用 minHoldAmount"）已消除**。
+
+### 115.1 修复内容
+
+- `computeForwardedHold`（reserve.go）：统一定价→预留入口；定价错误或
+  出现 MissingPricing → 422 `pricing_incomplete`，不预留、不调用上游。
+  四条转发管线（JSON / raw / multipart / video）的
+  `(using minimum hold)` 静默块全部替换。
+- `/v1/completions`：prompt 必填（缺失 → 400）；估算 = prompt
+  （string / 批量 string / token-id 数组）+ 声明最大输出（≤131072）。
+- `/v1/responses`：严格多态估算（instructions + input string / item
+  列表 / content parts / call.arguments）；直转分支不可定价输入 →
+  422；via-chat 分支沿用 `computeMaxChargeHold`。
+- chat 多模态：`estimateUsageFromBody` 计入 content parts —— 文本估算、
+  image +3072、内联 audio +4096（安全津贴，基于 1MB body 上限推导）；
+  file 引用 / 未知类型在预留门禁处 → 422（fail-closed）。
+- STT：字节→秒从 128kbps 假设改为最坏编解码下限 750 B/s，预留与
+  无-usage 结算同一基准；embeddings 支持 token-id 数组精确计数；
+  images/edits `n` 表单字段强校验 1..10。
+
+### 115.2 B5 Coverage Matrix（AC-10）
+
+12 行全覆盖：chat（流式/非流式）、messages relay、responses（via-chat /
+直转）、completions、embeddings、images（generations / edits）、audio
+（speech / transcriptions）、videos/generations。全部为 Strategy A
+（Maximum Charge Reserve），不可定价输入叠加 Strategy C 门禁。
+**Uncovered Provider-Cost Endpoint = 0。**
+不计费入口（备查）：count_tokens、models、video job 状态/取消。
+
+### 115.3 测试与证据
+
+- TDD RED→GREEN：`coverage_p0512_test.go` 17 用例。RED 实测 12 例失败
+  （预留 0.0001、定价错误照调上游、多模态漏计、file part 放行、STT
+  46s≠1000s），GREEN 全绿。
+- 全量门禁：`go test ./...` 45 包 ok、0 FAIL；`go vet` / `go build` /
+  `gofmt` 全净。
+
+### 115.4 边界与取舍
+
+- STT 最坏基准在上游无 usage 时对高码率音频偏高计费（永不低估）；
+  duration 探测（ffprobe）为延迟改进，另立任务。
+- image / audio 津贴为安全上限，结算以上游真实 usage 为准。
+- C-4（备份加密）保持 Deferred，本批不做。
