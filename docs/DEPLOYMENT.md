@@ -111,14 +111,50 @@ scripts/backup_db.sh "$DATABASE_URL" /var/backups/deeptrols
   dump 成对保存。
 - 备份频率：至少每日；对账/计费库建议 WAL 归档。
 
-### 5.3 恢复
+### 5.3 恢复演练（TH-P05-07）
+
+真实恢复必须走演练工具，**禁止**直接对生产库执行 `pg_restore`：
 
 ```bash
-pg_restore -d "$RESTORE_DB_URL" --clean <dump 文件>
+# 1. 用基线备份工具产生转储 + manifest（§5.1）
+scripts/backup_db.sh "$DATABASE_URL" /var/backups/deeptrols
+
+# 2. 在隔离目标库上执行演练（目标名必须含 drill/test/staging/restore 标记）
+#    第 4 个参数传源库 URL 时，启用源/目标内容级对比（强烈推荐）
+scripts/restore_drill.sh "$RESTORE_TARGET_URL" <dump 文件> <manifest 文件> "$DATABASE_URL"
 ```
 
-- 恢复演练（TH-P05-07）只在隔离环境执行，禁止直接在生产库上操作；
-  每季度至少一次，演练结果记入 `docs/PROJECT_STATUS.md`。
+工具执行流程（全部自动）：目标防护 → DROP+CREATE 隔离目标库 →
+`pg_restore`（计时）→ 验证 → 报告。验证项：
+
+- **迁移版本（C-5）**：本项目不维护 `schema_migrations` 版本表（迁移按
+  文件名顺序裸 SQL 应用），因此验证 = 最新迁移标记对象存在性 +
+  源/目标 schema 对象集合与列数指纹完全一致。新增迁移后必须同步更新
+  `scripts/restore_drill.sh` 内的 `MIGRATION_MARKERS`。
+- **Manifest 行数**：7 张资金/证据表逐一等于 manifest 记录。
+- **钱包不变量**：W1 `frozen == 未完结 reserve 之和`；W2 `balance ==
+  账本净额`（charge 记 `-amount`，reserve/release 不动余额，其余 `+amount`）。
+  提供源库时，目标库的违例集合必须与源库完全一致（恢复不得引入新违例）。
+- **内容级一致性**：7 表逐行 md5 校验和、账本净额、分状态支付金额与源库相等。
+
+报告输出（stdout）：转储路径/字节数、目标别名、恢复耗时、逐项验证结果。
+演练通过后由操作人在报告中签字，结果记入 `docs/PROJECT_STATUS.md`；
+每季度至少一次。
+
+可选：用 `scripts/seed_drill_fixture.sh "$SEED_URL"` 在隔离库播种含完整
+钱包生命周期（topup/reserve/commit/settle/release/transfer）的夹具，
+使演练在非空账本上验证不变量，而不是在空表上空转。
+
+**失败处理（按退出码）**：
+
+| 退出码 | 含义 | 处置 |
+|---|---|---|
+| 2 | 参数错误 / 目标防护拒绝（生产形态库名、无隔离标记） | 换用隔离目标库；绝不可绕过防护 |
+| 3 | 环境缺失（`pg_restore`/`psql` 不在 PATH） | 在装有 PostgreSQL 客户端的机器执行 |
+| 1 | 恢复失败或任一验证项失败 | 保留现场：转储、manifest、完整 stdout/stderr；对比验证输出定位差异；确认转储与源库状态后重跑；仍失败则升级至 `docs/PROJECT_STATUS.md` 已知问题 |
+
+真实生产事故的恢复（非演练）不在本工具范围：先恢复进隔离库演练验证，
+再由运维决策切换，禁止未经演练直接恢复生产。
 
 ## 6. 多实例注意事项
 
