@@ -59,6 +59,52 @@ func TestSanitizeReasonClass(t *testing.T) {
 	}
 }
 
+// TestSanitizeWorker pins the bounded worker label space (TH-P05-11): the
+// exact leased-worker whitelist passes, everything else — raw lease keys,
+// hostnames, dynamic strings — is clamped to "other".
+func TestSanitizeWorker(t *testing.T) {
+	for _, in := range []string{"health_checker", "reconciler", "billing_sync", "subscription_expirer", "subscription_renewer"} {
+		if got := SanitizeWorker(in); got != in {
+			t.Errorf("SanitizeWorker(%q) = %q, want %q", in, got, in)
+		}
+	}
+	bad := []string{
+		"",
+		"worker:lease:reconciler", // raw lease key must never become a label
+		"host-3.prod.internal",    // hostname
+		"pod-7f9c8b6d5-x2k4j",     // pod id
+		"user_id=123",
+		"reconciler\ninjected_label", // label injection noise
+	}
+	for _, in := range bad {
+		if got := SanitizeWorker(in); got != workerOther {
+			t.Errorf("SanitizeWorker(%q) = %q, want %q", in, got, workerOther)
+		}
+	}
+}
+
+// TestSanitizeWorkerOutcomes pins the bounded outcome label spaces.
+func TestSanitizeWorkerOutcomes(t *testing.T) {
+	for _, in := range []string{WorkerOutcomeSuccess, WorkerOutcomeFailed, WorkerOutcomePanicRecovered, WorkerOutcomeSkipped} {
+		if got := SanitizeCycleOutcome(in); got != in {
+			t.Errorf("SanitizeCycleOutcome(%q) = %q, want %q", in, got, in)
+		}
+	}
+	for _, in := range []string{LeaseOutcomeAcquired, LeaseOutcomeSkipped, LeaseOutcomeError} {
+		if got := SanitizeLeaseOutcome(in); got != in {
+			t.Errorf("SanitizeLeaseOutcome(%q) = %q, want %q", in, got, in)
+		}
+	}
+	for _, in := range []string{"", "timeout after 30s", "connection refused", "worker:lease:x"} {
+		if got := SanitizeCycleOutcome(in); got != workerOther {
+			t.Errorf("SanitizeCycleOutcome(%q) = %q, want %q", in, got, workerOther)
+		}
+		if got := SanitizeLeaseOutcome(in); got != workerOther {
+			t.Errorf("SanitizeLeaseOutcome(%q) = %q, want %q", in, got, workerOther)
+		}
+	}
+}
+
 // TestStatusClass bounds the HTTP result classification.
 func TestStatusClass(t *testing.T) {
 	cases := map[int]string{200: "", 201: "", 304: "", 400: ReasonClientError, 402: ReasonClientError, 404: ReasonClientError, 500: ReasonServerError, 502: ReasonServerError}
@@ -87,7 +133,18 @@ func TestGatheredFamilies_NoForbiddenLabels(t *testing.T) {
 	IncPricingIncomplete("chat")
 	IncProviderBlocked("chat", ReasonInsufficientBalance)
 
-	allowedLabelNames := map[string]bool{"endpoint": true, "reason_class": true}
+	// TH-P05-11 worker setters, including hostile inputs that must clamp.
+	RecordWorkerCycle("reconciler", WorkerOutcomeSuccess, time.Second)
+	RecordWorkerCycle("worker:lease:reconciler", "raw redis error text", time.Millisecond)
+	IncWorkerLease("health_checker", LeaseOutcomeAcquired)
+	IncWorkerLease("host-1.prod.internal", "error: dial tcp 10.0.0.5:6379: refused")
+
+	allowedLabelNames := map[string]bool{"endpoint": true, "reason_class": true, "worker": true, "outcome": true}
+	allowedLabelValue := func(val string) bool {
+		return allowedEndpoints[val] || allowedReasons[val] || AllowedWorkers[val] ||
+			allowedCycleOutcomes[val] || allowedLeaseOutcomes[val] ||
+			val == endpointOther || val == reasonOther || val == workerOther
+	}
 	families, err := Default.Registry.Gather()
 	if err != nil {
 		t.Fatalf("gather: %v", err)
@@ -106,7 +163,7 @@ func TestGatheredFamilies_NoForbiddenLabels(t *testing.T) {
 				if val == "" {
 					continue
 				}
-				if !allowedEndpoints[val] && !allowedReasons[val] && val != endpointOther && val != reasonOther {
+				if !allowedLabelValue(val) {
 					t.Errorf("metric %s carries non-allowlisted label value %q for %s", fam.GetName(), val, name)
 				}
 			}
@@ -119,6 +176,10 @@ func TestGatheredFamilies_NoForbiddenLabels(t *testing.T) {
 // baseline families (and no sensitive substrings).
 func TestHandler_Scrapeable(t *testing.T) {
 	IncReserve()
+	// CounterVec families only appear after a child exists; materialize one
+	// child per worker family (delta-safe for the rest of the suite).
+	RecordWorkerCycle("reconciler", WorkerOutcomeSuccess, time.Millisecond)
+	IncWorkerLease("reconciler", LeaseOutcomeAcquired)
 	rec := httptest.NewRecorder()
 	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	if rec.Code != http.StatusOK {
@@ -136,12 +197,13 @@ func TestHandler_Scrapeable(t *testing.T) {
 		NameReleaseTotal, NameReleaseFailedTotal,
 		NameUnderchargeFallbackTotal, NamePricingIncompleteTotal,
 		NameProviderBlockedTotal,
+		NameWorkerCyclesTotal, NameWorkerCycleDuration, NameWorkerLeaseTotal,
 	} {
 		if !strings.Contains(body, name) {
 			t.Errorf("metrics body missing family %s", name)
 		}
 	}
-	for _, leak := range []string{"user_id", "request_id", "tenant_id", "order_no", "api_key", "Bearer", "@"} {
+	for _, leak := range []string{"user_id", "request_id", "tenant_id", "order_no", "api_key", "Bearer", "@", "worker:lease:"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("metrics body contains sensitive substring %q", leak)
 		}

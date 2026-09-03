@@ -373,6 +373,47 @@ func TestConfig_RedisURLIsOptional(t *testing.T) {
 	}
 }
 
+// TestConfig_WorkerMetricsAddr verifies the worker Prometheus scrape endpoint
+// address (TH-P05-11): loopback default, env override, empty disables.
+func TestConfig_WorkerMetricsAddr(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string // value to set; "<unset>" leaves the variable unset
+		want string
+	}{
+		{name: "unset defaults to loopback", env: "<unset>", want: "127.0.0.1:19090"},
+		{name: "env override wins", env: "10.0.0.7:9090", want: "10.0.0.7:9090"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Setenv("DATABASE_URL", "postgres://test:test@localhost:5432/test")
+			os.Setenv("JWT_SECRET", "abcdefghijklmnopqrstuvwxyz123456")
+			os.Setenv("ENCRYPTION_KEY", "abcdefghijklmnopqrstuvwxyz123456")
+			os.Setenv("ADMIN_PASSWORD", "password123")
+			if tt.env != "<unset>" {
+				os.Setenv("WORKER_METRICS_ADDR", tt.env)
+			}
+
+			defer func() {
+				os.Unsetenv("DATABASE_URL")
+				os.Unsetenv("JWT_SECRET")
+				os.Unsetenv("ENCRYPTION_KEY")
+				os.Unsetenv("ADMIN_PASSWORD")
+				os.Unsetenv("WORKER_METRICS_ADDR")
+			}()
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.WorkerMetricsAddr != tt.want {
+				t.Errorf("WorkerMetricsAddr = %q, want %q", cfg.WorkerMetricsAddr, tt.want)
+			}
+		})
+	}
+}
+
 // TestConfig_LiteLLMVarsAreOptional verifies that the API starts without
 // LITELLM_BASE_URL / LITELLM_MASTER_KEY (LiteLLM is no longer bundled in
 // docker-compose; the vars are only needed for an external proxy).

@@ -12,8 +12,13 @@
 //
 // The setters enforce the policy structurally: every label value passes an
 // allowlist sanitizer before it reaches Prometheus, so a future caller cannot
-// accidentally leak a high-cardinality or sensitive value. Deliberately NOT
-// instrumented here: worker lease metrics (TH-P05-11 scope boundary).
+// accidentally leak a high-cardinality or sensitive value.
+//
+// TH-P05-11 extends the same registry and label policy to the worker lease
+// observability baseline (worker_cycles_total / worker_cycle_duration_seconds
+// / worker_lease_total): worker names and outcomes are whitelist-clamped by
+// SanitizeWorker / SanitizeCycleOutcome / SanitizeLeaseOutcome, and raw lease
+// keys or error text never reach any label.
 package metrics
 
 import (
@@ -40,6 +45,11 @@ const (
 	NameUnderchargeFallbackTotal = "billing_undercharge_fallback_total"
 	NamePricingIncompleteTotal   = "billing_pricing_incomplete_total"
 	NameProviderBlockedTotal     = "gateway_provider_blocked_before_call_total"
+
+	// TH-P05-11: worker lease observability baseline.
+	NameWorkerCyclesTotal   = "worker_cycles_total"
+	NameWorkerCycleDuration = "worker_cycle_duration_seconds"
+	NameWorkerLeaseTotal    = "worker_lease_total"
 )
 
 // Allowed reason_class label values (bounded by construction).
@@ -96,6 +106,76 @@ var allowedReasons = map[string]bool{
 	ReasonSettleError:         true,
 	ReasonClientError:         true,
 	ReasonServerError:         true,
+}
+
+// TH-P05-11: worker observability label values. The worker whitelist is the
+// exact set of leased workers in cmd/worker; any other value (including raw
+// lease keys like "worker:lease:reconciler") is clamped to workerOther.
+const workerOther = "other"
+
+// Cycle outcome label values (worker_cycles_total).
+const (
+	WorkerOutcomeSuccess        = "success"
+	WorkerOutcomeFailed         = "failed"
+	WorkerOutcomePanicRecovered = "panic_recovered"
+	WorkerOutcomeSkipped        = "skipped"
+)
+
+// Lease outcome label values (worker_lease_total).
+const (
+	LeaseOutcomeAcquired = "acquired"
+	LeaseOutcomeSkipped  = "skipped"
+	LeaseOutcomeError    = "error"
+)
+
+// AllowedWorkers is the complete low-cardinality worker label space. New
+// leased workers must be added here deliberately — a dynamic or unknown name
+// is clamped to workerOther, so worker identity can never be smuggled in.
+var AllowedWorkers = map[string]bool{
+	"health_checker":       true,
+	"reconciler":           true,
+	"billing_sync":         true,
+	"subscription_expirer": true,
+	"subscription_renewer": true,
+}
+
+var allowedCycleOutcomes = map[string]bool{
+	WorkerOutcomeSuccess:        true,
+	WorkerOutcomeFailed:         true,
+	WorkerOutcomePanicRecovered: true,
+	WorkerOutcomeSkipped:        true,
+}
+
+var allowedLeaseOutcomes = map[string]bool{
+	LeaseOutcomeAcquired: true,
+	LeaseOutcomeSkipped:  true,
+	LeaseOutcomeError:    true,
+}
+
+// SanitizeWorker clamps a worker label value to the allowlist. Raw lease
+// keys, hostnames and any other dynamic string become workerOther.
+func SanitizeWorker(worker string) string {
+	w := strings.TrimSpace(worker)
+	if AllowedWorkers[w] {
+		return w
+	}
+	return workerOther
+}
+
+// SanitizeCycleOutcome clamps a worker cycle outcome to the allowlist.
+func SanitizeCycleOutcome(outcome string) string {
+	if allowedCycleOutcomes[outcome] {
+		return outcome
+	}
+	return workerOther
+}
+
+// SanitizeLeaseOutcome clamps a lease decision outcome to the allowlist.
+func SanitizeLeaseOutcome(outcome string) string {
+	if allowedLeaseOutcomes[outcome] {
+		return outcome
+	}
+	return workerOther
 }
 
 // SanitizeEndpoint clamps an endpoint label value to the allowlist.
@@ -166,11 +246,20 @@ type Metrics struct {
 	UnderchargeFallbackTotal *prometheus.CounterVec // {endpoint}
 	PricingIncompleteTotal   *prometheus.CounterVec // {endpoint}
 	ProviderBlockedTotal     *prometheus.CounterVec // {endpoint, reason_class}
+
+	// TH-P05-11: worker lease observability baseline.
+	WorkerCyclesTotal   *prometheus.CounterVec   // {worker, outcome}
+	WorkerCycleDuration *prometheus.HistogramVec // {worker}
+	WorkerLeaseTotal    *prometheus.CounterVec   // {worker, outcome}
 }
 
 // durationBuckets covers LLM request latencies (sub-second cache hits to
 // multi-minute generations) with a bounded bucket count.
 var durationBuckets = []float64{0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120}
+
+// workerCycleBuckets covers worker cycle durations: sub-second skips and
+// fast sync cycles up to long reconciliation runs (bounded bucket count).
+var workerCycleBuckets = []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600}
 
 // New builds the metric set on a fresh registry.
 func New() *Metrics {
@@ -230,6 +319,20 @@ func New() *Metrics {
 			Name: NameProviderBlockedTotal,
 			Help: "Provider calls prevented by a money-safety gate before any upstream request (surrogate, see docs/OBSERVABILITY_METRICS.md).",
 		}, []string{"endpoint", "reason_class"}),
+		// TH-P05-11: worker lease observability baseline.
+		WorkerCyclesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: NameWorkerCyclesTotal,
+			Help: "Worker cycles by outcome (success / failed / panic_recovered / skipped).",
+		}, []string{"worker", "outcome"}),
+		WorkerCycleDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    NameWorkerCycleDuration,
+			Help:    "Worker cycle duration in seconds (lease attempt included).",
+			Buckets: workerCycleBuckets,
+		}, []string{"worker"}),
+		WorkerLeaseTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: NameWorkerLeaseTotal,
+			Help: "Worker lease decisions (acquired / skipped / error). Redis error is fail-closed: the cycle is skipped.",
+		}, []string{"worker", "outcome"}),
 	}
 	reg.MustRegister(
 		m.RequestsTotal, m.SuccessTotal, m.ErrorTotal, m.RequestDurationSeconds,
@@ -237,6 +340,7 @@ func New() *Metrics {
 		m.SettleTotal, m.SettleFailedTotal,
 		m.ReleaseTotal, m.ReleaseFailedTotal,
 		m.UnderchargeFallbackTotal, m.PricingIncompleteTotal, m.ProviderBlockedTotal,
+		m.WorkerCyclesTotal, m.WorkerCycleDuration, m.WorkerLeaseTotal,
 	)
 	return m
 }
@@ -309,5 +413,27 @@ func IncPricingIncomplete(endpoint string) {
 func IncProviderBlocked(endpoint, reasonClass string) {
 	safely(func() {
 		Default.ProviderBlockedTotal.WithLabelValues(SanitizeEndpoint(endpoint), SanitizeReasonClass(reasonClass)).Inc()
+	})
+}
+
+// RecordWorkerCycle counts one finished worker cycle by outcome and observes
+// its duration (TH-P05-11). Labels are whitelist-clamped; instrumentation
+// faults are swallowed so observability can never break a worker cycle.
+func RecordWorkerCycle(worker, outcome string, duration time.Duration) {
+	w := SanitizeWorker(worker)
+	o := SanitizeCycleOutcome(outcome)
+	safely(func() {
+		Default.WorkerCyclesTotal.WithLabelValues(w, o).Inc()
+		Default.WorkerCycleDuration.WithLabelValues(w).Observe(duration.Seconds())
+	})
+}
+
+// IncWorkerLease counts one lease decision (acquired / skipped / error) for a
+// worker (TH-P05-11).
+func IncWorkerLease(worker, outcome string) {
+	w := SanitizeWorker(worker)
+	o := SanitizeLeaseOutcome(outcome)
+	safely(func() {
+		Default.WorkerLeaseTotal.WithLabelValues(w, o).Inc()
 	})
 }

@@ -28,6 +28,11 @@ type Config struct {
 	// UploadDir is the local directory for admin-uploaded brand assets
 	// (logo/favicon). Defaults to ./uploads (relative to the process cwd).
 	UploadDir string
+	// WorkerMetricsAddr is the listen address of the worker process's
+	// Prometheus scrape endpoint (TH-P05-11). Defaults to loopback; open it
+	// up at the network layer when Prometheus scrapes from another host.
+	// Empty disables the endpoint (observability only; workers keep running).
+	WorkerMetricsAddr string
 	// FakePayment enables the demo-only topup faucet and signup bonus.
 	// MUST be false in production. When false, the topup endpoint returns 403
 	// and no bonus balance is granted.
@@ -157,6 +162,8 @@ func Load() (*Config, error) {
 		},
 		UploadDir:   envOrDefault("UPLOAD_DIR", "./uploads"),
 		FakePayment: envOrDefaultBool("ENABLE_FAKE_PAYMENT", false),
+		// Loopback by default: /metrics is unauthenticated, like the API's.
+		WorkerMetricsAddr: envOrDefault("WORKER_METRICS_ADDR", "127.0.0.1:19090"),
 	}
 
 	// Cookie config depends on JWT expiry, so we compute it after defaults are set.
