@@ -3961,3 +3961,42 @@ Batch 2 发现的"有余额无账本"钱包 `3a7a5fef-…`（balance 10000、
 - 仓库级 Reserve 幂等重放即使金额不同也返回原事务（金额校验仅
   Transfer 有）；网关预留失败非余额错误返回 500（资金路径仍安全）；
   `internal/pkg/idempotency` 无生产调用点（W5 已网关级覆盖）。
+
+## 一百一十九、2026-09-03 [P0.5] 基础网关计费指标（TH-P05-04）
+
+仓库首个可观测性基线：新增 `prometheus/client_golang v1.20.5`（唯一新增
+直接依赖），建立低基数资金路径计数器。**未改动任何资金语义**——埋点全部
+在既有结果之后追加，且由 `safely()` recover 守卫包裹，指标故障永远不影响
+业务请求。
+
+### 119.1 指标面（13 个家族，独立 registry）
+
+- 网关：`gateway_requests_total` / `gateway_success_total` /
+  `gateway_error_total` / `gateway_request_duration_seconds`（`{endpoint}`，
+  错误带 `reason_class`）。
+- 资金：`billing_reserve_total` / `billing_settle_total` /
+  `billing_release_total` 及各自 `_failed`（`{reason_class}`）、
+  `billing_undercharge_fallback_total`、`billing_pricing_incomplete_total`。
+- Provider 安全：`gateway_provider_blocked_before_call_total`——文档化
+  surrogate：W6（TH-P05-03 已证）保证每笔 provider 调用前必有成功
+  reserve，故 executor 之前的每次拒绝恰等于一次被阻止的上游调用。
+- 标签仅 `endpoint` / `reason_class`，setter 入口白名单强制；
+  request_id / user_id / tenant_id / order_no / key / JWT / prompt /
+  原始错误 / URL / IP 结构上不可能进入标签。
+- Worker 租约指标刻意排除（TH-P05-11 范围）。
+
+### 119.2 接入点与验证
+
+- 计数点：`billing.Charger`（reserve/settle/release）、
+  `settle_fallback.go`（undercharge）、`reserve.go`（5 个 fail-closed
+  分支）、5 个网关处理器的 pre-executor 拒绝分支、`/v1` 路由链最前的
+  `GatewayMetrics` 中间件；`/metrics` 挂载于 `App.RegisterRoutes`。
+- AC-01（成功→恰 1 reserve + 1 settle）、AC-02（上游失败→恰 1 release）、
+  AC-03（定价不完整→1 pricing_incomplete、0 reserve、0 provider 调用）、
+  AC-04（少收兜底→恰 1 undercharged）全部 PASS；另有零余额 402 门控计数
+  证明。单元（消毒器）/集成（Gather 结构断言）/回归（/health、/readyz
+  不变，/metrics 可抓取且 `text/plain`）/故障注入（panic 不外泄）四类
+  测试齐备；`-race`（metrics/middleware/billing/gateway/app）全绿。
+- 文档：`docs/OBSERVABILITY_METRICS.md`（指标名、允许/禁止标签、
+  surrogate 解释、/metrics 生产网络限制说明）与
+  `docs/tasks/execution-logs/TH-P05-04.md`。
