@@ -1,0 +1,30 @@
+# Example Prometheus configuration for TokenHub (TH-P05-05).
+#
+# Copy into your Prometheus config directory, adjust targets to your real
+# topology, and keep rule_files pointing at tokenhub_p05.rules.yml.
+#
+# IMPORTANT for worker-silence semantics: scrape EVERY worker replica. The
+# silence rules aggregate the whole fleet (sum by worker); missing a replica
+# from the scrape set can both mask and distort silence detection.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 1m
+
+rule_files:
+  - tokenhub_p05.rules.yml
+
+scrape_configs:
+  # API process metrics endpoint (same port as the HTTP API; /metrics is
+  # served by the API router).
+  - job_name: tokenhub-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:8080"]
+
+  # Worker process metrics endpoint (WORKER_METRICS_ADDR, default
+  # 127.0.0.1:19090). One target per worker replica.
+  - job_name: tokenhub-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:19090"]

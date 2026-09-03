@@ -19,6 +19,12 @@
 // / worker_lease_total): worker names and outcomes are whitelist-clamped by
 // SanitizeWorker / SanitizeCycleOutcome / SanitizeLeaseOutcome, and raw lease
 // keys or error text never reach any label.
+//
+// TH-P05-05 extends the same registry with the minimal alert-support
+// baseline: reconciliation_critical_diffs_total (critical reconciliation
+// differences, detect-only) and app_dependency_up (database / redis
+// reachability watchdog gauge). The dependency label is whitelist-clamped by
+// SanitizeDependency; the same no-sensitive-label policy applies.
 package metrics
 
 import (
@@ -50,6 +56,10 @@ const (
 	NameWorkerCyclesTotal   = "worker_cycles_total"
 	NameWorkerCycleDuration = "worker_cycle_duration_seconds"
 	NameWorkerLeaseTotal    = "worker_lease_total"
+
+	// TH-P05-05: alert-support baseline.
+	NameReconciliationCriticalDiffTotal = "reconciliation_critical_diffs_total"
+	NameDependencyUp                    = "app_dependency_up"
 )
 
 // Allowed reason_class label values (bounded by construction).
@@ -178,6 +188,31 @@ func SanitizeLeaseOutcome(outcome string) string {
 	return workerOther
 }
 
+// TH-P05-05: dependency label values for app_dependency_up. The space is
+// bounded by construction; any other value (hostname, DSN, arbitrary caller
+// string) is clamped to dependencyOther, so dependency identity can never be
+// smuggled into a label.
+const dependencyOther = "other"
+
+const (
+	DependencyDatabase = "database"
+	DependencyRedis    = "redis"
+)
+
+var allowedDependencies = map[string]bool{
+	DependencyDatabase: true,
+	DependencyRedis:    true,
+}
+
+// SanitizeDependency clamps a dependency label value to the allowlist.
+func SanitizeDependency(dependency string) string {
+	d := strings.TrimSpace(dependency)
+	if allowedDependencies[d] {
+		return d
+	}
+	return dependencyOther
+}
+
 // SanitizeEndpoint clamps an endpoint label value to the allowlist.
 // Route-pattern prefixes ("/v1/") are stripped first; unknown, empty and
 // high-cardinality values all become endpointOther.
@@ -251,6 +286,10 @@ type Metrics struct {
 	WorkerCyclesTotal   *prometheus.CounterVec   // {worker, outcome}
 	WorkerCycleDuration *prometheus.HistogramVec // {worker}
 	WorkerLeaseTotal    *prometheus.CounterVec   // {worker, outcome}
+
+	// TH-P05-05: alert-support baseline.
+	ReconciliationCriticalDiffTotal prometheus.Counter   // critical reconciliation diffs (detect-only)
+	DependencyUp                    *prometheus.GaugeVec // {dependency}: 1 reachable / 0 unreachable
 }
 
 // durationBuckets covers LLM request latencies (sub-second cache hits to
@@ -333,6 +372,15 @@ func New() *Metrics {
 			Name: NameWorkerLeaseTotal,
 			Help: "Worker lease decisions (acquired / skipped / error). Redis error is fail-closed: the cycle is skipped.",
 		}, []string{"worker", "outcome"}),
+		// TH-P05-05: alert-support baseline.
+		ReconciliationCriticalDiffTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: NameReconciliationCriticalDiffTotal,
+			Help: "Critical reconciliation differences detected (detect-only; differences are never auto-corrected, see docs/RUNBOOK_ALERTS.md).",
+		}),
+		DependencyUp: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: NameDependencyUp,
+			Help: "Dependency reachability as observed by the process watchdog (1 reachable / 0 unreachable).",
+		}, []string{"dependency"}),
 	}
 	reg.MustRegister(
 		m.RequestsTotal, m.SuccessTotal, m.ErrorTotal, m.RequestDurationSeconds,
@@ -341,6 +389,7 @@ func New() *Metrics {
 		m.ReleaseTotal, m.ReleaseFailedTotal,
 		m.UnderchargeFallbackTotal, m.PricingIncompleteTotal, m.ProviderBlockedTotal,
 		m.WorkerCyclesTotal, m.WorkerCycleDuration, m.WorkerLeaseTotal,
+		m.ReconciliationCriticalDiffTotal, m.DependencyUp,
 	)
 	return m
 }
@@ -436,4 +485,24 @@ func IncWorkerLease(worker, outcome string) {
 	safely(func() {
 		Default.WorkerLeaseTotal.WithLabelValues(w, o).Inc()
 	})
+}
+
+// IncReconciliationCriticalDiff counts one critical reconciliation difference
+// detected by the reconciler (TH-P05-05 alert baseline). Counting is
+// detection-only: the reconciler never auto-corrects money, and this counter
+// can never trigger an automatic Spend/Adjust/TopUp/debit/credit.
+func IncReconciliationCriticalDiff() {
+	safely(func() { Default.ReconciliationCriticalDiffTotal.Inc() })
+}
+
+// SetDependencyUp records the latest reachability probe result for a
+// dependency (TH-P05-05 alert baseline). The dependency label is
+// whitelist-clamped before it reaches Prometheus.
+func SetDependencyUp(dependency string, up bool) {
+	d := SanitizeDependency(dependency)
+	v := 0.0
+	if up {
+		v = 1
+	}
+	safely(func() { Default.DependencyUp.WithLabelValues(d).Set(v) })
 }

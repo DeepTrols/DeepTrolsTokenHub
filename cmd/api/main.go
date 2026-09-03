@@ -22,6 +22,7 @@ import (
 	"github.com/deeptrols/api/internal/handler/console"
 	"github.com/deeptrols/api/internal/handler/gateway"
 	"github.com/deeptrols/api/internal/handler/middleware"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 )
 
 func main() {
@@ -45,6 +46,22 @@ func main() {
 	// Non-fatal: a failure only degrades admin enterprise features, not serving.
 	if err := application.EnsurePlatformTenant(context.Background(), uuid.Nil); err != nil {
 		log.Printf("ensurePlatformTenant: %v", err)
+	}
+
+	// TH-P05-05: dependency reachability watchdog behind the
+	// TokenHubDatabaseUnavailable / TokenHubRedisUnavailable alerts.
+	// Observability only: probe results never affect serving.
+	{
+		probes := []metrics.DependencyProbe{
+			{Name: metrics.DependencyDatabase, Ping: application.Pool.Ping},
+		}
+		if application.Redis != nil {
+			probes = append(probes, metrics.DependencyProbe{
+				Name: metrics.DependencyRedis,
+				Ping: func(ctx context.Context) error { return application.Redis.Ping(ctx).Err() },
+			})
+		}
+		metrics.StartDependencyWatchdog(15*time.Second, probes...)
 	}
 
 	r := chi.NewRouter()

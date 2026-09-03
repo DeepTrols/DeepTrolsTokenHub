@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/deeptrols/api/internal/pkg/metrics"
 )
 
 // dbPool abstracts a subset of *pgxpool.Pool for testing.
@@ -386,6 +388,9 @@ func (r *Reconciler) createBillingDiff(ctx context.Context, runID uuid.UUID, dif
 		`INSERT INTO reconciliation_diffs (id, run_id, usage_log_id, diff_type, severity, diff_detail, resolution_status)
 		 VALUES ($1, $2, NULL, $3, $4, $5, 'open')`,
 		uuid.New(), runID, diffType, severity, detailJSON)
+	if err == nil {
+		countCriticalDiff(severity)
+	}
 	return err
 }
 
@@ -595,7 +600,21 @@ func (r *Reconciler) createDiff(ctx context.Context, runID uuid.UUID, usageLogID
 		`INSERT INTO reconciliation_diffs (id, run_id, usage_log_id, diff_type, severity, diff_detail, resolution_status)
 		 VALUES ($1, $2, $3, $4, $5, $6, 'open')`,
 		uuid.New(), runID, uid, diffType, severity, detailJSON)
+	if err == nil {
+		countCriticalDiff(severity)
+	}
 	return err
+}
+
+// countCriticalDiff exports critical reconciliation differences to the
+// TH-P05-05 alert baseline (reconciliation_critical_diffs_total). This is
+// strictly detection: reconciliation stays detect-only and never spends,
+// adjusts, tops up, debits or credits any wallet. The counter increment is
+// guarded by metrics.safely(), so it can never break a diff write.
+func countCriticalDiff(severity string) {
+	if severity == "critical" {
+		metrics.IncReconciliationCriticalDiff()
+	}
 }
 
 func (r *Reconciler) completeRun(ctx context.Context, id uuid.UUID, total, diffCount int, report json.RawMessage) error {

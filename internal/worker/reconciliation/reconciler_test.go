@@ -11,6 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
+
+	"github.com/deeptrols/api/internal/pkg/metrics"
 )
 
 // mockRow implements pgx.Row by delegating Scan to a function.
@@ -743,3 +746,60 @@ var (
 	_ pgx.Rows = (*mockRows)(nil)
 	_ pgx.Row  = (*mockRow)(nil)
 )
+
+// TestCreateDiff_CriticalCounter TH-P05-05: critical differences increment
+// reconciliation_critical_diffs_total exactly once per persisted diff;
+// warning diffs and failed inserts never increment it. This is the metric
+// behind TokenHubCriticalReconciliationDiff; counting is strictly
+// detection-only and changes nothing about diff persistence.
+func TestCreateDiff_CriticalCounter(t *testing.T) {
+	count := func() float64 {
+		return promtestutil.ToFloat64(metrics.Default.ReconciliationCriticalDiffTotal)
+	}
+	okDB := &mockDB{}
+	failDB := &mockDB{execFn: func(context.Context, string, ...any) (pgconn.CommandTag, error) {
+		return pgconn.CommandTag{}, errors.New("insert failed")
+	}}
+	r := &Reconciler{pool: okDB}
+	runID := uuid.New()
+
+	// undercharge_review is critical (TH-P05-02 shape).
+	base := count()
+	if err := r.createDiff(context.Background(), runID, uuid.New().String(), "undercharge_review", "critical", `{"x":1}`); err != nil {
+		t.Fatalf("createDiff critical: %v", err)
+	}
+	if got := count() - base; got != 1 {
+		t.Errorf("critical diff counter delta = %v, want 1", got)
+	}
+
+	// warning diffs (e.g. idempotent replay missing charge lines) must NOT
+	// increment the critical counter — otherwise known-explained shapes
+	// would create permanent alert noise.
+	base = count()
+	if err := r.createDiff(context.Background(), runID, uuid.New().String(), "missing_charge_lines", "warning", "replay"); err != nil {
+		t.Fatalf("createDiff warning: %v", err)
+	}
+	if got := count() - base; got != 0 {
+		t.Errorf("warning diff moved the critical counter by %v, want 0", got)
+	}
+
+	// Billing-side choke point counts too (error_mislabel is critical).
+	base = count()
+	if err := r.createBillingDiff(context.Background(), runID, "error_mislabel", "critical", "mislabel"); err != nil {
+		t.Fatalf("createBillingDiff critical: %v", err)
+	}
+	if got := count() - base; got != 1 {
+		t.Errorf("billing critical diff counter delta = %v, want 1", got)
+	}
+
+	// Failed persistence is not counted (no row, no alert; the worker
+	// cycle failure is visible through worker_cycles_total instead).
+	rFail := &Reconciler{pool: failDB}
+	base = count()
+	if err := rFail.createDiff(context.Background(), runID, uuid.New().String(), "undercharge_review", "critical", "{}"); err == nil {
+		t.Fatal("expected insert error")
+	}
+	if got := count() - base; got != 0 {
+		t.Errorf("failed insert moved the critical counter by %v, want 0", got)
+	}
+}

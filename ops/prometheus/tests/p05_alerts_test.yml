@@ -1,0 +1,318 @@
+# TH-P05-05 alert fixture evaluation (run: promtool test rules
+# ops/prometheus/tests/p05_alerts_test.yml from the repository root is NOT
+# how promtool resolves rule_files — run from ops/prometheus/tests or pass
+# absolute paths; see Makefile/docs. All series are synthetic fixtures.)
+#
+# Coverage:
+#   Test A  undercharge counter increase -> FIRING; no increase -> not firing
+#   Test B  critical reconciliation diff -> FIRING; warning-only -> not firing
+#   Test C  60s worker: healthy -> not firing; silent -> FIRING; resume -> resolved;
+#           process dead (series stops) -> FIRING via absent() arm
+#   Test D  1h reconciler: short gap -> not firing; beyond silence window -> FIRING
+#   Test E  HA: one instance succeeds, the other lease-skips -> NOT FIRING
+#   Test F  database down -> FIRING; recovery -> not firing
+#   Test G  redis down -> FIRING; recovery -> not firing; redis not configured -> never fires
+#   Noise   normal staging baseline -> 0 alerts on every P0.5 rule (AC-04)
+
+rule_files:
+  - ../tokenhub_p05.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ---------------------------------------------------------------- Test A
+  - interval: 1m
+    input_series:
+      - series: 'billing_undercharge_fallback_total{endpoint="chat/completions"}'
+        values: "0x15 1x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TokenHubBillingUndercharge
+        exp_alerts: []
+      - eval_time: 22m
+        alertname: TokenHubBillingUndercharge
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Settle fallback undercharge detected"
+              description: "billing_undercharge_fallback_total increased within the last 10m: at least one request settled below its evidence-backed cost. Reconciliation stays detect-only; no automatic re-charge happens."
+              runbook: "docs/RUNBOOK_ALERTS.md#tokenhubbillingundercharge"
+
+  # Counter exists but never increases: healthy production -> not firing.
+  - interval: 1m
+    input_series:
+      - series: 'billing_undercharge_fallback_total{endpoint="chat/completions"}'
+        values: "0x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: TokenHubBillingUndercharge
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- Test B
+  - interval: 1m
+    input_series:
+      - series: "reconciliation_critical_diffs_total"
+        values: "0x70 1x40"
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: TokenHubCriticalReconciliationDiff
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: TokenHubCriticalReconciliationDiff
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Reconciliation produced a critical difference"
+              description: "reconciliation_critical_diffs_total increased within the last 2h: reconciliation detected a critical difference (e.g. undercharge_review or error_mislabel). The diff row is in reconciliation_diffs with resolution_status=open; it is never auto-corrected."
+              runbook: "docs/RUNBOOK_ALERTS.md#tokenhubcriticalreconciliationdiff"
+
+  # Warning-only differences (e.g. idempotent replay missing charge lines)
+  # never increment the critical counter, so they must not alert: the
+  # counter simply stays at zero while workers run healthy.
+  - interval: 1m
+    input_series:
+      - series: "reconciliation_critical_diffs_total"
+        values: "0x120"
+      - series: 'worker_cycles_total{worker="reconciler",outcome="success"}'
+        values: "0x60 1x60"
+    alert_rule_test:
+      - eval_time: 100m
+        alertname: TokenHubCriticalReconciliationDiff
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- Test C
+  # health_checker succeeds every minute, goes silent at t=40m, recovers at
+  # t=70m. Flat samples keep flowing while silent (process alive, no
+  # success), which is exactly what a scraped counter reports.
+  - interval: 1m
+    input_series:
+      - series: 'worker_cycles_total{worker="health_checker",outcome="success"}'
+        values: "0+1x40 40x30 40+1x20"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: TokenHubWorkerSilentFast
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: TokenHubWorkerSilentFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              worker: health_checker
+            exp_annotations:
+              summary: "60s worker silent: no successful cycle in 5m"
+              description: "A fast leased worker (health_checker or billing_sync) had no successful cycle in the last 5 minutes (>=5 schedule ticks), or its metrics are absent entirely. HA lease skips on a peer are healthy and do not trigger this rule (fleet-wide sum)."
+              runbook: "docs/RUNBOOK_ALERTS.md#tokenhubworkersilent"
+      - eval_time: 80m
+        alertname: TokenHubWorkerSilentFast
+        exp_alerts: []
+
+  # Process dead: samples stop after t=10m. After staleness the absent()
+  # arm fires — "worker never started / metrics gone" is detected too.
+  - interval: 1m
+    input_series:
+      - series: 'worker_cycles_total{worker="billing_sync",outcome="success"}'
+        values: "0+1x10"
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: TokenHubWorkerSilentFast
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: TokenHubWorkerSilentFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "60s worker silent: no successful cycle in 5m"
+              description: "A fast leased worker (health_checker or billing_sync) had no successful cycle in the last 5 minutes (>=5 schedule ticks), or its metrics are absent entirely. HA lease skips on a peer are healthy and do not trigger this rule (fleet-wide sum)."
+              runbook: "docs/RUNBOOK_ALERTS.md#tokenhubworkersilent"
+
+  # ---------------------------------------------------------------- Test D
+  # reconciler succeeds hourly (steps at 60m and 120m), then never again.
+  # An 80m gap (t=200m) must NOT fire; beyond the 2h silence window it must.
+  - interval: 1m
+    input_series:
+      - series: 'worker_cycles_total{worker="reconciler",outcome="success"}'
+        values: "0x60 1x60 2x200"
+    alert_rule_test:
+      - eval_time: 200m
+        alertname: TokenHubWorkerSilentReconciler
+        exp_alerts: []
+      - eval_time: 250m
+        alertname: TokenHubWorkerSilentReconciler
+        exp_alerts: []
+      - eval_time: 262m
+        alertname: TokenHubWorkerSilentReconciler
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              worker: reconciler
+            exp_annotations:
+              summary: "Reconciler silent: no successful run in 2h"
+              description: "The reconciler had no successful cycle in the last 2 hours (2 schedule intervals), or its metrics are absent entirely. Reconciliation diffs stop being detected while this persists."
+              runbook: "docs/RUNBOOK_ALERTS.md#tokenhubworkersilent"
+
+  # Hourly subscription workers (startup cycle at t=0, then hourly steps).
+  # A 60m gap is normal; silence beyond the 90m window fires.
+  - interval: 1m
+    input_series:
+      - series: 'worker_cycles_total{worker="subscription_expirer",outcome="success"}'
+        values: "1x60 2x200"
+      - series: 'worker_cycles_total{worker="subscription_renewer",outcome="success"}'
+        values: "1x60 2x200"
+    alert_rule_test:
+      - eval_time: 120m
+        alertname: TokenHubWorkerSilentHourly
+        exp_alerts: []
+      - eval_time: 160m
+        alertname: TokenHubWorkerSilentHourly
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              worker: subscription_expirer
+            exp_annotations:
+              summary: "Hourly subscription worker silent: no successful run in 90m"
+              description: "subscription_expirer or subscription_renewer had no successful cycle in the last 90 minutes (1.5 schedule intervals; both run a startup cycle, so restarts alone never cause this), or its metrics are absent entirely."
+              runbook: "docs/RUNBOOK_ALERTS.md#tokenhubworkersilent"
+          - exp_labels:
+              severity: critical
+              worker: subscription_renewer
+            exp_annotations:
+              summary: "Hourly subscription worker silent: no successful run in 90m"
+              description: "subscription_expirer or subscription_renewer had no successful cycle in the last 90 minutes (1.5 schedule intervals; both run a startup cycle, so restarts alone never cause this), or its metrics are absent entirely."
+              runbook: "docs/RUNBOOK_ALERTS.md#tokenhubworkersilent"
+
+  # ---------------------------------------------------------------- Test E
+  # HA: worker-a acquires the lease and succeeds; worker-b skips every
+  # cycle. This is healthy leader election — no silence alert may fire.
+  - interval: 1m
+    input_series:
+      - series: 'worker_cycles_total{worker="billing_sync",outcome="success",instance="worker-a"}'
+        values: "0+1x40"
+      - series: 'worker_cycles_total{worker="billing_sync",outcome="skipped",instance="worker-b"}'
+        values: "0+1x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: TokenHubWorkerSilentFast
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: TokenHubWorkerLeaseErrors
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- Test F
+  # API loses the database at t=10m while the worker process stays healthy;
+  # recovery at t=20m. min() over instances catches the single sick process.
+  - interval: 1m
+    input_series:
+      - series: 'app_dependency_up{dependency="database",instance="api"}'
+        values: "1x10 0x10 1x15"
+      - series: 'app_dependency_up{dependency="database",instance="worker"}'
+        values: "1x35"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: TokenHubDatabaseUnavailable
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: TokenHubDatabaseUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Database unreachable from at least one process"
+              description: "app_dependency_up{dependency=\"database\"} is 0 on at least one scraped process for 1m: wallet reserves/settles fail closed and reconciliation cannot run."
+              runbook: "docs/RUNBOOK_ALERTS.md#tokenhubdatabaseunavailable"
+      - eval_time: 25m
+        alertname: TokenHubDatabaseUnavailable
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- Test G
+  - interval: 1m
+    input_series:
+      - series: 'app_dependency_up{dependency="redis",instance="api"}'
+        values: "1x8 0x10 1x12"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: TokenHubRedisUnavailable
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: TokenHubRedisUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Redis unreachable from at least one process"
+              description: "app_dependency_up{dependency=\"redis\"} is 0 on at least one scraped process for 1m: worker leases fail closed and rate limiting degrades."
+              runbook: "docs/RUNBOOK_ALERTS.md#tokenhubredisunavailable"
+      - eval_time: 25m
+        alertname: TokenHubRedisUnavailable
+        exp_alerts: []
+
+  # Redis not configured at all (single-instance dev mode): no series,
+  # never fires.
+  - interval: 1m
+    input_series:
+      - series: 'app_dependency_up{dependency="database",instance="api"}'
+        values: "1x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TokenHubRedisUnavailable
+        exp_alerts: []
+
+  # ---------------------------------------------------------------- Noise
+  # AC-04: normal staging baseline for 3 hours -> zero alerts on every
+  # P0.5 rule. Workers advance on schedule (60s workers per minute, hourly
+  # workers with startup cycle at t=0 and hourly steps), counters stay at
+  # zero, dependencies stay up, no lease errors.
+  - interval: 1m
+    input_series:
+      - series: 'billing_undercharge_fallback_total{endpoint="chat/completions"}'
+        values: "0x180"
+      - series: 'billing_pricing_incomplete_total{endpoint="chat/completions"}'
+        values: "0x180"
+      - series: "reconciliation_critical_diffs_total"
+        values: "0x180"
+      - series: 'worker_cycles_total{worker="health_checker",outcome="success"}'
+        values: "0+1x180"
+      - series: 'worker_cycles_total{worker="billing_sync",outcome="success"}'
+        values: "0+1x180"
+      - series: 'worker_cycles_total{worker="reconciler",outcome="success"}'
+        values: "0x60 1x60 2x60"
+      - series: 'worker_cycles_total{worker="subscription_expirer",outcome="success"}'
+        values: "1x60 2x60 3x60"
+      - series: 'worker_cycles_total{worker="subscription_renewer",outcome="success"}'
+        values: "1x60 2x60 3x60"
+      - series: 'worker_lease_total{worker="health_checker",outcome="error"}'
+        values: "0x180"
+      - series: 'app_dependency_up{dependency="database"}'
+        values: "1x180"
+      - series: 'app_dependency_up{dependency="redis"}'
+        values: "1x180"
+    alert_rule_test:
+      - eval_time: 170m
+        alertname: TokenHubBillingUndercharge
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: TokenHubCriticalReconciliationDiff
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: TokenHubWorkerSilentFast
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: TokenHubWorkerSilentReconciler
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: TokenHubWorkerSilentHourly
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: TokenHubDatabaseUnavailable
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: TokenHubRedisUnavailable
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: TokenHubWorkerLeaseErrors
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: TokenHubPricingIncomplete
+        exp_alerts: []

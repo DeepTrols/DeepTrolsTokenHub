@@ -1,0 +1,159 @@
+# TokenHub P0.5 production alert pack (TH-P05-05).
+#
+# Release-blocking policy: any CRITICAL alert in this pack firing in
+# production blocks official-payment rollout until resolved or explicitly
+# waived by a reviewed decision (see docs/RUNBOOK_ALERTS.md and
+# docs/DEPLOYMENT.md §10).
+#
+# Design constraints (TH-P05-05 mandate):
+#   - Rules evaluate ONLY existing Prometheus metrics (no log-grep probes).
+#   - Label space stays low-cardinality and sensitive-free (TH-P05-04/11
+#     policy): no request_id / user_id / tenant_id / order_no / email /
+#     api_key / JWT / raw error / IP / hostname / pod id anywhere in exprs,
+#     labels or annotations. Enforced by ops/prometheus/rules_test.go.
+#   - Worker silence rules aggregate over the whole worker fleet
+#     (sum by worker): one instance holding the lease and succeeding while
+#     the HA peer skips is HEALTHY and must never alert (§7 of the mandate).
+#   - Validation: promtool check rules + promtool test rules (fixtures in
+#     ops/prometheus/tests/) + Go structural tests (ops/prometheus/rules_test.go).
+
+groups:
+  - name: tokenhub-p05-money-safety
+    rules:
+      # A. Undercharge: every settle fallback that left undercharge evidence
+      # is money being under-collected right now. Low threshold by design —
+      # healthy production never produces these; we do NOT wait for a count
+      # of 100.
+      - alert: TokenHubBillingUndercharge
+        expr: sum(increase(billing_undercharge_fallback_total[10m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Settle fallback undercharge detected"
+          description: "billing_undercharge_fallback_total increased within the last 10m: at least one request settled below its evidence-backed cost. Reconciliation stays detect-only; no automatic re-charge happens."
+          runbook: "docs/RUNBOOK_ALERTS.md#tokenhubbillingundercharge"
+
+      # B. Critical reconciliation difference: reconciliation is detect-only;
+      # a critical diff (undercharge_review / error_mislabel) needs human
+      # review. Warning-shaped diffs (e.g. idempotent replay missing charge
+      # lines) are never counted by this metric, so they cannot alert here.
+      - alert: TokenHubCriticalReconciliationDiff
+        expr: increase(reconciliation_critical_diffs_total[2h]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Reconciliation produced a critical difference"
+          description: "reconciliation_critical_diffs_total increased within the last 2h: reconciliation detected a critical difference (e.g. undercharge_review or error_mislabel). The diff row is in reconciliation_diffs with resolution_status=open; it is never auto-corrected."
+          runbook: "docs/RUNBOOK_ALERTS.md#tokenhubcriticalreconciliationdiff"
+
+      # C1. Worker silence — 60s workers (health_checker, billing_sync).
+      # Window 5m = 5 schedule ticks of headroom; a single late tick or a
+      # counter reset/process restart can never fire this (increase() is
+      # reset-safe and the window spans multiple cycles). The absent() arm
+      # covers "worker metric never exported / process dead" where the
+      # increase() comparison would silently match nothing.
+      - alert: TokenHubWorkerSilentFast
+        expr: |
+          sum by (worker) (increase(worker_cycles_total{worker=~"health_checker|billing_sync",outcome="success"}[5m])) == 0
+            or
+          absent(worker_cycles_total{worker=~"health_checker|billing_sync"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "60s worker silent: no successful cycle in 5m"
+          description: "A fast leased worker (health_checker or billing_sync) had no successful cycle in the last 5 minutes (>=5 schedule ticks), or its metrics are absent entirely. HA lease skips on a peer are healthy and do not trigger this rule (fleet-wide sum)."
+          runbook: "docs/RUNBOOK_ALERTS.md#tokenhubworkersilent"
+
+      # C2. Worker silence — reconciler (1h schedule, no startup cycle).
+      # Window 2h = 2 schedule ticks; worst-case healthy gap after an
+      # unlucky restart is ~2 ticks, so for:10m keeps restarts alert-free
+      # while a dead/stalled reconciler fires within ~130m.
+      - alert: TokenHubWorkerSilentReconciler
+        expr: |
+          sum by (worker) (increase(worker_cycles_total{worker="reconciler",outcome="success"}[2h])) == 0
+            or
+          absent(worker_cycles_total{worker="reconciler"})
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Reconciler silent: no successful run in 2h"
+          description: "The reconciler had no successful cycle in the last 2 hours (2 schedule intervals), or its metrics are absent entirely. Reconciliation diffs stop being detected while this persists."
+          runbook: "docs/RUNBOOK_ALERTS.md#tokenhubworkersilent"
+
+      # C3. Worker silence — subscription_expirer / subscription_renewer
+      # (1h schedule + one startup cycle). A restart produces an immediate
+      # startup success, so the healthy gap never exceeds ~1 tick + jitter;
+      # 90m window with for:5m gives ~30m headroom over the worst healthy
+      # gap.
+      - alert: TokenHubWorkerSilentHourly
+        expr: |
+          sum by (worker) (increase(worker_cycles_total{worker=~"subscription_expirer|subscription_renewer",outcome="success"}[90m])) == 0
+            or
+          absent(worker_cycles_total{worker=~"subscription_expirer|subscription_renewer"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Hourly subscription worker silent: no successful run in 90m"
+          description: "subscription_expirer or subscription_renewer had no successful cycle in the last 90 minutes (1.5 schedule intervals; both run a startup cycle, so restarts alone never cause this), or its metrics are absent entirely."
+          runbook: "docs/RUNBOOK_ALERTS.md#tokenhubworkersilent"
+
+      # D. Database unavailable: process-side reachability watchdog gauge
+      # (app_dependency_up, 15s probes). min() over all processes/instances:
+      # any instance losing the database fail-closes its money operations.
+      - alert: TokenHubDatabaseUnavailable
+        expr: min(app_dependency_up{dependency="database"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database unreachable from at least one process"
+          description: "app_dependency_up{dependency=\"database\"} is 0 on at least one scraped process for 1m: wallet reserves/settles fail closed and reconciliation cannot run."
+          runbook: "docs/RUNBOOK_ALERTS.md#tokenhubdatabaseunavailable"
+
+      # E. Redis unavailable: same watchdog. Redis loss additionally makes
+      # every worker lease fail-closed (cycles skipped); the worker-side
+      # impact is visible via TokenHubWorkerLeaseErrors. When Redis is not
+      # configured (single-instance dev mode) the series does not exist and
+      # this rule never fires.
+      - alert: TokenHubRedisUnavailable
+        expr: min(app_dependency_up{dependency="redis"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis unreachable from at least one process"
+          description: "app_dependency_up{dependency=\"redis\"} is 0 on at least one scraped process for 1m: worker leases fail closed and rate limiting degrades."
+          runbook: "docs/RUNBOOK_ALERTS.md#tokenhubredisunavailable"
+
+      # Optional fault-localization rule: sustained lease errors are the
+      # worker-side fingerprint of a Redis outage (or a wedged Redis). Kept
+      # separate from Redis-down so operators can distinguish "Redis down"
+      # from "worker bug"; lease SKIPS are deliberately never counted here.
+      - alert: TokenHubWorkerLeaseErrors
+        expr: sum(increase(worker_lease_total{outcome="error"}[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker lease errors occurring"
+          description: "worker_lease_total{outcome=\"error\"} increased within the last 10m: workers are fail-closed skipping cycles because lease acquisition fails (usually Redis connectivity). Lease skips from healthy HA contention are not counted."
+          runbook: "docs/RUNBOOK_ALERTS.md#tokenhubworkerleaseerrors"
+
+      # Pricing-incomplete spike (TH-P05-04 metric, task scope): requests
+      # rejected fail-closed before any reserve. No direct money loss (the
+      # gate worked), but a sustained spike means the catalog/pricing data
+      # is broken and revenue is bleeding.
+      - alert: TokenHubPricingIncomplete
+        expr: sum(increase(billing_pricing_incomplete_total[10m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Requests rejected fail-closed for incomplete pricing"
+          description: "billing_pricing_incomplete_total increased within the last 10m: requests were rejected before any reserve because model pricing was incomplete. The money gate worked; the pricing catalog needs attention."
+          runbook: "docs/RUNBOOK_ALERTS.md#tokenhubpricingincomplete"

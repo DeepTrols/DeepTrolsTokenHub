@@ -139,11 +139,17 @@ func TestGatheredFamilies_NoForbiddenLabels(t *testing.T) {
 	IncWorkerLease("health_checker", LeaseOutcomeAcquired)
 	IncWorkerLease("host-1.prod.internal", "error: dial tcp 10.0.0.5:6379: refused")
 
-	allowedLabelNames := map[string]bool{"endpoint": true, "reason_class": true, "worker": true, "outcome": true}
+	// TH-P05-05 alert-support setters, including hostile dependency values
+	// that must clamp.
+	IncReconciliationCriticalDiff()
+	SetDependencyUp(DependencyDatabase, true)
+	SetDependencyUp("postgres://user:pass@10.0.0.5:5432/prod", false)
+
+	allowedLabelNames := map[string]bool{"endpoint": true, "reason_class": true, "worker": true, "outcome": true, "dependency": true}
 	allowedLabelValue := func(val string) bool {
 		return allowedEndpoints[val] || allowedReasons[val] || AllowedWorkers[val] ||
-			allowedCycleOutcomes[val] || allowedLeaseOutcomes[val] ||
-			val == endpointOther || val == reasonOther || val == workerOther
+			allowedCycleOutcomes[val] || allowedLeaseOutcomes[val] || allowedDependencies[val] ||
+			val == endpointOther || val == reasonOther || val == workerOther || val == dependencyOther
 	}
 	families, err := Default.Registry.Gather()
 	if err != nil {
@@ -180,6 +186,10 @@ func TestHandler_Scrapeable(t *testing.T) {
 	// child per worker family (delta-safe for the rest of the suite).
 	RecordWorkerCycle("reconciler", WorkerOutcomeSuccess, time.Millisecond)
 	IncWorkerLease("reconciler", LeaseOutcomeAcquired)
+	// TH-P05-05 families: counter materializes directly; the gauge vec needs
+	// one child.
+	IncReconciliationCriticalDiff()
+	SetDependencyUp(DependencyDatabase, true)
 	rec := httptest.NewRecorder()
 	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	if rec.Code != http.StatusOK {
@@ -198,12 +208,13 @@ func TestHandler_Scrapeable(t *testing.T) {
 		NameUnderchargeFallbackTotal, NamePricingIncompleteTotal,
 		NameProviderBlockedTotal,
 		NameWorkerCyclesTotal, NameWorkerCycleDuration, NameWorkerLeaseTotal,
+		NameReconciliationCriticalDiffTotal, NameDependencyUp,
 	} {
 		if !strings.Contains(body, name) {
 			t.Errorf("metrics body missing family %s", name)
 		}
 	}
-	for _, leak := range []string{"user_id", "request_id", "tenant_id", "order_no", "api_key", "Bearer", "@", "worker:lease:"} {
+	for _, leak := range []string{"user_id", "request_id", "tenant_id", "order_no", "api_key", "Bearer", "@", "worker:lease:", "postgres://", "10.0.0.5"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("metrics body contains sensitive substring %q", leak)
 		}

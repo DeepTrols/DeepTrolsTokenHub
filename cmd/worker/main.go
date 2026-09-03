@@ -40,6 +40,24 @@ func main() {
 	// Prometheus scraping (the worker process has no other HTTP surface).
 	go serveWorkerMetrics(cfg.WorkerMetricsAddr)
 
+	// TH-P05-05: dependency reachability watchdog feeding the
+	// TokenHubDatabaseUnavailable / TokenHubRedisUnavailable alerts from the
+	// worker side (a Redis outage here is exactly what makes every lease
+	// fail-closed). Observability only: probe results never affect worker
+	// scheduling.
+	{
+		probes := []metrics.DependencyProbe{
+			{Name: metrics.DependencyDatabase, Ping: application.Pool.Ping},
+		}
+		if application.Redis != nil {
+			probes = append(probes, metrics.DependencyProbe{
+				Name: metrics.DependencyRedis,
+				Ping: func(ctx context.Context) error { return application.Redis.Ping(ctx).Err() },
+			})
+		}
+		metrics.StartDependencyWatchdog(15*time.Second, probes...)
+	}
+
 	checker := health_checker.New(application.Pool)
 	reconciler := reconciliation.New(application.Pool)
 	subscriptionExpirer := subscriptions.New(application.Pool)
