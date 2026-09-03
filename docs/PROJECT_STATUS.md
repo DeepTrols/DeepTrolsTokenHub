@@ -3910,3 +3910,54 @@ B5"结算失败静默兜底"缺口收口：实际成本 > 预留且钱包无额�
 - C-4（备份加密）保持 Deferred。
 - TH-P05-02 完成解锁 TH-P05-03 / TH-P05-04；TH-P05-07 完成已解锁
   TH-P05-08（均未执行，待下一批）。
+
+## 一百一十八、2026-09-03 [P0.5] 计费不变量与并发证明（TH-P05-03）
+
+用真实 Postgres 测试证明**当前**钱包/预留/结算/释放/提交/网关计费
+在重复、并发、异常下满足全部资金不变量（W1–W11、并发 Cases A–G）。
+**零行资金语义改动**：仅新增两个 `_test.go`，所有断言对照既有语义
+（TH-P05-02 钉住的 settle 兜底 + `postgres.go` 锁序）。
+
+### 118.1 测试产出
+
+- `internal/repository/wallet/invariants_p0503_test.go`（10 用例）：
+  W1/W2 非负、W3 并发预留恰一成功、W4 每次变动有账本（Settle 就地
+  完结为已钉住语义）、W5 幂等一键一效（含 8 路并发重复键）、
+  W7/W8 重复 settle/release 单次生效、W9 settle/release 竞速恰一
+  合法终态、W10 超预留结算拒扣且分文不动、W11 余额/冻结可由账本
+  完全重算。
+- `internal/handler/gateway/invariants_p0503_test.go`（6 用例）：
+  真实钱包仓库 + 真实 `billing.Charger` 贯穿 `HandleNonStreamingChat`；
+  `p0503ObservedWallets` + executor 门控实现**确定性并发编排**；
+  Case A 恰一次上游调用、零余额 402 零上游调用（W6）、上游失败
+  恰一次释放（W8/AC-03）、重放 X-Request-ID 不双扣（W5）、少收兜底
+  ≤ 预留且证据齐备（W10，含进程内计数 +1）、4 并发成功请求账本恒等
+  （W11）。
+- 定价 fixture 采用整数/1M-token 单价，标准请求精确 0.000050、
+  巨量 usage 精确 0.400020；`-race` 回归（wallet/gateway/
+  idempotency/billing）全绿。
+
+### 118.2 Billing Invariant Matrix
+
+全部 W1–W11 × Cases A–G **PASS**，无负余额/双扣/双释放/账本缺失/
+预留前上游调用/竞态破坏。完整矩阵（Invariant / Scenario / Expected /
+Observed / Test / PASS-FAIL）见 `docs/tasks/execution-logs/TH-P05-03.md`，
+并已按任务要求从 `BACKLOG_OVERVIEW.md`（Money Safety Rule 节）与
+`docs/AI聚合网关_完整文档.md`（计费上线前检查清单节）引用。
+
+### 118.3 历史钱包异常评估（只读复核）
+
+Batch 2 发现的"有余额无账本"钱包 `3a7a5fef-…`（balance 10000、
+账本 0 行、version 0、created==updated 2026-09-02 11:36:48+08）
+复核未变动。分类 **A / TEST_FIXTURE**：行早于 B2 修复提交
+`8b50201`（当日 15:29:31），形状完全匹配修复前 `ensureAdminUser`
+裸 INSERT 签到奖励，属主为 nil-UUID 引导 admin，
+`ProvisionUserWallet` 无法复现，且仅存在于本地开发库。处置：记录
+在案，仅允许未来 P5 复核类任务按人工复核流程处理，**禁止自动改
+钱包**。Blocks TH-P05-09：NO。
+
+### 118.4 记录在案（不改语义）
+
+- 仓库级 Reserve 幂等重放即使金额不同也返回原事务（金额校验仅
+  Transfer 有）；网关预留失败非余额错误返回 500（资金路径仍安全）；
+  `internal/pkg/idempotency` 无生产调用点（W5 已网关级覆盖）。

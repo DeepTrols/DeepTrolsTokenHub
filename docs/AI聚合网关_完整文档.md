@@ -1465,6 +1465,11 @@ PAYG 开关 关闭 PAYG 时是否只允许 quota 覆盖
 只要其中几项没有设计清楚，后面大概率会在余额透支、账单争议、OEM 串价或毛利失控里
 付成本。
 
+> 落地验证：本清单中资金安全相关检查项（预估用量、预算预留、钱包实扣幂等、
+> 扣费失败补偿、对账证据）已由 TH-P05-03 的真实 Postgres 不变量测试覆盖。
+> **Billing Invariant Matrix**（W1–W11 不变量 × Cases A–G 并发场景，全部
+> PASS）与历史钱包异常评估见 `docs/tasks/execution-logs/TH-P05-03.md`。
+
 ## 10 最后
 
  AI Token 计费不是  | usage * price | 。   

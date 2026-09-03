@@ -100,6 +100,9 @@ Epic Count = 6（每个 Epic 对应一个阶段任务文件；Epic/Feature 不�
   带账本调用完成，禁止直接改余额（TH-P5-RVW-05 幂等 + 账本约束）。
 - 不存在「对账 Worker 自动修复/直接补扣」类任务；第一轮拆分中的
   「Reconciliation Auto Repair And Undercharge Recovery」已移除。
+- 资金不变量与并发证明（W1–W11、Cases A–G）的 **Billing Invariant
+  Matrix** 见 `docs/tasks/execution-logs/TH-P05-03.md`（TH-P05-03 产出，
+  全部 PASS；历史钱包-账本不一致评估同文件 §5，分类 TEST_FIXTURE）。
 
 ## Code / Planning Inconsistencies Found
 
