@@ -15,6 +15,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/handler/middleware"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/service/billing"
@@ -300,6 +301,7 @@ func handleForwardedMultipartExecution(
 		return
 	}
 	if wallet == nil {
+		metrics.IncProviderBlocked(endpoint, metrics.ReasonWalletMissing)
 		writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 		return
 	}
@@ -339,6 +341,7 @@ func handleForwardedMultipartExecution(
 			loadHold, _ = application.LoadTracker.Acquire(r.Context(), cand.Instance.ID)
 		}
 		if !wallet.CanReserve(holdAmount) {
+			metrics.IncProviderBlocked(endpoint, metrics.ReasonInsufficientBalance)
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 			if loadHold != nil {
 				loadHold.Release()
@@ -348,6 +351,7 @@ func handleForwardedMultipartExecution(
 		rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, holdAmount, attemptID)
 		if rerr != nil {
 			log.Printf("gateway: %s reserve error: %v", endpoint, rerr)
+			metrics.IncProviderBlocked(endpoint, metrics.ReasonReserveFailed)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 			if loadHold != nil {
 				loadHold.Release()
@@ -540,6 +544,7 @@ func handleForwardedRawExecution(
 		return
 	}
 	if wallet == nil {
+		metrics.IncProviderBlocked(endpoint, metrics.ReasonWalletMissing)
 		writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 		return
 	}
@@ -580,6 +585,7 @@ func handleForwardedRawExecution(
 			loadHold, _ = application.LoadTracker.Acquire(r.Context(), cand.Instance.ID)
 		}
 		if !wallet.CanReserve(holdAmount) {
+			metrics.IncProviderBlocked(endpoint, metrics.ReasonInsufficientBalance)
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 			if loadHold != nil {
 				loadHold.Release()
@@ -589,6 +595,7 @@ func handleForwardedRawExecution(
 		rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, holdAmount, attemptID)
 		if rerr != nil {
 			log.Printf("gateway: %s reserve error: %v", endpoint, rerr)
+			metrics.IncProviderBlocked(endpoint, metrics.ReasonReserveFailed)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 			if loadHold != nil {
 				loadHold.Release()
@@ -748,6 +755,7 @@ func handleForwardedEndpointExecution(
 	}
 	if wallet == nil {
 		// Fail-closed: every calling account must have a wallet to hold budget.
+		metrics.IncProviderBlocked(endpoint, metrics.ReasonWalletMissing)
 		writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 		return
 	}
@@ -788,6 +796,7 @@ func handleForwardedEndpointExecution(
 			loadHold, _ = application.LoadTracker.Acquire(r.Context(), cand.Instance.ID)
 		}
 		if !wallet.CanReserve(holdAmount) {
+			metrics.IncProviderBlocked(endpoint, metrics.ReasonInsufficientBalance)
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 			if loadHold != nil {
 				loadHold.Release()
@@ -797,6 +806,7 @@ func handleForwardedEndpointExecution(
 		rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, holdAmount, attemptID)
 		if rerr != nil {
 			log.Printf("gateway: %s reserve error: %v", endpoint, rerr)
+			metrics.IncProviderBlocked(endpoint, metrics.ReasonReserveFailed)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 			if loadHold != nil {
 				loadHold.Release()

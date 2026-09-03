@@ -27,6 +27,7 @@ import (
 
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/handler/middleware"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/repository/wallet"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -121,6 +122,7 @@ func settleOrFallback(
 	if class.undercharged || finalCost.GreaterThan(reservedHold) {
 		// Charged hold < provable list cost: keep the shortfall visible.
 		countUnderchargeFallback(endpoint, model)
+		metrics.IncUnderchargeFallback(endpoint) // TH-P05-04
 		return reservedHold, settleEvidenceUndercharged
 	}
 	return reservedHold, class.evidenceCode

@@ -6,10 +6,26 @@ import (
 	"strconv"
 
 	"github.com/deeptrols/api/internal/app"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
+
+// countPricingIncomplete records one fail-closed pricing rejection
+// (TH-P05-04): the request was blocked before any reserve and before any
+// provider call, so it is both a pricing_incomplete event and a
+// provider-before-call block. The endpoint label is derived from the request
+// path and clamped to the low-cardinality allowlist.
+func countPricingIncomplete(r *http.Request, endpoint string) {
+	e := endpoint
+	if e == "" && r != nil {
+		e = r.URL.Path
+	}
+	e = metrics.SanitizeEndpoint(e)
+	metrics.IncPricingIncomplete(e)
+	metrics.IncProviderBlocked(e, metrics.ReasonPricingIncomplete)
+}
 
 // Maximum-charge budget hold (TH-P05-01 / B5).
 //
@@ -138,6 +154,7 @@ func computeMaxChargeHold(w http.ResponseWriter, application *app.App, r *http.R
 	// must never be silently skipped as if it were free text.
 	if unpriceable := unpriceableChatPartTypes(body); len(unpriceable) > 0 {
 		log.Printf("gateway: chat hold fail-closed: unpriceable content parts %v", unpriceable)
+		countPricingIncomplete(r, "")
 		writeError(w, http.StatusUnprocessableEntity, "pricing_incomplete", "Unable to price request reliably")
 		return decimal.Zero, mode, false
 	}
@@ -146,10 +163,12 @@ func computeMaxChargeHold(w http.ResponseWriter, application *app.App, r *http.R
 		// Fail-closed: never reserve (and never call upstream) on an
 		// unreliable price. This replaces the silent minHoldAmount fallback.
 		log.Printf("gateway: pricer error during hold calculation: %v (fail-closed, no reserve)", err)
+		countPricingIncomplete(r, "")
 		writeError(w, http.StatusUnprocessableEntity, "pricing_incomplete", "Unable to price request reliably")
 		return decimal.Zero, mode, false
 	}
 	if rejectIncompletePricing(w, priceResult) {
+		countPricingIncomplete(r, "")
 		return decimal.Zero, mode, false
 	}
 	// The hold is the priced maximum charge, but never below the previous
@@ -269,10 +288,12 @@ func computeForwardedHold(w http.ResponseWriter, application *app.App, r *http.R
 	priceResult, err := priceWithAdjustments(application, r, modelID, tenantID, usage)
 	if err != nil {
 		log.Printf("gateway: %s pricer estimate error: %v (fail-closed, no reserve)", endpoint, err)
+		countPricingIncomplete(r, endpoint)
 		writeError(w, http.StatusUnprocessableEntity, "pricing_incomplete", "Unable to price request reliably")
 		return decimal.Zero, false
 	}
 	if rejectIncompletePricing(w, priceResult) {
+		countPricingIncomplete(r, endpoint)
 		return decimal.Zero, false
 	}
 	hold := priceResult.ListCost

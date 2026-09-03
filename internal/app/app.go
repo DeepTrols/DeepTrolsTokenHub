@@ -19,6 +19,7 @@ import (
 	"github.com/deeptrols/api/internal/guardrails"
 	guardrailpersistence "github.com/deeptrols/api/internal/guardrails/persistence"
 	"github.com/deeptrols/api/internal/pkg/db"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/pkg/minutebucket"
 	"github.com/deeptrols/api/internal/pkg/ratelimit"
 	"github.com/deeptrols/api/internal/pkg/redis"
@@ -208,6 +209,10 @@ func (a *App) RegisterRoutes(r chi.Router) {
 	r.Get("/health", healthHandler)
 	r.Get("/healthz", healthzHandler)
 	r.Get("/readyz", readyzHandler(a))
+	// TH-P05-04: Prometheus scrape endpoint for the P0.5 money metrics
+	// baseline. Like /health it is unauthenticated; restrict it at the
+	// network layer in production (see docs/OBSERVABILITY_METRICS.md).
+	r.Get("/metrics", metrics.Handler().ServeHTTP)
 }
 
 // Shutdown gracefully releases resources held by the App.

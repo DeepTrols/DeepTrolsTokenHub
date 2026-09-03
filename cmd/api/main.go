@@ -112,6 +112,10 @@ func main() {
 
 	// OpenAI-compatible gateway (public).
 	r.Route("/v1", func(r chi.Router) {
+		// P0.5 money-path observability baseline (TH-P05-04): low-cardinality
+		// request counters; must stay first so auth/rate-limit rejections are
+		// counted too.
+		r.Use(middleware.GatewayMetrics)
 		r.Use(middleware.GatewayAuth(application))
 		r.Use(middleware.GatewayRateLimit(application.RateLimiter, 100, 1*time.Minute))
 		// 网关响应一律禁止缓存，避免浏览器/代理把旧的模型列表或结果当新数据展示。

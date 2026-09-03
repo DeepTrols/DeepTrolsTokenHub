@@ -17,6 +17,7 @@ import (
 	"github.com/deeptrols/api/internal/domain"
 	"github.com/deeptrols/api/internal/guardrails"
 	"github.com/deeptrols/api/internal/handler/middleware"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/service/billing"
@@ -289,6 +290,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	}
 	if wallet == nil {
 		// Fail-closed: every calling account must have a wallet to hold budget.
+		metrics.IncProviderBlocked("chat/completions", metrics.ReasonWalletMissing)
 		writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 		return
 	}
@@ -333,6 +335,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 			loadHold, _ = application.LoadTracker.Acquire(r.Context(), cand.Instance.ID)
 		}
 		if !wallet.CanReserve(holdAmount) {
+			metrics.IncProviderBlocked("chat/completions", metrics.ReasonInsufficientBalance)
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 			if loadHold != nil {
 				loadHold.Release()
@@ -342,6 +345,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, holdAmount, attemptID)
 		if rerr != nil {
 			log.Printf("gateway: reserve error: %v", rerr)
+			metrics.IncProviderBlocked("chat/completions", metrics.ReasonReserveFailed)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 			if loadHold != nil {
 				loadHold.Release()
@@ -411,6 +415,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 					// undercharge instead of a zero-cost success.
 					log.Printf("gateway: usage re-reserve failed request_id=%s: %v", requestID, rerr)
 					settleEvidence = settleEvidenceUndercharged
+					metrics.IncUnderchargeFallback("chat") // TH-P05-04
 				}
 			}
 			pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
@@ -599,16 +604,19 @@ func handleStreaming(w http.ResponseWriter, r *http.Request, application *app.Ap
 	}
 	if wallet == nil {
 		// Fail-closed: every calling account must have a wallet to hold budget.
+		metrics.IncProviderBlocked("chat/completions", metrics.ReasonWalletMissing)
 		writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 		return
 	}
 	if !wallet.CanReserve(holdAmount) {
+		metrics.IncProviderBlocked("chat/completions", metrics.ReasonInsufficientBalance)
 		writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 		return
 	}
 	result, err := application.Charger.Reserve(r.Context(), wallet.ID, holdAmount, requestID)
 	if err != nil {
 		log.Printf("gateway: stream reserve error: %v", err)
+		metrics.IncProviderBlocked("chat/completions", metrics.ReasonReserveFailed)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 		return
 	}

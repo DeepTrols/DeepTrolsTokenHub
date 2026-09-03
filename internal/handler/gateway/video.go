@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/deeptrols/api/internal/app"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/service/billing"
@@ -86,6 +87,7 @@ func HandleVideoGenerations(application *app.App) http.HandlerFunc {
 			return
 		}
 		if wallet == nil {
+			metrics.IncProviderBlocked("videos/generations", metrics.ReasonWalletMissing)
 			writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 			return
 		}
@@ -115,12 +117,14 @@ func HandleVideoGenerations(application *app.App) http.HandlerFunc {
 			upstreamModel := stringOrDefault(cand.UpstreamModel, modelName)
 
 			if !wallet.CanReserve(holdAmount) {
+				metrics.IncProviderBlocked("videos/generations", metrics.ReasonInsufficientBalance)
 				writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 				return
 			}
 			rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, holdAmount, attemptID)
 			if rerr != nil {
 				log.Printf("gateway: video reserve error: %v", rerr)
+				metrics.IncProviderBlocked("videos/generations", metrics.ReasonReserveFailed)
 				writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 				return
 			}

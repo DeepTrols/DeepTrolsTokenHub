@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/deeptrols/api/internal/app"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/relayconvert"
@@ -163,10 +164,12 @@ func handleResponsesViaChatNonStream(w http.ResponseWriter, r *http.Request, app
 	}
 	wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 	if err != nil || wallet == nil {
+		metrics.IncProviderBlocked("responses", metrics.ReasonWalletMissing)
 		writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 		return
 	}
 	if !wallet.CanReserve(hold) {
+		metrics.IncProviderBlocked("responses", metrics.ReasonInsufficientBalance)
 		writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 		return
 	}
@@ -176,6 +179,7 @@ func handleResponsesViaChatNonStream(w http.ResponseWriter, r *http.Request, app
 	}
 	rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, hold, requestID)
 	if rerr != nil {
+		metrics.IncProviderBlocked("responses", metrics.ReasonReserveFailed)
 		writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 		return
 	}

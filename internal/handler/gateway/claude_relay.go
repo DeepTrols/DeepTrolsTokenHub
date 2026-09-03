@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/deeptrols/api/internal/app"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/pkg/usageparser"
 	"github.com/deeptrols/api/internal/provider"
 	"github.com/deeptrols/api/internal/relayconvert"
@@ -61,10 +62,12 @@ func HandleClaudeMessages(application *app.App) http.HandlerFunc {
 		}
 		wallet, err := application.Wallets.FindByUser(r.Context(), userID, nil)
 		if err != nil || wallet == nil {
+			metrics.IncProviderBlocked("messages", metrics.ReasonWalletMissing)
 			writeError(w, http.StatusPaymentRequired, "wallet_missing", "No wallet for this account")
 			return
 		}
 		if !wallet.CanReserve(hold) {
+			metrics.IncProviderBlocked("messages", metrics.ReasonInsufficientBalance)
 			writeError(w, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance")
 			return
 		}
@@ -74,6 +77,7 @@ func HandleClaudeMessages(application *app.App) http.HandlerFunc {
 		}
 		rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, hold, requestID)
 		if rerr != nil {
+			metrics.IncProviderBlocked("messages", metrics.ReasonReserveFailed)
 			writeError(w, http.StatusInternalServerError, "internal_error", "Service temporarily unavailable")
 			return
 		}
