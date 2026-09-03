@@ -12,7 +12,7 @@
 | TH-P05-02 | B5 Settle Fallback Visibility Correction | P0.5 | Production Safety Gate | Backend / Billing | P0 | TH-P05-01 | — | DONE |
 | TH-P05-03 | Billing Invariant And Concurrency Tests | P0.5 | Production Safety Gate | Test | P0 | TH-P05-01, TH-P05-02 | — | DONE |
 | TH-P05-04 | Basic Gateway Billing Metrics | P0.5 | Production Safety Gate | Observability | P0 | TH-P05-02 | — | DONE |
-| TH-P05-05 | Basic Production Alerts | P0.5 | Production Safety Gate | Observability | P0 | TH-P05-04 | — | TODO |
+| TH-P05-05 | Basic Production Alerts | P0.5 | Production Safety Gate | Observability | P0 | TH-P05-04, TH-P05-11 | — | TODO |
 | TH-P05-06 | Database Backup Baseline | P0.5 | Production Safety Gate | Operations | P0 | None | — | DONE |
 | TH-P05-07 | Backup Restore Drill | P0.5 | Production Safety Gate | Operations | P0 | TH-P05-06 | — | DONE |
 | TH-P05-08 | Clean Environment Deployment Verification | P0.5 | Production Safety Gate | Operations / Deployment | P0 | TH-P05-07 | — | DONE |

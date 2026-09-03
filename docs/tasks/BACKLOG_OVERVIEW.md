@@ -71,7 +71,7 @@ Epic Count = 6（每个 Epic 对应一个阶段任务文件；Epic/Feature 不�
 
 以下链路全部取自当前任务文件的真实 Dependencies 字段（已验证无悬空、无循环依赖）。
 
-- 资金安全基线（B5）：`TH-P05-01 -> TH-P05-02 -> TH-P05-03`；`TH-P05-02 -> TH-P05-04 -> TH-P05-05 / TH-P05-11`；`TH-P05-01 -> TH-P05-12`（Batch 1 覆盖缺口收口）
+- 资金安全基线（B5）：`TH-P05-01 -> TH-P05-02 -> TH-P05-03`；`TH-P05-02 -> TH-P05-04 -> TH-P05-11 -> TH-P05-05`（TH-P05-05 依赖 TH-P05-04, TH-P05-11：Worker Silence 告警需要 TH-P05-11 提供的 worker lease 指标）；`TH-P05-01 -> TH-P05-12`（Batch 1 覆盖缺口收口）
 - 备份与干净环境（B7/B8）：`TH-P05-06 -> TH-P05-07 -> TH-P05-08`
 - 支付前安全门（全后续阶段的入口）：`{TH-P05-03, TH-P05-05, TH-P05-08, TH-P05-10, TH-P05-11} -> TH-P05-09 -> {TH-P1-01, TH-P2-01, TH-P3-01, TH-P4-01, TH-P5-RVW-01, TH-P5-TEL-01, TH-P5-SEC-01}`
 - 支付通道骨架：`TH-P05-09 -> TH-P1-01 -> TH-P1-02 / TH-P1-03 -> TH-P1-04 / TH-P1-05`
