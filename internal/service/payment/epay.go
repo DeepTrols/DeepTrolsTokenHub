@@ -49,6 +49,14 @@ func (g *EpayGateway) CreateOrder(ctx context.Context, req CreateOrderRequest) (
 	return &CreateOrderResult{PayURL: uri}, nil
 }
 
+// QueryOrder is a placeholder: the bundled epay library (Calcium-Ion/go-epay
+// v0.0.4) exposes only Purchase and Verify, so no active query path exists
+// yet. The compensation-worker tasks add the real epay query; until then the
+// sentinel keeps the contract explicit instead of silently succeeding.
+func (g *EpayGateway) QueryOrder(ctx context.Context, orderNo string) (*QueryOrderResult, error) {
+	return nil, fmt.Errorf("%w: epay", ErrQueryUnsupported)
+}
+
 func (g *EpayGateway) VerifyNotify(ctx context.Context, params map[string]string) (*NotifyResult, error) {
 	c, err := g.client()
 	if err != nil {

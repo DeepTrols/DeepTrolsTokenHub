@@ -38,6 +38,8 @@ type fakeGateway struct {
 	payURL    string
 	notify    *NotifyResult
 	verifyErr error
+	query     *QueryOrderResult
+	queryErr  error
 }
 
 func (g *fakeGateway) Name() string { return "epay" }
@@ -52,6 +54,12 @@ func (g *fakeGateway) VerifyNotify(ctx context.Context, params map[string]string
 		return nil, g.verifyErr
 	}
 	return g.notify, nil
+}
+func (g *fakeGateway) QueryOrder(ctx context.Context, orderNo string) (*QueryOrderResult, error) {
+	if g.queryErr != nil {
+		return nil, g.queryErr
+	}
+	return g.query, nil
 }
 
 type fakeOrders struct {
