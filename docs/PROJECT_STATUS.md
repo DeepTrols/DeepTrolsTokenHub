@@ -3868,3 +3868,45 @@ B7 缺口"恢复从未演练过"收口：构建可重复演练工具链并真实
   `restore_drill.sh` 标记清单（已文档化）。
 - 主库既有钱包异常（有余额无流水）移交对账域处理，非恢复引入。
 - C-4（备份加密）保持 Deferred，本批不做。
+
+## 一百一十七、2026-09-03 [P0.5] 结算兜底可见性修正（TH-P05-02）
+
+B5"结算失败静默兜底"缺口收口：实际成本 > 预留且钱包无额外可用
+余额时，请求显式记录 `undercharged` 证据，账本保持数学一致，对账
+产出复核差异；**任何路径不自动补扣钱包差额**（对账对钱只读，测试断言
+固化）。Sprint 1 Batch 2 三任务（TH-P05-12 / TH-P05-07 / TH-P05-02）
+至此全部 DONE。
+
+### 117.1 实现
+
+- 新增 `internal/handler/gateway/settle_fallback.go`：结算失败三分类
+  （余额不足 → 提交预留 + `undercharged`；`ErrTxNotReserved` → 重放，
+  零动作零标记；其他 → 提交预留 + `settle_error`，final > hold 时升级
+  `undercharged`），统一全部 9 个结算点（chat 流式/非流式/usage、
+  三条转发管线、video、messages、responses）；进程内少收计数器按
+  endpoint+model 观测（`UnderchargeFallbackCounts()` 快照，TH-P05-04
+  接线 Prometheus）。
+- 钱包仓库新增幂等哨兵 `wallet.ErrTxNotReserved`（Commit/Settle/
+  Release 状态检查 `%w` 包装），重放不再双扣/误标。
+- 对账新增 L4 通道：扫 `usage_logs.error_code='undercharged'` →
+  `undercharge_review`（critical）差异，含 `list_cost` /
+  `wallet_charged`；对账不出现任何钱包写操作。
+- 顺带关闭两处既有观测缺口：`/v1/messages` 与 `/v1/responses`
+  此前从不记录 settle 错误。
+
+### 117.2 验证（TDD，RED→GREEN）
+
+- RED：哨兵/分类器/计数器编译失败 + 对账 diff=0（want 1）。
+- GREEN：AC-01…AC-04 全 PASS —— 真库 `Test…FallbackCommitAndReplay`
+  （100→Reserve 20→Settle 150 拒扣且不动账→Commit 80/0，W1/W2 不变量
+  通过，重放三操作均 `ErrTxNotReserved`）；6 组网关单测（分类器 5 子例、
+  计数器、重放幂等、settle DB 失败、正常结算、余额不足标记）；对账
+  mock+真库两用例（断言全程无钱包写 SQL）。
+- 门禁：`go test ./...` 全绿、`go vet` / `go build` 0、gofmt 无输出。
+
+### 117.3 遗留
+
+- 少收计数为进程内实现（仓库无指标库），TH-P05-04 接线后消除。
+- C-4（备份加密）保持 Deferred。
+- TH-P05-02 完成解锁 TH-P05-03 / TH-P05-04；TH-P05-07 完成已解锁
+  TH-P05-08（均未执行，待下一批）。

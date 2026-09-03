@@ -173,6 +173,12 @@ scripts/restore_drill.sh "$RESTORE_TARGET_URL" <dump 文件> <manifest 文件> "
 ## 8. 上线后第一周观察项
 
 - 对账 L0/L1 跑批无差异、无残留 pending。
+- 少收证据（`usage_logs.error_code = 'undercharged'`）由对账产出
+  `undercharge_review`（severity=critical）差异记录，**进入人工复核**；
+  系统任何路径（对账 / worker）都不会自动补扣钱包差额，
+  手动调整仅能由 P5 复核任务（TH-P5-RVW-*）引入并留审计行。
+  网关进程内计数（`UnderchargeFallbackCounts`，按 endpoint+model）
+  上线初期应定期观测，持续增长说明存在定价或预留缺口。
 - 订阅到期回收与自动续费任务按计划执行，无重复扣费。
 - 非流式/流式失败请求全部能在 `usage_logs` 找到（`status=failed/partial`），
   不存在"账外请求"。
