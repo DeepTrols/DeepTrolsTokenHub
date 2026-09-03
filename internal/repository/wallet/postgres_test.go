@@ -637,3 +637,128 @@ func TestWalletTransfer(t *testing.T) {
 		}
 	})
 }
+
+// TH-P05-02 (B5 Settle Fallback Visibility Correction).
+//
+// Pins the undercharge fallback path against a real database:
+//   - Settle rejects a final cost the wallet cannot cover
+//     (ErrInsufficientBalance) and leaves the wallet untouched;
+//   - the caller's Commit fallback then charges exactly the reserved hold
+//     and leaves balance/frozen/ledger mathematically consistent;
+//   - any later replay (Settle/Commit/Release on the finalized tx) returns
+//     ErrTxNotReserved and moves no money (AC-02 at the repository level).
+func TestWalletSettleInsufficientFallbackCommitAndReplay(t *testing.T) {
+	repo := NewPostgresRepository(testutil.SetupPool(t))
+	ctx := context.Background()
+	testutil.TruncateTables(t, repo.pool, "wallet_transactions", "wallets", "api_key_spend", "api_keys", "users", "tenants")
+
+	userID := seedWalletUser(t, ctx, repo)
+	walletID := uuid.New()
+	_, err := repo.pool.Exec(ctx, `
+		INSERT INTO wallets (id, user_id, balance, frozen, currency, version)
+		VALUES ($1, $2, '0.000000', '0.000000', 'CNY', 0)
+	`, walletID, userID)
+	if err != nil {
+		t.Fatalf("seed wallet: %v", err)
+	}
+	// Fund via TopUp so the ledger fully backs the balance (W2 invariant).
+	if _, err := repo.TopUp(ctx, walletID, decimal.NewFromInt(100), "p0502-topup"); err != nil {
+		t.Fatalf("TopUp: %v", err)
+	}
+
+	// Reserve a hold of 20.
+	reserveTx, err := repo.Reserve(ctx, walletID, decimal.NewFromInt(20), "p0502-reserve")
+	if err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+
+	// Settle at a final cost the wallet cannot cover: reserved 20, final 150
+	// needs +130 from available (100-20=80) → ErrInsufficientBalance.
+	err = repo.Settle(ctx, reserveTx.ID, decimal.NewFromInt(150))
+	if err == nil {
+		t.Fatal("expected ErrInsufficientBalance for unaffordable final cost")
+	}
+	if !errors.Is(err, ErrInsufficientBalance) {
+		t.Fatalf("err = %v, want ErrInsufficientBalance", err)
+	}
+	found, _ := repo.FindByID(ctx, walletID)
+	if !found.Balance.Equal(decimal.NewFromInt(100)) || !found.Frozen.Equal(decimal.NewFromInt(20)) {
+		t.Fatalf("failed settle mutated wallet: balance=%s frozen=%s, want 100/20", found.Balance, found.Frozen)
+	}
+
+	// Fallback: commit the reserved hold. Balance nets exactly -20.
+	if err := repo.Commit(ctx, reserveTx.ID); err != nil {
+		t.Fatalf("Commit fallback: %v", err)
+	}
+	found, _ = repo.FindByID(ctx, walletID)
+	if !found.Balance.Equal(decimal.NewFromInt(80)) {
+		t.Errorf("Balance = %s, want 80 after committing the 20 hold", found.Balance)
+	}
+	if !found.Frozen.IsZero() {
+		t.Errorf("Frozen = %s, want 0 after commit", found.Frozen)
+	}
+
+	// Ledger consistency (W1/W2): the committed row is the single charge.
+	var chargeCount int
+	var chargeAmt string
+	if err := repo.pool.QueryRow(ctx,
+		`SELECT COUNT(*), COALESCE(MAX(amount::text), '') FROM wallet_transactions
+		 WHERE wallet_id = $1 AND tx_type = 'charge'`, walletID).Scan(&chargeCount, &chargeAmt); err != nil {
+		t.Fatalf("count charges: %v", err)
+	}
+	if chargeCount != 1 || chargeAmt != "20.000000" {
+		t.Errorf("charge rows = %d/%s, want exactly one charge of 20.000000", chargeCount, chargeAmt)
+	}
+	var openReserves int
+	if err := repo.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM wallet_transactions WHERE wallet_id = $1 AND tx_type = 'reserve'`,
+		walletID).Scan(&openReserves); err != nil {
+		t.Fatalf("count open reserves: %v", err)
+	}
+	if openReserves != 0 || !found.Frozen.IsZero() {
+		t.Errorf("W1 violated after commit: open reserves=%d frozen=%s, want 0/0", openReserves, found.Frozen)
+	}
+	// W2: balance == ledger net (topup +100, charge -20).
+	var ledgerNet string
+	if err := repo.pool.QueryRow(ctx,
+		`SELECT COALESCE(SUM(CASE WHEN tx_type IN ('reserve','release') THEN 0
+		                           WHEN tx_type = 'charge' THEN -amount
+		                           ELSE amount END), 0)::text
+		 FROM wallet_transactions WHERE wallet_id = $1`, walletID).Scan(&ledgerNet); err != nil {
+		t.Fatalf("ledger net: %v", err)
+	}
+	net := parseDecimalStr(ledgerNet)
+	if !net.Equal(found.Balance) {
+		t.Errorf("W2 violated: ledger net %s != balance %s", net, found.Balance)
+	}
+
+	// Replay: the transaction is finalized. Settle/Commit/Release must all
+	// report ErrTxNotReserved and move no money (no double debit).
+	if err := repo.Settle(ctx, reserveTx.ID, decimal.NewFromInt(150)); err == nil {
+		t.Fatal("expected error re-settling a finalized transaction")
+	} else if !errors.Is(err, ErrTxNotReserved) {
+		t.Errorf("replay Settle err = %v, want ErrTxNotReserved", err)
+	}
+	if err := repo.Commit(ctx, reserveTx.ID); err == nil {
+		t.Fatal("expected error re-committing a finalized transaction")
+	} else if !errors.Is(err, ErrTxNotReserved) {
+		t.Errorf("replay Commit err = %v, want ErrTxNotReserved", err)
+	}
+	if err := repo.Release(ctx, reserveTx.ID); err == nil {
+		t.Fatal("expected error releasing a finalized transaction")
+	} else if !errors.Is(err, ErrTxNotReserved) {
+		t.Errorf("replay Release err = %v, want ErrTxNotReserved", err)
+	}
+	after, _ := repo.FindByID(ctx, walletID)
+	if !after.Balance.Equal(decimal.NewFromInt(80)) || !after.Frozen.IsZero() {
+		t.Errorf("replay moved money: balance=%s frozen=%s, want 80/0", after.Balance, after.Frozen)
+	}
+	var txRows int
+	if err := repo.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM wallet_transactions WHERE wallet_id = $1`, walletID).Scan(&txRows); err != nil {
+		t.Fatalf("count tx rows: %v", err)
+	}
+	if txRows != 2 {
+		t.Errorf("ledger rows = %d, want 2 (topup + charge); replay must not append rows", txRows)
+	}
+}

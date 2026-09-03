@@ -2,6 +2,7 @@ package reconciliation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -623,6 +624,116 @@ func TestRunL2_InternalCrossCheck(t *testing.T) {
 	}
 	if q.BothMissing != 1 {
 		t.Errorf("both_missing = %d, want 1", q.BothMissing)
+	}
+}
+
+// TH-P05-02 (B5 Settle Fallback Visibility Correction).
+//
+// AC-03: reconciliation must turn an undercharged usage_log flag into a
+// review diff (never a wallet mutation). The reconciler holds no wallet
+// reference; this test additionally asserts no wallet-touching SQL is
+// executed during the whole run.
+func TestRun_UnderchargedEvidence_CreatesReviewDiff(t *testing.T) {
+	usageLogID := uuid.New().String()
+	var execSQLs []string
+	var diffArgs [][]any
+	db := &mockDB{
+		queryRowFn: countRowFn(),
+		queryFn: queryRowsByFragment(map[string]func() (pgx.Rows, error){
+			"ul.error_code = 'undercharged'": func() (pgx.Rows, error) {
+				return &mockRows{items: [][]any{{usageLogID, "12.000000", "8.000000"}}}, nil
+			},
+		}),
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			execSQLs = append(execSQLs, sql)
+			if containsFragment(sql, "INSERT INTO reconciliation_diffs") {
+				diffArgs = append(diffArgs, args)
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	r := &Reconciler{pool: db}
+
+	if err := r.Run(context.Background()); err != nil {
+		t.Fatalf("Run: unexpected error: %v", err)
+	}
+
+	if len(diffArgs) != 1 {
+		t.Fatalf("diff inserts = %d, want exactly 1 (the undercharge review diff)", len(diffArgs))
+	}
+	args := diffArgs[0]
+	if len(args) < 6 {
+		t.Fatalf("diff insert args = %d, want 6", len(args))
+	}
+	if got, _ := args[2].(uuid.UUID); got.String() != usageLogID {
+		t.Errorf("usage_log_id = %v, want %s", args[2], usageLogID)
+	}
+	if diffType, _ := args[3].(string); diffType != "undercharge_review" {
+		t.Errorf("diff_type = %q, want undercharge_review", diffType)
+	}
+	if severity, _ := args[4].(string); severity != "critical" {
+		t.Errorf("severity = %q, want critical", severity)
+	}
+	detail, _ := args[5].(json.RawMessage)
+	if !containsFragment(string(detail), `"list_cost":"12.000000"`) ||
+		!containsFragment(string(detail), `"wallet_charged":"8.000000"`) {
+		t.Errorf("diff_detail = %s, want list_cost/wallet_charged amounts", string(detail))
+	}
+
+	// Structural money-safety: a reconciliation run must never execute SQL
+	// that mutates wallets or the wallet ledger.
+	for _, frag := range []string{"UPDATE wallets", "INSERT INTO wallets", "wallet_transactions"} {
+		if containsSQL(execSQLs, frag) {
+			t.Errorf("reconciler executed wallet-touching SQL fragment %q", frag)
+		}
+	}
+}
+
+// TestRun_UnderchargedEvidence_RealDB verifies the undercharge review diff
+// against a real database: a usage_log flagged error_code='undercharged'
+// within the period must produce exactly one undercharge_review diff.
+func TestRun_UnderchargedEvidence_RealDB(t *testing.T) {
+	pool := testutil.SetupPool(t)
+	testutil.TruncateAll(t, pool)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	keyID := uuid.New()
+	now := time.Now().UTC()
+	periodStart := now.Add(-30 * time.Minute)
+
+	mustExec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed %s: %v", sql[:40], err)
+		}
+	}
+	mustExec(`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'x')`,
+		userID, "p0502@test.local")
+	mustExec(`INSERT INTO api_keys (id, user_id, key_prefix, key_hash, masked_key) VALUES ($1, $2, 'sk-', 'hash-p0502', 'sk-***')`,
+		keyID, userID)
+	mustExec(`INSERT INTO usage_logs (
+		id, user_id, api_key_id, request_id, request_type, public_model_code,
+		usage_source, list_cost, final_cost, currency, status,
+		wallet_charged, error_code, error_message, created_at
+	) VALUES ($1,$2,$3,'req-p0502','chat','gpt-4o','upstream',12,12,'CNY','completed',
+		8,'undercharged','wallet underfunded',$4)`,
+		uuid.New(), userID, keyID, periodStart)
+
+	r := New(pool)
+	if err := r.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	var n int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM reconciliation_diffs
+		 WHERE diff_type = 'undercharge_review' AND severity = 'critical'
+		   AND run_id = (SELECT id FROM reconciliation_runs ORDER BY created_at DESC LIMIT 1)`).Scan(&n); err != nil {
+		t.Fatalf("count diffs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("undercharge_review diffs = %d, want 1", n)
 	}
 }
 

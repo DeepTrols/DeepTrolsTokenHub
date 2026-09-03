@@ -22,6 +22,7 @@ import (
 	"github.com/deeptrols/api/internal/repository/model"
 	"github.com/deeptrols/api/internal/repository/testutil"
 	"github.com/deeptrols/api/internal/repository/usage"
+	"github.com/deeptrols/api/internal/repository/wallet"
 	"github.com/deeptrols/api/internal/service/billing"
 	gw "github.com/deeptrols/api/internal/service/gateway"
 	"github.com/google/uuid"
@@ -770,8 +771,11 @@ func TestHandleNonStreamingChat_SettleUnderfunded_MarksEvidence(t *testing.T) {
 			return &domain.WalletTransaction{ID: txID, WalletID: walletID, Amount: amount, IdempotencyKey: idempotencyKey, TxType: domain.WalletTxReserve}, nil
 		},
 		settleFn: func(ctx context.Context, tID uuid.UUID, amount decimal.Decimal) error {
-			// Simulate "wallet cannot cover final cost larger than reserve".
-			return fmt.Errorf("insufficient funds to cover final cost %s", amount)
+			// Simulate "wallet cannot cover final cost larger than reserve":
+			// the repository's ErrInsufficientBalance sentinel as wrapped by
+			// the charger (TH-P05-02 AC-01).
+			return fmt.Errorf("charger settle: %w: available=10 extra_required=%s",
+				wallet.ErrInsufficientBalance, amount)
 		},
 		commitFn: func(ctx context.Context, tID uuid.UUID) error { return nil },
 	}

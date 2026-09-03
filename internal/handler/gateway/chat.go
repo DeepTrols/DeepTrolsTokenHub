@@ -395,26 +395,27 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 				finalCost = actualCosts.ListCost
 			}
 			walletCharged := decimal.Zero
-			underfunded := false
+			settleEvidence := ""
 			if finalCost.GreaterThan(decimal.Zero) {
 				// The per-attempt hold was already released; re-reserve the
 				// actual cost before settling so the wallet check still runs.
 				rr, rerr := application.Charger.Reserve(r.Context(), wallet.ID, finalCost, requestID+"-usage")
 				if rerr == nil {
-					if sErr := application.Charger.Settle(r.Context(), rr.TransactionID, finalCost); sErr != nil {
-						// Commit the reserved amount and record the shortfall
-						// in the evidence chain for reconciliation.
-						_ = application.Charger.Commit(r.Context(), rr.TransactionID)
-						walletCharged = finalCost
-						underfunded = true
-					} else {
-						walletCharged = finalCost
-					}
+					// Reserved hold equals the final cost here; the fallback
+					// classifier decides whether the outcome is a replay or
+					// an undercharge (never a silent shortfall).
+					walletCharged, settleEvidence = settleOrFallback(r.Context(), application, "chat", modelName, r, rr.TransactionID, finalCost, finalCost)
+				} else {
+					// Value was consumed upstream but no hold could be
+					// frozen: flag the shortfall so reconciliation sees the
+					// undercharge instead of a zero-cost success.
+					log.Printf("gateway: usage re-reserve failed request_id=%s: %v", requestID, rerr)
+					settleEvidence = settleEvidenceUndercharged
 				}
 			}
 			pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
 			go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModelName,
-				lastResp, lastRouteResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
+				lastResp, lastRouteResult, actualCosts, walletCharged, settleEvidence, pricingIncomplete)
 			writeError(w, http.StatusBadGateway, "upstream_error", msg)
 			return
 		}
@@ -451,28 +452,17 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 		finalCost = adj
 		quotaCovered = true
 	}
-	walletCharged := finalCost
-	underfunded := false
 	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
 	if pricingIncomplete && !quotaCovered {
 		// Never let a misconfigured price produce a free call: charge the
 		// reserved hold and record the evidence for reconciliation.
 		log.Printf("gateway: pricing incomplete for dims %v; charging reserved hold %s", actualCosts.MissingPricing, holdAmount)
 		finalCost = holdAmount
-		walletCharged = holdAmount
 	}
-	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
-		// Wallet cannot cover a final cost larger than the reserve —
-		// commit the reserved amount and RECORD the shortfall in the
-		// evidence chain (invariant: errors must never be disguised as
-		// success; reconciliation needs to see the undercharge).
-		log.Printf("gateway: settle error tx=%s final=%s: %v (falling back to reserved commit)", reserveResult.TransactionID, finalCost, settleErr)
-		if commitErr := application.Charger.Commit(r.Context(), reserveResult.TransactionID); commitErr != nil {
-			log.Printf("gateway: commit error tx=%s: %v", reserveResult.TransactionID, commitErr)
-		}
-		walletCharged = holdAmount
-		underfunded = true
-	}
+	// Settle the REAL final cost; a rejected settle falls back through the
+	// classifier so an undercharge is always recorded in the evidence chain
+	// and a replayed request is never debited twice (TH-P05-02).
+	walletCharged, settleEvidence := settleOrFallback(r.Context(), application, "chat", modelName, r, reserveResult.TransactionID, finalCost, holdAmount)
 	// ---- Store response in cache ----
 	if cacheSvc != nil && cacheSvc.IsEnabled() && cacheSvc.IsModelAccepted(modelName) {
 		if respBodyBytes, jerr := json.Marshal(resp.Body); jerr == nil {
@@ -501,7 +491,7 @@ func HandleNonStreamingChat(w http.ResponseWriter, r *http.Request, application 
 	// Log usage in background with a detached context so it survives
 	// the HTTP request lifecycle.
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
+	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, walletCharged, settleEvidence, pricingIncomplete)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
@@ -826,7 +816,7 @@ func handleStreaming(w http.ResponseWriter, r *http.Request, application *app.Ap
 	// context so the settlement succeeds even if the client disconnects
 	// mid-stream (r.Context() would be cancelled).
 	walletCharged := decimal.Zero
-	underfunded := false
+	settleEvidence := ""
 	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
 	if reserveResult != nil {
 		commitCtx, commitCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -841,18 +831,10 @@ func handleStreaming(w http.ResponseWriter, r *http.Request, application *app.Ap
 			log.Printf("gateway: stream pricing incomplete for dims %v; charging reserved hold %s", actualCosts.MissingPricing, holdAmount)
 			finalCost = holdAmount
 		}
-		walletCharged = finalCost
-		if settleErr := application.Charger.Settle(commitCtx, reserveResult.TransactionID, finalCost); settleErr != nil {
-			// Wallet cannot cover a final cost larger than the reserve —
-			// commit the reserved amount and RECORD the shortfall in the
-			// evidence chain so reconciliation can see the undercharge.
-			log.Printf("gateway: stream settle error tx=%s final=%s: %v (falling back to reserved commit)", reserveResult.TransactionID, finalCost, settleErr)
-			if commitErr := application.Charger.Commit(commitCtx, reserveResult.TransactionID); commitErr != nil {
-				log.Printf("gateway: stream commit error tx=%s: %v", reserveResult.TransactionID, commitErr)
-			}
-			walletCharged = holdAmount
-			underfunded = true
-		}
+		// A rejected settle falls back through the classifier so an
+		// undercharge is always recorded in the evidence chain and a
+		// replayed request is never debited twice (TH-P05-02).
+		walletCharged, settleEvidence = settleOrFallback(commitCtx, application, "chat_stream", modelName, r, reserveResult.TransactionID, finalCost, holdAmount)
 		settleMinuteBucket(r, application, normUsage.TotalTokens)
 	}
 
@@ -880,7 +862,7 @@ func handleStreaming(w http.ResponseWriter, r *http.Request, application *app.Ap
 	}
 
 	// Log usage in background with detached context.
-	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, domain.UsageLogStatusCompleted, walletCharged, underfunded, pricingIncomplete)
+	go logStreamUsage(application, userID, resolveStreamAPIKeyID(r), tenantID, modelName, upstreamModel, streamResp, routeResult, actualCosts, domainUsageSource, domain.UsageLogStatusCompleted, walletCharged, settleEvidence, pricingIncomplete)
 }
 
 // resolveStreamAPIKeyID extracts the API key ID for streaming logging.
@@ -1115,7 +1097,9 @@ func rejectIncompletePricing(w http.ResponseWriter, priceResult *billing.PriceRe
 
 // logUsageWithCosts records the usage log with real costs from the pricer.
 // Uses a detached context (30s timeout) independent of the HTTP request lifecycle.
-func logUsageWithCosts(r *http.Request, application *app.App, requestType string, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, walletCharged decimal.Decimal, underfunded bool, pricingIncomplete bool) {
+// settleEvidence carries the settle fallback classification ("" when the
+// settle was clean, "undercharged" or "settle_error" otherwise).
+func logUsageWithCosts(r *http.Request, application *app.App, requestType string, userID, apiKeyID uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, walletCharged decimal.Decimal, settleEvidence string, pricingIncomplete bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1202,12 +1186,7 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 		StatusCode:        resp.StatusCode,
 		DurationMs:        resp.DurationMs,
 	}
-	if underfunded {
-		params.ErrorCode = "undercharged"
-		params.ErrorMessage = fmt.Sprintf(
-			"wallet underfunded: actual=%s charged=%s shortfall=%s",
-			finalCost, walletCharged, finalCost.Sub(walletCharged))
-	}
+	applySettleEvidence(&params, settleEvidence, finalCost, walletCharged)
 	if pricingIncomplete {
 		params.ErrorCode = "pricing_incomplete"
 		params.ErrorMessage = fmt.Sprintf(
@@ -1220,8 +1199,9 @@ func logUsageWithCosts(r *http.Request, application *app.App, requestType string
 	}
 }
 
-// logStreamUsage records usage for streaming requests.
-func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, status domain.UsageLogStatus, walletCharged decimal.Decimal, underfunded bool, pricingIncomplete bool) {
+// logStreamUsage records usage for streaming requests. settleEvidence carries
+// the settle fallback classification ("" when the settle was clean).
+func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *uuid.UUID, modelName, upstreamModel string, resp *gw.ExecuteResponse, routeResult *gw.RouteResult, costs *billing.PriceResult, usageSource domain.UsageSource, status domain.UsageLogStatus, walletCharged decimal.Decimal, settleEvidence string, pricingIncomplete bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1284,12 +1264,7 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *
 		StatusCode:        resp.StatusCode,
 		DurationMs:        resp.DurationMs,
 	}
-	if underfunded {
-		params.ErrorCode = "undercharged"
-		params.ErrorMessage = fmt.Sprintf(
-			"wallet underfunded: actual=%s charged=%s shortfall=%s",
-			finalCost, walletCharged, finalCost.Sub(walletCharged))
-	}
+	applySettleEvidence(&params, settleEvidence, finalCost, walletCharged)
 	if pricingIncomplete {
 		params.ErrorCode = "pricing_incomplete"
 		params.ErrorMessage = fmt.Sprintf(
@@ -1299,6 +1274,22 @@ func logStreamUsage(application *app.App, userID, apiKeyID uuid.UUID, tenantID *
 
 	if _, err := application.Logger.Record(ctx, params); err != nil {
 		log.Printf("logger record failed for stream: %v", err)
+	}
+}
+
+// applySettleEvidence maps the settle fallback classification onto the usage
+// log evidence fields. An empty code leaves the log unflagged (clean settle).
+func applySettleEvidence(params *billing.LogUsageParams, settleEvidence string, finalCost, walletCharged decimal.Decimal) {
+	switch settleEvidence {
+	case settleEvidenceUndercharged:
+		params.ErrorCode = settleEvidenceUndercharged
+		params.ErrorMessage = fmt.Sprintf(
+			"wallet underfunded: actual=%s charged=%s shortfall=%s",
+			finalCost, walletCharged, finalCost.Sub(walletCharged))
+	case settleEvidenceSettleError:
+		params.ErrorCode = settleEvidenceSettleError
+		params.ErrorMessage = fmt.Sprintf(
+			"settle failed; reserved hold committed: charged=%s", walletCharged)
 	}
 }
 

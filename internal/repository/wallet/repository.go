@@ -21,17 +21,30 @@ var ErrInsufficientBalance = errors.New("wallet: insufficient available balance"
 // moving no money, so callers must treat it as a conflict, never a success.
 var ErrIdempotencyMismatch = errors.New("wallet: idempotency key used with a different amount")
 
+// ErrTxNotReserved is returned when Commit, Settle or Release targets a
+// transaction that is not in 'reserve' state (already charged, released, or
+// otherwise finalized — typically an idempotent replay of a request whose
+// first pass already settled). No money moved on the rejected call: callers
+// must NOT retry, must NOT fall back to a different mutation, and must not
+// report an undercharge — the original finalization is authoritative.
+var ErrTxNotReserved = errors.New("wallet: transaction not in reserve state")
+
 type Repository interface {
 	FindByUser(ctx context.Context, userID uuid.UUID, tenantID *uuid.UUID) (*domain.Wallet, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*domain.Wallet, error)
 	Create(ctx context.Context, wallet *domain.Wallet) error
 	Reserve(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error)
+	// Commit finalizes a reserve at the reserved amount. Returns
+	// ErrTxNotReserved when the transaction is not in reserve state.
 	Commit(ctx context.Context, txID uuid.UUID) error
 	// Settle finalizes a reserve with the ACTUAL final cost, charging the
 	// difference (or refunding the excess) against the wallet in one
 	// transaction. Returns ErrInsufficientBalance when the wallet lacks the
-	// available balance to cover a larger-than-reserved final cost.
+	// available balance to cover a larger-than-reserved final cost, and
+	// ErrTxNotReserved when the transaction is not in reserve state.
 	Settle(ctx context.Context, txID uuid.UUID, finalAmount decimal.Decimal) error
+	// Release cancels a reserve. Returns ErrTxNotReserved when the
+	// transaction is not in reserve state.
 	Release(ctx context.Context, txID uuid.UUID) error
 	TopUp(ctx context.Context, walletID uuid.UUID, amount decimal.Decimal, idempotencyKey string) (*domain.WalletTransaction, error)
 	// Spend atomically deducts `amount` from the wallet (e.g. subscription

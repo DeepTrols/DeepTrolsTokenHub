@@ -321,28 +321,20 @@ func settleVideoEstimate(
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
 	}
-	walletCharged := finalCost
-	underfunded := false
 	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
 	if pricingIncomplete {
 		log.Printf("gateway: video pricing incomplete for dims %v; charging reserved hold %s", actualCosts.MissingPricing, holdAmount)
 		finalCost = holdAmount
-		walletCharged = holdAmount
 	}
-	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
-		log.Printf("gateway: video settle error tx=%s final=%s: %v (falling back to reserved commit)", reserveResult.TransactionID, finalCost, settleErr)
-		if commitErr := application.Charger.Commit(r.Context(), reserveResult.TransactionID); commitErr != nil {
-			log.Printf("gateway: video commit error tx=%s: %v", reserveResult.TransactionID, commitErr)
-		}
-		walletCharged = holdAmount
-		underfunded = true
-	}
+	// A rejected settle falls back through the classifier so an undercharge
+	// is always recorded and a replayed request is never debited twice.
+	walletCharged, settleEvidence := settleOrFallback(r.Context(), application, "video", modelName, r, reserveResult.TransactionID, finalCost, holdAmount)
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
 	}
 	userID, _ := resolveIdentity(r)
 	go logUsageWithCosts(r, application, "video", userID, apiKeyID, modelName, stringOrDefault(routeResult.UpstreamModel, modelName),
-		resp, routeResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
+		resp, routeResult, actualCosts, walletCharged, settleEvidence, pricingIncomplete)
 	return finalCost
 }
 

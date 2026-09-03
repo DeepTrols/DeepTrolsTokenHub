@@ -33,8 +33,9 @@ func New(pool *pgxpool.Pool) *Reconciler {
 	return &Reconciler{pool: pool}
 }
 
-// Run executes one reconciliation cycle combining L0 (usage vs charge_lines)
-// and L1 (usage vs provider_evidence) checks over the last hour.
+// Run executes one reconciliation cycle combining L0 (usage vs charge_lines),
+// L1 (usage vs provider_evidence), L3 (internal usage vs external billing
+// records) and L4 (gateway undercharge flags) checks over the last hour.
 func (r *Reconciler) Run(ctx context.Context) error {
 	runID := uuid.New()
 	periodEnd := time.Now().UTC()
@@ -104,8 +105,17 @@ func (r *Reconciler) Run(ctx context.Context) error {
 		log.Printf("reconciler: findBillingAmountMismatch: %v", err)
 	}
 
+	// Money integrity (TH-P05-02): usage_logs the gateway flagged as
+	// undercharged (settle could not cover the final cost, the reserved hold
+	// was committed instead). These become review diffs — reconciliation
+	// NEVER mutates wallet state; an operator decides the remedy.
+	undercharged, err := r.findUndercharged(ctx, periodStart, periodEnd)
+	if err != nil {
+		log.Printf("reconciler: findUndercharged: %v", err)
+	}
+
 	totalDiffs := len(orphaned) + len(missingEvidence) + len(mismatches) + len(mislabels) +
-		len(billingWithoutUsage) + len(usageWithoutBilling) + len(amountMismatches)
+		len(billingWithoutUsage) + len(usageWithoutBilling) + len(amountMismatches) + len(undercharged)
 
 	report := map[string]interface{}{
 		"level":        "L1",
@@ -134,6 +144,9 @@ func (r *Reconciler) Run(ctx context.Context) error {
 			"billing_without_usage": len(billingWithoutUsage),
 			"usage_without_billing": len(usageWithoutBilling),
 			"amount_mismatch":       len(amountMismatches),
+		},
+		"L4": map[string]interface{}{
+			"undercharged": len(undercharged),
 		},
 	}
 	reportJSON, err := json.Marshal(report)
@@ -193,14 +206,20 @@ func (r *Reconciler) Run(ctx context.Context) error {
 			m.ExternalRequestID, m.BillingNetAmount, m.UpstreamCost)
 		writeDiff(m.UsageLogID, "billing_amount_mismatch", "warning", detail)
 	}
+	for _, u := range undercharged {
+		// Critical: money was charged below the provable list cost. The diff
+		// is review input only — no automatic wallet correction (TH-P05-02).
+		detail := fmt.Sprintf(`{"list_cost":%q,"wallet_charged":%q}`, u.ListCost, u.WalletCharged)
+		writeDiff(u.UsageLogID, "undercharge_review", "critical", detail)
+	}
 
 	if diffErrs > 0 {
 		return fmt.Errorf("reconciler: %d of %d diffs failed to persist", diffErrs, totalDiffs)
 	}
 
-	log.Printf("reconciler: run %s: %d diffs (L0 orphaned=%d, L1 missing=%d mismatch=%d mislabel=%d, L3 no_usage=%d no_billing=%d amount=%d)",
+	log.Printf("reconciler: run %s: %d diffs (L0 orphaned=%d, L1 missing=%d mismatch=%d mislabel=%d, L3 no_usage=%d no_billing=%d amount=%d, L4 undercharged=%d)",
 		runID, totalDiffs, len(orphaned), len(missingEvidence), len(mismatches), len(mislabels),
-		len(billingWithoutUsage), len(usageWithoutBilling), len(amountMismatches))
+		len(billingWithoutUsage), len(usageWithoutBilling), len(amountMismatches), len(undercharged))
 	return nil
 }
 
@@ -316,6 +335,39 @@ func (r *Reconciler) findBillingAmountMismatch(ctx context.Context, start, end t
 	for rows.Next() {
 		var it billingAmountMismatch
 		if err := rows.Scan(&it.UsageLogID, &it.ExternalRequestID, &it.BillingNetAmount, &it.UpstreamCost); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	return items, rows.Err()
+}
+
+// underchargedLog describes a usage_log the gateway marked with
+// error_code='undercharged': the settle could not cover the final cost, so
+// the reserved hold was committed and the shortfall left for review.
+type underchargedLog struct {
+	UsageLogID    string
+	ListCost      string
+	WalletCharged string
+}
+
+// findUndercharged finds usage_logs flagged undercharged within the period.
+func (r *Reconciler) findUndercharged(ctx context.Context, start, end time.Time) ([]underchargedLog, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT ul.id::text, ul.list_cost::text, ul.wallet_charged::text
+		 FROM usage_logs ul
+		 WHERE ul.created_at >= $1 AND ul.created_at < $2
+		   AND ul.error_code = 'undercharged'
+		 LIMIT 100`, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []underchargedLog
+	for rows.Next() {
+		var it underchargedLog
+		if err := rows.Scan(&it.UsageLogID, &it.ListCost, &it.WalletCharged); err != nil {
 			return nil, err
 		}
 		items = append(items, it)

@@ -491,7 +491,7 @@ func (r *PostgresRepository) Commit(ctx context.Context, txID uuid.UUID) error {
 	}
 	amount = parseDecimalStr(amountStr)
 	if txType != "reserve" {
-		return fmt.Errorf("wallet commit: transaction is not in reserve state (type=%s)", txType)
+		return fmt.Errorf("wallet commit: %w: type=%s", ErrTxNotReserved, txType)
 	}
 
 	// 2. Update wallet_transaction type to 'charge'.
@@ -545,7 +545,7 @@ func (r *PostgresRepository) Settle(ctx context.Context, txID uuid.UUID, finalAm
 	}
 	reserved = parseDecimalStr(amountStr)
 	if txType != "reserve" {
-		return fmt.Errorf("wallet settle: transaction is not in reserve state (type=%s)", txType)
+		return fmt.Errorf("wallet settle: %w: type=%s", ErrTxNotReserved, txType)
 	}
 
 	// 2. Lock the wallet row.
@@ -614,7 +614,7 @@ func (r *PostgresRepository) Release(ctx context.Context, txID uuid.UUID) error 
 	}
 	amount = parseDecimalStr(amountStr)
 	if txType != "reserve" {
-		return fmt.Errorf("wallet release: transaction is not in reserve state (type=%s)", txType)
+		return fmt.Errorf("wallet release: %w: type=%s", ErrTxNotReserved, txType)
 	}
 
 	// 2. Update wallet_transaction type to 'release'.

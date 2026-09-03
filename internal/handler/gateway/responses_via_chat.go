@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -226,19 +225,14 @@ func handleResponsesViaChatNonStream(w http.ResponseWriter, r *http.Request, app
 	if pricingIncomplete && !quotaCovered {
 		finalCost = hold
 	}
-	walletCharged := finalCost
-	underfunded := false
-	if settleErr := application.Charger.Settle(r.Context(), rr.TransactionID, finalCost); settleErr != nil {
-		if commitErr := application.Charger.Commit(r.Context(), rr.TransactionID); commitErr != nil {
-			log.Printf("gateway: /v1/responses commit error tx=%s: %v", rr.TransactionID, commitErr)
-		}
-		walletCharged = hold
-		underfunded = true
-	}
+	// A rejected settle falls back through the classifier so an undercharge
+	// is always recorded and a replayed request is never debited twice
+	// (TH-P05-02).
+	walletCharged, settleEvidence := settleOrFallback(r.Context(), application, "responses", modelName, r, rr.TransactionID, finalCost, hold)
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
 	}
-	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, &primary, actualCosts, walletCharged, underfunded, pricingIncomplete)
+	go logUsageWithCosts(r, application, "chat", userID, apiKeyID, modelName, upstreamModel, resp, &primary, actualCosts, walletCharged, settleEvidence, pricingIncomplete)
 
 	oaiResp := &relayconvert.OpenAIChatResponse{Model: upstreamModel}
 	parseOpenAIResponseInto(resp.Body, oaiResp)

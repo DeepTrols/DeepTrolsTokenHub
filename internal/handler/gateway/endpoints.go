@@ -411,28 +411,20 @@ func handleForwardedMultipartExecution(
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
 	}
-	walletCharged := finalCost
-	underfunded := false
 	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
 	if pricingIncomplete {
 		log.Printf("gateway: %s pricing incomplete for dims %v; charging reserved hold %s", endpoint, actualCosts.MissingPricing, holdAmount)
 		finalCost = holdAmount
-		walletCharged = holdAmount
 	}
-	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
-		log.Printf("gateway: %s settle error tx=%s final=%s: %v (falling back to reserved commit)", endpoint, reserveResult.TransactionID, finalCost, settleErr)
-		if commitErr := application.Charger.Commit(r.Context(), reserveResult.TransactionID); commitErr != nil {
-			log.Printf("gateway: %s commit error tx=%s: %v", endpoint, reserveResult.TransactionID, commitErr)
-		}
-		walletCharged = holdAmount
-		underfunded = true
-	}
+	// A rejected settle falls back through the classifier so an undercharge
+	// is always recorded and a replayed request is never debited twice.
+	walletCharged, settleEvidence := settleOrFallback(r.Context(), application, endpoint, modelName, r, reserveResult.TransactionID, finalCost, holdAmount)
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
 	}
 
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
+	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, walletCharged, settleEvidence, pricingIncomplete)
 
 	// Relay: plain-text transcription responses come back wrapped as {"text": ...}.
 	if text, ok := resp.Body["text"].(string); ok && len(resp.Body) == 1 {
@@ -672,32 +664,22 @@ func handleForwardedRawExecution(
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
 	}
-	walletCharged := finalCost
-	underfunded := false
 	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
 	if pricingIncomplete {
 		// Never let a misconfigured price produce a free call: charge the
 		// reserved hold and record the evidence for reconciliation.
 		log.Printf("gateway: %s pricing incomplete for dims %v; charging reserved hold %s", endpoint, actualCosts.MissingPricing, holdAmount)
 		finalCost = holdAmount
-		walletCharged = holdAmount
 	}
-	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
-		// Commit the reserved amount and RECORD the shortfall in the
-		// evidence chain; never disguise an undercharge as full settlement.
-		log.Printf("gateway: %s settle error tx=%s final=%s: %v (falling back to reserved commit)", endpoint, reserveResult.TransactionID, finalCost, settleErr)
-		if commitErr := application.Charger.Commit(r.Context(), reserveResult.TransactionID); commitErr != nil {
-			log.Printf("gateway: %s commit error tx=%s: %v", endpoint, reserveResult.TransactionID, commitErr)
-		}
-		walletCharged = holdAmount
-		underfunded = true
-	}
+	// A rejected settle falls back through the classifier so an undercharge
+	// is always recorded and a replayed request is never debited twice.
+	walletCharged, settleEvidence := settleOrFallback(r.Context(), application, endpoint, modelName, r, reserveResult.TransactionID, finalCost, holdAmount)
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
 	}
 
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, synthetic, routeResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
+	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, synthetic, routeResult, actualCosts, walletCharged, settleEvidence, pricingIncomplete)
 
 	if raw.ContentType != "" {
 		w.Header().Set("Content-Type", raw.ContentType)
@@ -875,26 +857,16 @@ func handleForwardedEndpointExecution(
 	if actualCosts != nil {
 		finalCost = actualCosts.ListCost
 	}
-	walletCharged := finalCost
-	underfunded := false
 	pricingIncomplete := actualCosts != nil && len(actualCosts.MissingPricing) > 0
 	if pricingIncomplete {
 		// Never let a misconfigured price produce a free call: charge the
 		// reserved hold and record the evidence for reconciliation.
 		log.Printf("gateway: %s pricing incomplete for dims %v; charging reserved hold %s", endpoint, actualCosts.MissingPricing, holdAmount)
 		finalCost = holdAmount
-		walletCharged = holdAmount
 	}
-	if settleErr := application.Charger.Settle(r.Context(), reserveResult.TransactionID, finalCost); settleErr != nil {
-		// Commit the reserved amount and RECORD the shortfall in the
-		// evidence chain; never disguise an undercharge as full settlement.
-		log.Printf("gateway: %s settle error tx=%s final=%s: %v (falling back to reserved commit)", endpoint, reserveResult.TransactionID, finalCost, settleErr)
-		if commitErr := application.Charger.Commit(r.Context(), reserveResult.TransactionID); commitErr != nil {
-			log.Printf("gateway: %s commit error tx=%s: %v", endpoint, reserveResult.TransactionID, commitErr)
-		}
-		walletCharged = holdAmount
-		underfunded = true
-	}
+	// A rejected settle falls back through the classifier so an undercharge
+	// is always recorded and a replayed request is never debited twice.
+	walletCharged, settleEvidence := settleOrFallback(r.Context(), application, endpoint, modelName, r, reserveResult.TransactionID, finalCost, holdAmount)
 	// Record spend against API key limits (best-effort, after settle).
 	if actualCosts != nil {
 		recordAPIKeySpend(r.Context(), application, apiKeyID, actualCosts.ListCost)
@@ -903,7 +875,7 @@ func handleForwardedEndpointExecution(
 	// Log usage in background with a detached context so it survives the HTTP
 	// request lifecycle.
 	upstreamModel := stringOrDefault(routeResult.UpstreamModel, modelName)
-	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, walletCharged, underfunded, pricingIncomplete)
+	go logUsageWithCosts(r, application, requestType, userID, apiKeyID, modelName, upstreamModel, resp, routeResult, actualCosts, walletCharged, settleEvidence, pricingIncomplete)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
