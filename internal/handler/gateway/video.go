@@ -66,20 +66,12 @@ func HandleVideoGenerations(application *app.App) http.HandlerFunc {
 		}
 
 		// Budget reservation precedes the upstream call (invariant #2).
+		// Fail-closed hold computation (TH-P05-12 / C-2): an unreliable price
+		// rejects the request instead of silently reserving the minimum hold.
 		estimatedUsage := &usageparser.NormalizedUsage{VideoUnits: int64(n)}
-		priceResult, perr := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
-		holdAmount := decimal.Zero
-		if perr != nil {
-			log.Printf("gateway: video pricer estimate error: %v (using minimum hold)", perr)
-			holdAmount, _ = decimal.NewFromString(minHoldAmount)
-		} else {
-			holdAmount = priceResult.ListCost
-			if rejectIncompletePricing(w, priceResult) {
-				return
-			}
-		}
-		if holdAmount.LessThanOrEqual(decimal.Zero) {
-			holdAmount, _ = decimal.NewFromString(minHoldAmount)
+		holdAmount, holdOK := computeForwardedHold(w, application, r, "videos/generations", primary.Channel.ModelID, tenantID, estimatedUsage)
+		if !holdOK {
+			return
 		}
 
 		requestID := r.Header.Get("X-Request-ID")

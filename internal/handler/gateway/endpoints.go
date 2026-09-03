@@ -75,6 +75,10 @@ func HandleImagesEdits(application *app.App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
+		if err := validateImagesEditsCount(fields); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
 		handleForwardedMultipartExecution(w, r, application, "images/edits", "images",
 			modelName, fields, files, estimateImagesEditsUsage)
 	}
@@ -184,23 +188,56 @@ func apiKeyGroup(r *http.Request) string {
 	return ""
 }
 
+// sttBytesPerSecondFloor is the worst plausible codec rate used to convert an
+// uploaded audio file size into seconds (~6 kbps opus ≈ 750 B/s). File size
+// alone cannot reveal the true duration, so the MAXIMUM-charge reserve and
+// the no-usage settle fallback both bill on this worst case (TH-P05-12 /
+// Strategy A under a documented worst-case codec assumption). The two bases
+// must never diverge — divergence would re-open the B5 under-reserve hole.
+// Trade-off: high-bitrate uploads are over-held/over-billed when the upstream
+// reports no usage; a future duration probe (ffprobe / container header) is
+// the deferred improvement (recorded as an Observation).
+const sttBytesPerSecondFloor = int64(750)
+
 // estimateSTTUsage derives an audio-seconds estimate from the uploaded file
-// size (128 kbps ≈ 16 KB/s). The upstream rarely returns usage for
-// transcriptions, so this estimate is the billing basis.
+// size using the worst-case codec rate (sttBytesPerSecondFloor). The upstream
+// rarely returns usage for transcriptions, so this estimate is the billing
+// basis for both the hold and the settle fallback.
 func estimateSTTUsage(fields map[string]any) *usageparser.NormalizedUsage {
 	size, _ := fields["_file_size"].(int64)
-	seconds := size / 16_000
+	seconds := size / sttBytesPerSecondFloor
 	if seconds <= 0 {
 		seconds = 1
 	}
 	return &usageparser.NormalizedUsage{AudioSeconds: seconds}
 }
 
-// estimateImagesEditsUsage bills the requested edit count (default 1).
+// validateImagesEditsCount requires the multipart "n" field (a form string)
+// to be an integer within 1..10, matching images/generations. Anything else
+// is rejected so the per-image reserve can never be based on an unvalidated
+// or unbounded count.
+func validateImagesEditsCount(fields map[string]any) error {
+	raw, ok := fields["n"].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil // default n=1
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil {
+		return fmt.Errorf("n must be an integer")
+	}
+	if n < 1 || n > 10 {
+		return fmt.Errorf("n must be between 1 and 10")
+	}
+	return nil
+}
+
+// estimateImagesEditsUsage bills the requested edit count (default 1). Only
+// counts within the validated 1..10 range are honored; anomalies fall back to
+// the default so the hold can never be based on an unbounded count.
 func estimateImagesEditsUsage(fields map[string]any) *usageparser.NormalizedUsage {
 	n := int64(1)
 	if raw, ok := fields["n"].(string); ok {
-		if parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); err == nil && parsed > 0 {
+		if parsed, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); err == nil && parsed >= 1 && parsed <= 10 {
 			n = parsed
 		}
 	}
@@ -241,20 +278,12 @@ func handleForwardedMultipartExecution(
 	}
 
 	// Budget reservation must precede the upstream call (invariant #2).
+	// Fail-closed hold computation (TH-P05-12 / C-2): an unreliable price
+	// rejects the request instead of silently reserving the minimum hold.
 	estimatedUsage := estimate(fields)
-	priceResult, err := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
-	holdAmount := decimal.Zero
-	if err != nil {
-		log.Printf("gateway: %s pricer estimate error: %v (using minimum hold)", endpoint, err)
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
-	} else {
-		holdAmount = priceResult.ListCost
-		if rejectIncompletePricing(w, priceResult) {
-			return
-		}
-	}
-	if holdAmount.LessThanOrEqual(decimal.Zero) {
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
+	holdAmount, holdOK := computeForwardedHold(w, application, r, endpoint, primary.Channel.ModelID, tenantID, estimatedUsage)
+	if !holdOK {
+		return
 	}
 
 	requestID := r.Header.Get("X-Request-ID")
@@ -497,20 +526,12 @@ func handleForwardedRawExecution(
 	}
 
 	// Budget reservation must precede the upstream call (invariant #2).
+	// Fail-closed hold computation (TH-P05-12 / C-2): an unreliable price
+	// rejects the request instead of silently reserving the minimum hold.
 	estimatedUsage := estimate(body)
-	priceResult, err := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
-	holdAmount := decimal.Zero
-	if err != nil {
-		log.Printf("gateway: %s pricer estimate error: %v (using minimum hold)", endpoint, err)
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
-	} else {
-		holdAmount = priceResult.ListCost
-		if rejectIncompletePricing(w, priceResult) {
-			return
-		}
-	}
-	if holdAmount.LessThanOrEqual(decimal.Zero) {
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
+	holdAmount, holdOK := computeForwardedHold(w, application, r, endpoint, primary.Channel.ModelID, tenantID, estimatedUsage)
+	if !holdOK {
+		return
 	}
 
 	requestID := r.Header.Get("X-Request-ID")
@@ -722,20 +743,12 @@ func handleForwardedEndpointExecution(
 
 	// Estimate usage and compute the budget hold BEFORE the upstream call
 	// (invariant #2 — budget reservation precedes upstream invocation).
+	// Fail-closed hold computation (TH-P05-12 / C-2): an unreliable price
+	// rejects the request instead of silently reserving the minimum hold.
 	estimatedUsage := estimate(body)
-	priceResult, err := priceWithAdjustments(application, r, primary.Channel.ModelID, tenantID, estimatedUsage)
-	holdAmount := decimal.Zero
-	if err != nil {
-		log.Printf("gateway: %s pricer estimate error: %v (using minimum hold)", endpoint, err)
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
-	} else {
-		holdAmount = priceResult.ListCost
-		if rejectIncompletePricing(w, priceResult) {
-			return
-		}
-	}
-	if holdAmount.LessThanOrEqual(decimal.Zero) {
-		holdAmount, _ = decimal.NewFromString(minHoldAmount)
+	holdAmount, holdOK := computeForwardedHold(w, application, r, endpoint, primary.Channel.ModelID, tenantID, estimatedUsage)
+	if !holdOK {
+		return
 	}
 
 	requestID := r.Header.Get("X-Request-ID")
@@ -924,8 +937,13 @@ func estimateEmbeddingsUsage(body map[string]any) *usageparser.NormalizedUsage {
 		tokens = usageparser.EstimateTextTokens(v)
 	case []any:
 		for _, item := range v {
-			if s, ok := item.(string); ok {
-				tokens += usageparser.EstimateTextTokens(s)
+			switch it := item.(type) {
+			case string:
+				tokens += usageparser.EstimateTextTokens(it)
+			case []any:
+				// Token-id array input (OpenAI accepts [[id, ...]]): one id
+				// IS one token, so this is an exact count, not an estimate.
+				tokens += int64(len(it))
 			}
 		}
 	}

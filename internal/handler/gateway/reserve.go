@@ -39,6 +39,17 @@ const (
 	// so an absurd max_tokens declaration cannot force an unbounded reserve.
 	// 131072 covers the largest current output limits of hosted models.
 	maxChargeOutputCap = int64(131072)
+
+	// imagePartHoldTokens is the safe token allowance reserved for one image
+	// content part (TH-P05-12 / C-3). It dominates the OpenAI high-detail
+	// tile formula (~2805 tokens worst case for the 1MB body-capped
+	// payloads), so the hold can never under-estimate an image input.
+	imagePartHoldTokens = int64(3072)
+
+	// audioPartHoldTokens is the safe token allowance reserved for one inline
+	// audio content part. Inline audio is bounded by the 1MB JSON body cap,
+	// which at realistic speech tokenization fits well under this allowance.
+	audioPartHoldTokens = int64(4096)
 )
 
 // Hold calculation modes, exposed for tests and observability.
@@ -122,6 +133,14 @@ func holdUsageFromChatBody(body map[string]any) (*usageparser.NormalizedUsage, s
 // success the amount is never below minHoldAmount.
 func computeMaxChargeHold(w http.ResponseWriter, application *app.App, r *http.Request, modelID uuid.UUID, tenantID *uuid.UUID, body map[string]any) (decimal.Decimal, string, bool) {
 	holdUsage, mode := holdUsageFromChatBody(body)
+	// Fail-closed for unpriceable multimodal parts (TH-P05-12 / AC-06): a
+	// content part with no bounded token allowance (file refs, unknown types)
+	// must never be silently skipped as if it were free text.
+	if unpriceable := unpriceableChatPartTypes(body); len(unpriceable) > 0 {
+		log.Printf("gateway: chat hold fail-closed: unpriceable content parts %v", unpriceable)
+		writeError(w, http.StatusUnprocessableEntity, "pricing_incomplete", "Unable to price request reliably")
+		return decimal.Zero, mode, false
+	}
 	priceResult, err := priceWithAdjustments(application, r, modelID, tenantID, holdUsage)
 	if err != nil {
 		// Fail-closed: never reserve (and never call upstream) on an
@@ -163,4 +182,103 @@ func reserveAmountBucket(amount decimal.Decimal) string {
 	default:
 		return "gte_1"
 	}
+}
+
+// chatContentPartTokens classifies one chat message content part (TH-P05-12 /
+// C-3). It returns the token amount the part contributes to the input hold
+// and whether the part is priceable at all. Text-shaped parts use the text
+// estimator; image and inline-audio parts use their safe allowances. Parts
+// with no bounded allowance (file refs, unknown types) report ok=false so
+// callers can fail closed instead of skipping them as free.
+func chatContentPartTokens(part any) (int64, bool) {
+	m, ok := part.(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	partType, _ := m["type"].(string)
+	switch partType {
+	case "text", "input_text", "output_text":
+		text, _ := m["text"].(string)
+		return int64(usageparser.EstimateTextTokens(text)), true
+	case "image_url", "input_image":
+		return imagePartHoldTokens, true
+	case "input_audio":
+		return audioPartHoldTokens, true
+	case "":
+		// Untyped part: price it as text when it carries text, otherwise it
+		// is unpriceable.
+		if text, hasText := m["text"].(string); hasText {
+			return int64(usageparser.EstimateTextTokens(text)), true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
+// estimateContentPartsTokens sums the priceable token contributions of a
+// content-parts array. Unpriceable parts contribute nothing here; the reserve
+// path must separately gate on unpriceableChatPartTypes.
+func estimateContentPartsTokens(parts []any) int64 {
+	var total int64
+	for _, p := range parts {
+		if n, ok := chatContentPartTokens(p); ok {
+			total += n
+		}
+	}
+	return total
+}
+
+// unpriceableChatPartTypes scans a chat-shaped body for content parts that
+// have no bounded token allowance (file refs, unknown part types). An empty
+// result means every part is covered by the hold estimate.
+func unpriceableChatPartTypes(body map[string]any) []string {
+	var out []string
+	messages, _ := body["messages"].([]any)
+	for _, msg := range messages {
+		m, ok := msg.(map[string]any)
+		if !ok {
+			continue
+		}
+		parts, ok := m["content"].([]any)
+		if !ok {
+			continue
+		}
+		for _, p := range parts {
+			if _, priceable := chatContentPartTokens(p); priceable {
+				continue
+			}
+			pm, _ := p.(map[string]any)
+			t, _ := pm["type"].(string)
+			if t == "" {
+				t = "unknown"
+			}
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// computeForwardedHold prices an already-built usage estimate and returns the
+// amount to reserve before the upstream call (TH-P05-12 / C-2). It fails
+// closed: on a pricer error or any missing sell price it writes a 422 and
+// returns ok=false — callers must return without reserving or calling
+// upstream. This replaces the silent minHoldAmount fallback in the forwarded
+// pipelines, which reserved almost nothing exactly when pricing broke.
+func computeForwardedHold(w http.ResponseWriter, application *app.App, r *http.Request, endpoint string, modelID uuid.UUID, tenantID *uuid.UUID, usage *usageparser.NormalizedUsage) (decimal.Decimal, bool) {
+	priceResult, err := priceWithAdjustments(application, r, modelID, tenantID, usage)
+	if err != nil {
+		log.Printf("gateway: %s pricer estimate error: %v (fail-closed, no reserve)", endpoint, err)
+		writeError(w, http.StatusUnprocessableEntity, "pricing_incomplete", "Unable to price request reliably")
+		return decimal.Zero, false
+	}
+	if rejectIncompletePricing(w, priceResult) {
+		return decimal.Zero, false
+	}
+	hold := priceResult.ListCost
+	if minHold := decimal.RequireFromString(minHoldAmount); hold.LessThan(minHold) {
+		hold = minHold
+	}
+	log.Printf("gateway: %s hold_calc pricing_complete=true reserve_bucket=%s", endpoint, reserveAmountBucket(hold))
+	return hold, true
 }

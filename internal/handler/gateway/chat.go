@@ -938,11 +938,16 @@ func estimateUsageFromBody(body map[string]any) *usageparser.NormalizedUsage {
 		if !ok {
 			continue
 		}
-		content, ok := m["content"].(string)
-		if !ok {
-			continue
+		switch content := m["content"].(type) {
+		case string:
+			totalTokens += usageparser.EstimateTextTokens(content)
+		case []any:
+			// Multimodal content parts (TH-P05-12 / C-3): text parts are
+			// estimated, image/audio parts use their safe token allowances.
+			// The reserve path additionally fails closed on parts with no
+			// bounded allowance (see computeMaxChargeHold).
+			totalTokens += estimateContentPartsTokens(content)
 		}
-		totalTokens += usageparser.EstimateTextTokens(content)
 	}
 
 	nu.InputTokens = totalTokens
