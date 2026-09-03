@@ -4160,3 +4160,55 @@ p05_alerts_test.yml`，13 输入块 / 34 断言）、结构回归
   指标可依（构建超出最小告警范围）；资金路径暂由少收 + 对账 + 定价三告警
   覆盖，W1/W2 由恢复演练离线校验。
 - C-4 备份加密维持 Deferred。
+
+## 一百二十三、2026-09-03 [P0.5] 生产安全门测试确定性稳定化（TH-P05-13）
+
+### 123.1 交付内容
+
+- **Scope A — CaseA 并发测试确定性重写**（仅
+  `internal/handler/gateway/invariants_p0503_test.go`，生产代码零改动）。
+  根因为测试编排循环等待：`secondDone` 硬连线到固定 goroutine（req2），
+  而主测试在 `close(proceed)` 之前等待它；当 req2 恰好赢得 Reserve 竞速、
+  被 executor 的 `proceed` 门卡住时形成 `main → secondDone(req2) →
+  proceed → main` 循环，只能由 5s 墙钟守卫打破（固定报错
+  `executor gate timed out`）。等待环全部由测试构造组成，生产资金路径
+  在两种竞速结果下均完整——判定为测试编排缺陷而非生产并发缺陷。
+- 新编排为**角色化**：胜者 = Reserve 第 1 次尝试（直通），持于 provider
+  检查点（READY）；败者 = 第 2 次尝试（门控），对已冻结 hold 发起预留
+  必须被安全拒绝；因胜者在 RELEASE 前不可能返回，首个返回的 handler
+  必为败者，主测试等待该角色事件（`sync.Once`）而非固定 goroutine。
+  超时全部降级为死锁守卫（30s 主编排 / 5s executor），不再充当排序机制；
+  业务断言逐字保留（1×200 + 1×402/500、provider 恰一次、余额/账本/
+  charge 行、W1–W11）。
+- **Scope B — 门禁退出码完整性契约**：`scripts/gate_command.sh`
+  （`set -euo pipefail` + 显式退出码透传 + `GATE_LOG_FILE` 安全日志模式，
+  禁止 `cmd | tail` 吞码）；`scripts/gate_exitcode_test.go` 7 个回归用例
+  （假命令 / 假 `go` shim，绝不触碰真实源码）：成功透传 0、失败+显示成功
+  仍非零、假 vet/build 失败非零、空参退出 2、外层日志隔离、脚本契约静态
+  扫描；`scripts/doc.go` 使包可构建。
+- 批中发现并修复 fixture 自身隔离漏洞：全量门在 `GATE_LOG_FILE` 下运行时
+  回归 fixture 继承该变量，内部假命令截断/改写了外层日志（NUL 空洞）；
+  `runGate` 现无条件剥离继承的 `GATE_LOG_FILE`，并以
+  `TestGate_FixtureNeverTouchesOuterLogFile` 固化。
+
+### 123.2 验证证据
+
+- CaseA `-count=100`：100/100 PASS（退出码 0）；`-race -count=20`：20/20
+  PASS；`go test ./internal/handler/gateway -count=20`：3380 PASS / 0 FAIL。
+  修复前基线失败率 4/6（Batch 4A 取证）。
+- `go test ./... -count=1` ×5 连续：5/5 全绿（各 49 包 `ok`、0 FAIL 行、
+  日志完整性逐份校验：无 NUL、无吞码）；每命令真实退出码显式记录
+  （go test 0 ×5 / go vet 0 / go build 0 / gofmt 空）。
+- 资金语义四问全部 NO：钱包代码、网关计费代码、锁语义、先预留后调用
+  不变量均未改动；未发现需要以抖动掩盖的真实竞态。
+
+### 123.3 任务账本与后续
+
+- 本批同步完成注册：新增 `TH-P05-13`（P0.5，P0，依赖 TH-P05-03），
+  `TH-P05-09` 依赖追加 TH-P05-13（P0.5 任务文件 / TASK_INDEX /
+  BACKLOG_OVERVIEW 三处一致）；任务总数 139 → 140，
+  Missing / Dangling / Circular = 0 / 0 / 0。TH-P05-13 判 DONE。
+- C-4 备份加密维持 Deferred；钱包-账本运行时不变量告警缺口维持
+  Backlog Gap（是否阻塞 TH-P05-09 由其 AC 判定）。
+- 至此 Sprint 1 全部 12+1 个 P0.5 任务 DONE；下一步仅解锁
+  `TH-P05-09`（生产安全门 Harness），本批不执行。

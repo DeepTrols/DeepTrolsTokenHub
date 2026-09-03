@@ -17,7 +17,7 @@
 
 | Phase | Epic | Task Count | Output |
 |---|---|---:|---|
-| P0.5 | Production Safety Gate | 12 | B5 最大预留/结算兜底、账务不变量测试、资金指标告警、备份恢复、干净环境部署、PayURL 持久化、Worker 观测、B5 非 chat/多模态覆盖收口、支付前安全门 |
+| P0.5 | Production Safety Gate | 13 | B5 最大预留/结算兜底、账务不变量测试、资金指标告警、备份恢复、干净环境部署、PayURL 持久化、Worker 观测、B5 非 chat/多模态覆盖收口、门禁测试确定性收口、支付前安全门 |
 | P1 | Payment | 34 | QueryOrder 契约、通道工厂与回调路由、支付宝 7 子任务、微信 7 子任务、补偿 Worker 9 子任务、支付对账与 epay 退场 6 子任务 |
 | P2 | Enterprise | 43 | 企业申请/审核、邀请与成员治理、共享钱包全链路、网关企业扣费、成员月度上限、企业账单与控制台 |
 | P3 | RBAC | 15 | 权限目录、角色 CRUD 与守卫、RequirePerm 中间件、路由权限矩阵、审计、前端权限收敛 |
@@ -50,30 +50,30 @@ Epic Count = 6（每个 Epic 对应一个阶段任务文件；Epic/Feature 不�
 
 | Phase | Task Count | 拆分形态 |
 |---|---:|---|
-| P0.5 | 12 | TH-P05-01 … TH-P05-12 |
+| P0.5 | 13 | TH-P05-01 … TH-P05-13 |
 | P1 | 34 | TH-P1-01…05、AL-01…07、WX-01…07、CW-01…09、RC-01…06 |
 | P2 | 43 | TH-P2-01…06、INV-01…06、WAL-01…09、GW-01…07、LIM-01…07、UI-01…08 |
 | P3 | 15 | TH-P3-01 … TH-P3-15 |
 | P4 | 12 | TH-P4-01 … TH-P4-12 |
 | P5 | 23 | RVW-01…07、TEL-01…09、MET-01…03、SEC-01…03、LOAD-01 |
-| **Total** | **139** | |
+| **Total** | **140** | |
 
 ## Priority Summary
 
 | Priority | Count |
 |---|---:|
-| P0 | 12 |
+| P0 | 13 |
 | P1 | 87 |
 | P2 | 40 |
-| **Total** | **139** |
+| **Total** | **140** |
 
 ## Critical Dependency Chains
 
 以下链路全部取自当前任务文件的真实 Dependencies 字段（已验证无悬空、无循环依赖）。
 
-- 资金安全基线（B5）：`TH-P05-01 -> TH-P05-02 -> TH-P05-03`；`TH-P05-02 -> TH-P05-04 -> TH-P05-11 -> TH-P05-05`（TH-P05-05 依赖 TH-P05-04, TH-P05-11：Worker Silence 告警需要 TH-P05-11 提供的 worker lease 指标）；`TH-P05-01 -> TH-P05-12`（Batch 1 覆盖缺口收口）
+- 资金安全基线（B5）：`TH-P05-01 -> TH-P05-02 -> TH-P05-03`；`TH-P05-02 -> TH-P05-04 -> TH-P05-11 -> TH-P05-05`（TH-P05-05 依赖 TH-P05-04, TH-P05-11：Worker Silence 告警需要 TH-P05-11 提供的 worker lease 指标）；`TH-P05-01 -> TH-P05-12`（Batch 1 覆盖缺口收口）；`TH-P05-03 -> TH-P05-13`（门禁测试确定性收口，TH-P05-09 前置）
 - 备份与干净环境（B7/B8）：`TH-P05-06 -> TH-P05-07 -> TH-P05-08`
-- 支付前安全门（全后续阶段的入口）：`{TH-P05-03, TH-P05-05, TH-P05-08, TH-P05-10, TH-P05-11} -> TH-P05-09 -> {TH-P1-01, TH-P2-01, TH-P3-01, TH-P4-01, TH-P5-RVW-01, TH-P5-TEL-01, TH-P5-SEC-01}`
+- 支付前安全门（全后续阶段的入口）：`{TH-P05-03, TH-P05-05, TH-P05-08, TH-P05-10, TH-P05-11, TH-P05-13} -> TH-P05-09 -> {TH-P1-01, TH-P2-01, TH-P3-01, TH-P4-01, TH-P5-RVW-01, TH-P5-TEL-01, TH-P5-SEC-01}`
 - 支付通道骨架：`TH-P05-09 -> TH-P1-01 -> TH-P1-02 / TH-P1-03 -> TH-P1-04 / TH-P1-05`
 - 支付宝适配：`TH-P1-03 -> TH-P1-AL-01 -> {TH-P1-AL-02, TH-P1-AL-03 -> TH-P1-AL-04, TH-P1-AL-05} -> TH-P1-AL-06 -> TH-P1-AL-07`
 - 微信适配：`TH-P1-03 -> TH-P1-WX-01 -> {TH-P1-WX-02, TH-P1-WX-03 -> TH-P1-WX-04, TH-P1-WX-05} -> TH-P1-WX-06 -> TH-P1-WX-07`
@@ -132,6 +132,7 @@ Sprint 1 只做 P0.5：支付与真实收款开始前必须通过的资金安全
 - `TH-P05-10` 支付订单 PayURL 持久化修复
 - `TH-P05-11` Worker Lease 可观测
 - `TH-P05-12` B5 非 chat / 多模态覆盖收口（Batch 1 发现的资金安全缺口）
+- `TH-P05-13` 门禁测试确定性收口（CaseA 编排去抖 + 退出码完整性，TH-P05-09 前置）
 - `TH-P05-09` 生产安全门 Harness（收口，依赖以上全部证据）
 
 目标：B5 治理 + 账务不变量 + 指标告警 + 备份恢复 + 干净部署全部有证据，

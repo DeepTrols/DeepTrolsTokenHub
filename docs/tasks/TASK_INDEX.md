@@ -1,7 +1,7 @@
 # Sprint Task Index
 
 > 本索引于 2026-09-02 由 `docs/tasks/` 六个阶段任务文件（P0.5–P5，唯一事实来源）
-> 程序化重新生成，取代第一轮拆分残留。共 139 个 Sprint Task。
+> 程序化重新生成，取代第一轮拆分残留。共 140 个 Sprint Task。
 > Estimate 为 `—` 表示任务文件未定义工作量（P0.5 / P1）；除 `TH-P05-12`（Batch 1
 > 发现的资金安全缺口，新增时显式带 Status: TODO）外，任务文件均无 Status
 > 字段，状态一律默认 TODO。Epic/Feature 不进索引，仅收录 `### TH-*` Sprint Task。
@@ -16,10 +16,11 @@
 | TH-P05-06 | Database Backup Baseline | P0.5 | Production Safety Gate | Operations | P0 | None | — | DONE |
 | TH-P05-07 | Backup Restore Drill | P0.5 | Production Safety Gate | Operations | P0 | TH-P05-06 | — | DONE |
 | TH-P05-08 | Clean Environment Deployment Verification | P0.5 | Production Safety Gate | Operations / Deployment | P0 | TH-P05-07 | — | DONE |
-| TH-P05-09 | Production Safety Gate Harness | P0.5 | Production Safety Gate | Test Harness | P0 | TH-P05-03, TH-P05-05, TH-P05-08, TH-P05-10, TH-P05-11 | — | TODO |
+| TH-P05-09 | Production Safety Gate Harness | P0.5 | Production Safety Gate | Test Harness | P0 | TH-P05-03, TH-P05-05, TH-P05-08, TH-P05-10, TH-P05-11, TH-P05-13 | — | TODO |
 | TH-P05-10 | Payment Order PayURL Persistence Fix | P0.5 | Production Safety Gate | Bug Fix | P0 | None | — | DONE |
 | TH-P05-11 | Worker Lease Observability | P0.5 | Production Safety Gate | Observability | P0 | TH-P05-04 | — | DONE |
 | TH-P05-12 | B5 Non-Chat And Multimodal Coverage Closure | P0.5 | Production Safety Gate | Safety / Billing | P0 | TH-P05-01 | — | DONE |
+| TH-P05-13 | Production Safety Test Determinism Stabilization | P0.5 | Production Safety Gate | Test / Reliability | P0 | TH-P05-03 | — | DONE |
 | TH-P1-01 | QueryOrder Result Contract | P1 | Payment | Backend / Contract | P1 | TH-P05-09 | — | TODO |
 | TH-P1-02 | QueryOrder Settlement Intent Service | P1 | Payment | Backend / Service | P1 | TH-P1-01 | — | TODO |
 | TH-P1-03 | Payment Channel Factory | P1 | Payment | Backend / Integration | P1 | TH-P1-01 | — | TODO |
