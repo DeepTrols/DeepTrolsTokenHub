@@ -341,10 +341,23 @@ func parseP0503Decimal(s string) decimal.Decimal {
 
 // ---------------------------------------------------------------------------
 // Case A / AC-01: two concurrent requests against a wallet funded for
-// exactly one hold (H <= B < 2H). The interleaving is forced deterministic:
-// the first request's provider call blocks until the second request's
-// reserve runs against the frozen hold. Exactly one request may reach the
-// provider; the wallet is charged exactly once.
+// exactly one hold (H <= B < 2H). Determinism is achieved by role, not by
+// goroutine identity:
+//
+//   - Winner = the request whose Reserve executes first (attempt #1,
+//     ungated). It proceeds to the provider checkpoint, signals READY,
+//     and is held there until the test explicitly RELEASEs it.
+//   - Loser = the request whose Reserve executes second (attempt #2,
+//     gated at the observed-wallet wrapper). The test releases the gate
+//     only after the winner's hold is frozen in the DB; the loser's
+//     reserve must then be safely rejected (402 or 500) with no provider
+//     call.
+//
+// Because the winner cannot finish before RELEASE, the first handler
+// goroutine to return is necessarily the loser — the test waits on that
+// role event and never on a fixed goroutine. Timeouts in this test are
+// deadlock safety guards only, never ordering mechanisms. Exactly one
+// request may reach the provider; the wallet is charged exactly once.
 // ---------------------------------------------------------------------------
 
 func TestP0503_Gateway_CaseA_ConcurrentRequests_OneProviderCall(t *testing.T) {
@@ -355,14 +368,16 @@ func TestP0503_Gateway_CaseA_ConcurrentRequests_OneProviderCall(t *testing.T) {
 
 	secondGate := make(chan struct{})
 	f.observed.gateSecondReserve = secondGate
-	winnerExecuting := make(chan struct{})
-	proceed := make(chan struct{})
-	var signalOnce sync.Once
+	winnerAtProvider := make(chan struct{}) // READY: winner held at the provider checkpoint, hold frozen.
+	proceed := make(chan struct{})          // RELEASE: winner may complete the provider call and settle.
+	firstFinished := make(chan struct{})    // closed by the first handler to return — by construction the loser.
+	var enteredProvider, handlerReturned sync.Once
 	f.executor.executeFn = func(ctx context.Context, baseURL, apiKey, upstreamModel string, body map[string]any) (*gw.ExecuteResponse, error) {
-		signalOnce.Do(func() { close(winnerExecuting) })
+		enteredProvider.Do(func() { close(winnerAtProvider) })
 		select {
 		case <-proceed:
 		case <-time.After(5 * time.Second):
+			// Deadlock safety guard only — never an ordering mechanism.
 			t.Error("executor gate timed out — test orchestration deadlock")
 		}
 		respBody := validResponseBody()
@@ -379,29 +394,35 @@ func TestP0503_Gateway_CaseA_ConcurrentRequests_OneProviderCall(t *testing.T) {
 	w1, w2 := httptest.NewRecorder(), httptest.NewRecorder()
 
 	var wg sync.WaitGroup
-	secondDone := make(chan struct{})
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		HandleNonStreamingChat(w1, req1, f.application, "gpt-4o", validRequestBody())
+		handlerReturned.Do(func() { close(firstFinished) })
 	}()
 	go func() {
 		defer wg.Done()
 		HandleNonStreamingChat(w2, req2, f.application, "gpt-4o", validRequestBody())
-		close(secondDone)
+		handlerReturned.Do(func() { close(firstFinished) })
 	}()
 
-	// Deterministic orchestration: wait until one request has reserved and
-	// reached the provider, then let the second reserve run against the
-	// frozen hold (it must fail), and only then let the winner settle.
-	<-winnerExecuting
+	// Deterministic, role-based orchestration (no goroutine identity, no
+	// wall-clock ordering):
+	// 1. READY — the winner has reserved and is held at the provider
+	//    checkpoint; its hold is frozen in the DB.
+	p0503WaitOrchestration(t, winnerAtProvider, "winner never reached the provider checkpoint")
+	// 2. Release the loser's gated reserve against the frozen hold; it must
+	//    be rejected by the wallet/DB.
 	close(secondGate)
-	<-secondDone
+	// 3. The first handler to finish is necessarily the loser (the winner is
+	//    still held at the provider checkpoint). Waiting on the role event —
+	//    not on a fixed goroutine — is what makes both race outcomes legal.
+	p0503WaitOrchestration(t, firstFinished, "losing request never completed against the frozen hold")
+	// 4. RELEASE — the winner completes the provider call and settles; both
+	//    handlers are now done.
 	close(proceed)
 	wg.Wait()
 
-	codes := map[int]int{w1.Code: 0, w2.Code: 0}
-	_ = codes
 	var okCount, rejectedCount int
 	for _, code := range []int{w1.Code, w2.Code} {
 		switch {
@@ -439,6 +460,21 @@ func TestP0503_Gateway_CaseA_ConcurrentRequests_OneProviderCall(t *testing.T) {
 		t.Errorf("charge rows = %d, want exactly 1", charges)
 	}
 	f.assertInvariants(t)
+}
+
+// p0503OrchestrationGuard bounds every orchestration wait in the Case A
+// deterministic construction. It is a deadlock safety guard only: it fails
+// the test instead of hanging the package, and is never used to order
+// business events.
+const p0503OrchestrationGuard = 30 * time.Second
+
+func p0503WaitOrchestration(t *testing.T, event <-chan struct{}, deadlockMsg string) {
+	t.Helper()
+	select {
+	case <-event:
+	case <-time.After(p0503OrchestrationGuard):
+		t.Fatalf("%s (test orchestration deadlock)", deadlockMsg)
+	}
 }
 
 // ---------------------------------------------------------------------------

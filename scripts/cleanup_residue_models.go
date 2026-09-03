@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Command cleanup_residue_models removes the bytedance model residue created
 // by early provider auto-discovery during un-isolated testing (130 models,
 // never used). Dry-run by default; pass -apply to delete after writing a
@@ -6,6 +8,11 @@
 // It deliberately targets DATABASE_URL (the dev database), refuses *_test
 // databases, and only touches models whose provider is "bytedance" and that
 // have zero usage_logs (belt-and-suspenders: real usage is never deleted).
+//
+// Run via `go run scripts/cleanup_residue_models.go` (explicit-file go run
+// bypasses build constraints). The ignore tag aligns this file with every
+// other admin utility in scripts/ and keeps the package buildable for the
+// gate exit-code regression tests (TH-P05-13).
 package main
 
 import (
