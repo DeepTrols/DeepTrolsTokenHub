@@ -4000,3 +4000,44 @@ Batch 2 发现的"有余额无账本"钱包 `3a7a5fef-…`（balance 10000、
 - 文档：`docs/OBSERVABILITY_METRICS.md`（指标名、允许/禁止标签、
   surrogate 解释、/metrics 生产网络限制说明）与
   `docs/tasks/execution-logs/TH-P05-04.md`。
+
+## 一百二十、2026-09-03 [P0.5] 空环境部署验证（TH-P05-08）
+
+在全新空库 + 全新 Redis + 生产形态配置（`ENABLE_FAKE_PAYMENT=false`、
+`COOKIE_SECURE=true`、强随机密钥）上完整验证 B8：迁移 → API → Worker →
+健康/就绪 → 网关冒烟 → 计费证据 → 持久化 → 重启无重复资金效果。
+**零行业务代码改动**：仅新增两个 `//go:build ignore` 一次性验证脚本。
+
+### 120.1 验证链（全部 PASS，详见执行记录矩阵）
+
+- Migration：36 个 `.up.sql` 按文件名顺序单事务应用到空库（39 表），
+  随后一次安全 down（`000036_auth_sessions.down`）+ re-up 往返成功。
+- Fail-fast：缺 `DATABASE_URL`、弱默认 JWT/ENCRYPTION/ADMIN 密钥、
+  `COOKIE_SECURE=false`、短管理员密码、`ENCRYPTION_KEY` 非 32B——
+  六种非法生产配置全部拒绝启动。
+- API：`/health` `/healthz` 200；`/readyz` 200 且 `database/redis=ok`；
+  `/metrics` 可抓取（`text/plain`）。admin 引导写入已打部署验证标签。
+- Worker：Redis lease 键（`worker:lease:*`）+ `health_checker: checked 1
+  channels` 周期日志证实至少一个带 lease 的周期。
+- 网关冒烟：播种模型/渠道（打 `p0508-deployment-verification` 标签）后
+  一次请求扣费恰 −0.000003（1×1.0/1M + 1×2.0/1M），`usage_logs`/
+  `charge_lines`/`provider_evidence`/账本四类证据齐全，`usage_source=upstream`。
+- 重启：SIGTERM→重启→重放同一 `X-Request-ID` 不双扣（balance/账本不变，
+  重放仅记 cost=0 证据行）；`ensureAdminUser` 幂等。
+- 对账：`reconciliation_runs` 产出 1 行（completed，diff_count=2，均为
+  预期 warning：重放行无收费行 + 无外部计费连接器）。
+- 支付宝/微信：代码库无其配置项（官方支付未实现，P1）；启动无依赖；
+  `ENABLE_FAKE_PAYMENT=false` 时演示充值固定 403 → **按设计 DISABLED**。
+
+### 120.2 记录在案的偏差与修正
+
+- 本机无法访问 Docker Hub：改用宿主 PostgreSQL 17.10 与 Homebrew Redis
+  8.8.0（compose 声明 `postgres:16-alpine`/`redis:7-alpine`）；差异已记录。
+- `golang-migrate` CLI 未安装：按仓库真实机制（裸 SQL、无版本表，§5.3
+  口径）用 `psql -v ON_ERROR_STOP=1` 逐文件应用；**DEPLOYMENT.md §3 旧文
+  引用该 CLI 的漂移已修正**，并新增 §9 空环境验证结论。
+- 对账 1 小时 ticker 用一次性驱动（同一生产 `Run` 代码）验证；
+  lease 门控另行经 Redis 键证实。
+- 产物：`/tmp/p0508/`（日志/二进制，临时）；一次性库
+  `deeptrols_p0508_clean` 保留供复核。完整矩阵见
+  `docs/tasks/execution-logs/TH-P05-08.md`。

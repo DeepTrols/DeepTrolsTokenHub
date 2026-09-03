@@ -50,24 +50,44 @@ go build -trimpath -ldflags "-s -w" -o bin/worker ./cmd/worker
 
 ## 3. 数据库迁移
 
-```bash
-# 升级（先备份）
-migrate -path migrations -database "$DATABASE_URL" up
+> **现状（TH-P05-08 于 2026-09-03 在空库上实际验证）**：本仓库**不维护
+> `schema_migrations` 版本表**，迁移按文件名顺序的裸 SQL 应用（与 §5.3
+> 恢复演练的口径一致）。当前迁移版本 = 最新文件名
+> （`000036_auth_sessions`）。`Makefile` 的 `migrate-up/down` 依赖
+> `golang-migrate` CLI（会创建版本表）——两种路径不可混用；未装该 CLI
+> 的环境按下面的 psql 顺序执行。
 
-# 回滚到上一版本（仅在发布回滚场景使用）
-migrate -path migrations -database "$DATABASE_URL" down 1
+空库全量应用（每个文件单事务、失败即停）：
+
+```bash
+# 升级（先备份）：扩展 + 按文件名顺序逐个应用
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -1 \
+  -c 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";' \
+  -c 'CREATE EXTENSION IF NOT EXISTS "pgcrypto";'
+for f in $(ls migrations/*.up.sql | sort); do
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -1 -q -f "$f" || { echo "FAILED: $f"; exit 1; }
+done
 ```
 
-**dirty 版本修复（事故处理）**：
+回滚一个版本（仅发布回滚场景；先在一次性库演练对应 `.down.sql`）：
 
-1. 先确认 dirty 版本号：`migrate -path migrations -database "$DATABASE_URL" version`
-2. 确认该版本的 up 语句是否已真正执行（查询对应表结构 / 数据）。
-3. 若已执行：`migrate -path migrations -database "$DATABASE_URL" force <version>`
-4. 若未执行完：先手工补齐缺失 DDL（或回滚已执行的半截），再 `force`。
-5. 记录事故原因到 `docs/PROJECT_STATUS.md`。
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f migrations/<最新版本>.down.sql
+```
 
-> 历史事故：2025 年曾因并发/中断出现 `schema_migrations` dirty，靠
-> `migrate force 8` 现场修复。迁移操作必须串行执行、避开流量高峰。
+若环境装有 `golang-migrate` CLI，也可用
+`migrate -path migrations -database "$DATABASE_URL" up|down 1`，
+但其版本表与裸 SQL 路径互不兼容，同一库只能固定走其中一条路径。
+
+**dirty / 半截迁移修复（事故处理，裸 SQL 路径）**：
+
+1. 对照 `migrations/` 文件名顺序与实际表结构，确认最后完整应用到哪一版。
+2. 半截文件：手工补齐缺失 DDL 或回滚已执行的半截（单事务内）。
+3. 记录事故原因到 `docs/PROJECT_STATUS.md`。
+
+> 历史事故：2025 年（golang-migrate 时期）曾因并发/中断出现
+> `schema_migrations` dirty，靠 `migrate force 8` 现场修复。迁移操作必须
+> 串行执行、避开流量高峰。
 
 ## 4. 密钥轮换
 
@@ -184,3 +204,22 @@ scripts/restore_drill.sh "$RESTORE_TARGET_URL" <dump 文件> <manifest 文件> "
   不存在"账外请求"。
 - 4xx 错误率、网关延迟 P95、Redis 命中率、DB 连接数处于基线内。
 - 若发现异常，按 `docs/PROJECT_STATUS.md` 的已知问题章节排查。
+
+## 9. 空环境部署验证（TH-P05-08，2026-09-03 已执行一次）
+
+在**全新空库 + 全新 Redis + 生产形态配置**（`ENABLE_FAKE_PAYMENT=false`、
+`COOKIE_SECURE=true`、强随机密钥）上完整跑通：迁移全量应用（36 个文件）→
+一次安全 down/up 往返 → API 启动（`/health` `/healthz` `/readyz` 200，
+`/metrics` 可抓取）→ Worker 带 Redis lease 周期（`worker:lease:*`）→
+播种测试模型/渠道后网关冒烟（请求→定价→预留→executor→结算，
+证据链 `usage_logs`/`charge_lines`/`provider_evidence`/账本齐全，
+扣费与定价精确一致）→ 重启后重放同一 `X-Request-ID` 无重复资金效果 →
+对账运行产出 `reconciliation_runs` 行。缺环境变量 / 弱默认密钥 /
+`COOKIE_SECURE=false` / 短管理员密码均**拒绝启动（fail-fast）**。
+
+- 完整 Clean Deployment Matrix、证据摘录与记录在案的偏差见
+  `docs/tasks/execution-logs/TH-P05-08.md`。
+- 播种与对账的一次性工具：`scripts/p0508_clean_seed.go`、
+  `scripts/p0508_recon_driver.go`（均 `//go:build ignore`，不进生产二进制）。
+- 支付宝/微信官方支付尚未实现（P1 任务），无配置项即无启动依赖；
+  `ENABLE_FAKE_PAYMENT=false` 时演示充值端点固定返回 403。
