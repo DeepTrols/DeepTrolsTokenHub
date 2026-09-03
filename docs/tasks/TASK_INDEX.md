@@ -18,7 +18,7 @@
 | TH-P05-08 | Clean Environment Deployment Verification | P0.5 | Production Safety Gate | Operations / Deployment | P0 | TH-P05-07 | — | DONE |
 | TH-P05-09 | Production Safety Gate Harness | P0.5 | Production Safety Gate | Test Harness | P0 | TH-P05-03, TH-P05-05, TH-P05-08, TH-P05-10, TH-P05-11 | — | TODO |
 | TH-P05-10 | Payment Order PayURL Persistence Fix | P0.5 | Production Safety Gate | Bug Fix | P0 | None | — | DONE |
-| TH-P05-11 | Worker Lease Observability | P0.5 | Production Safety Gate | Observability | P0 | TH-P05-04 | — | TODO |
+| TH-P05-11 | Worker Lease Observability | P0.5 | Production Safety Gate | Observability | P0 | TH-P05-04 | — | DONE |
 | TH-P05-12 | B5 Non-Chat And Multimodal Coverage Closure | P0.5 | Production Safety Gate | Safety / Billing | P0 | TH-P05-01 | — | DONE |
 | TH-P1-01 | QueryOrder Result Contract | P1 | Payment | Backend / Contract | P1 | TH-P05-09 | — | TODO |
 | TH-P1-02 | QueryOrder Settlement Intent Service | P1 | Payment | Backend / Service | P1 | TH-P1-01 | — | TODO |

@@ -4041,3 +4041,67 @@ Batch 2 发现的"有余额无账本"钱包 `3a7a5fef-…`（balance 10000、
 - 产物：`/tmp/p0508/`（日志/二进制，临时）；一次性库
   `deeptrols_p0508_clean` 保留供复核。完整矩阵见
   `docs/tasks/execution-logs/TH-P05-08.md`。
+
+## 一百二十一、2026-09-03 [P0.5] Worker 租约可观测性（TH-P05-11）
+
+Sprint 1 Batch 4A：为全部 5 个租约 worker（health_checker / reconciler /
+billing_sync / subscription_expirer / subscription_renewer）在**不改动租约
+协议与调度器**的前提下补齐可观测性基线，复用 TH-P05-04 的同一 registry
+（无第二 registry）与白名单标签策略。批前先修正 Backlog 依赖缺口：
+TH-P05-05 的依赖由 `TH-P05-04` 更正为 `TH-P05-04, TH-P05-11`（Worker
+Silence 告警需要本批次指标），提交 `29ed214`，全图校验
+Missing=0 / Dangling=0 / Circular=0。
+
+### 121.1 新增指标（同 `internal/pkg/metrics` registry）
+
+- `worker_cycles_total{worker,outcome}`：周期结果（success / failed /
+  panic_recovered / skipped），每周期恰好一次观测。
+- `worker_cycle_duration_seconds{worker}`：周期耗时（含租约获取；13 档
+  buckets，0.05s–600s）。
+- `worker_lease_total{worker,outcome}`：租约决策（acquired / skipped /
+  error）；Redis 错误 fail-closed（业务函数不执行，周期记 failed）。
+- 标签结构性强制：`AllowedWorkers` 白名单 + `SanitizeWorker` /
+  `SanitizeCycleOutcome` / `SanitizeLeaseOutcome` 钳制到 `other`；
+  原始租约键 / 主机名 / pod id / 错误文本不可能进入标签
+  （`TestGatheredFamilies_NoForbiddenLabels` 恶意输入结构断言）。
+- Worker 进程新增 `/metrics`（`serveWorkerMetrics`）：`WORKER_METRICS_ADDR`
+  默认 `127.0.0.1:19090` 仅回环，空值禁用，绑定失败只降级可观测性
+  （live 探针实测证实）。
+
+### 121.2 验证证据
+
+- AC 全 PASS：A 获取即执行一次 / B 竞争恰好一方执行（真实 Redis 8.8.0 +
+  barrier 并发双跑 + 持锁轮双跳过）/ C Redis 故障 fail-closed / D 业务失败
+  进程继续 / E panic 恢复且 payload 不外泄 / F `/metrics` 家族齐全且无敏感
+  子串。`cmd/worker` 新增 7 个测试（miniredis 默认 hermetic，
+  `TEST_REDIS_URL` 切换真实 Redis：7/7 PASS）。
+- Live 双进程探针（一次性库 `deeptrols_p0511_probe`，36 迁移 / 39 表，
+  保留供复核）：实例 A 全 `acquired`+`success`、实例 B 全 `skipped`，
+  `worker:lease:*` 键带存活 TTL，恰好一次执行。
+- 租约语义零回归：未持锁跳过、fail-closed、nil-Redis 单实例模式均被测试
+  固化；跳过日志输出与批前一致；`internal/pkg/lease` 零改动。
+- 资金安全：对账器零改动；插桩不启用任何钱包 Spend/Adjust/TopUp/自动
+  借记/贷记；指标故障由 `safely()` 吞掉，不改变租约结果、不重复执行
+  worker、不阻塞周期。
+- 门：`go vet` / `go build` / `gofmt -l internal/ cmd/` 全干净；
+  `go test -race`（cmd/worker、lease、metrics、config）全绿。
+
+### 121.3 已知问题（预先存在，非本批次引入）
+
+`TestP0503_Gateway_CaseA_ConcurrentRequests_OneProviderCall`（TH-P05-03
+编排，5s executor gate）在全量门中间歇性失败（`executor gate timed out —
+test orchestration deadlock`）。取证：批前基线 `f4e7f63` 的
+`git worktree` 与工作树隔离各跑 6 次，**失败率一致（4/6）**；本批次
+未触碰任何 gateway / wallet / executor 路径。全量门 3 次重跑中该测试均
+为唯一失败项（其余 46 包全部 `ok`）。结论：预先存在的调度敏感型
+编排 flake，记录在案，由后续批次单独治理（非本批范围）。
+
+### 121.4 对 TH-P05-05 的交接
+
+沉默检测基线：`increase(worker_cycles_total{worker="<name>",
+outcome="success"}[<窗口>]) == 0`（60s 级 / 1h 级调度，窗口取 2–3 倍
+周期；按 `worker` 标签聚合、不带实例维度，避免把租约竞争的健康
+`skipped` 误判为沉默）。未新增 `last_success_timestamp_seconds` gauge
+（AC 未要求）。告警规则属 TH-P05-05 范围。详见
+`docs/tasks/execution-logs/TH-P05-11.md` 与
+`docs/OBSERVABILITY_METRICS.md` §5。

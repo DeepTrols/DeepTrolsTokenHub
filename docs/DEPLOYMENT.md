@@ -29,6 +29,7 @@
 | `API_HOST` | 生产建议绑定内网回环（默认 `0.0.0.0`） | — |
 | `LOAD_TTL_SECONDS` | 渠道实时负载计数器 TTL（默认 60） | — |
 | `JWT_EXPIRY_HOURS` | 登录态有效期（默认 24） | — |
+| `WORKER_METRICS_ADDR` | Worker `/metrics` 监听地址（默认 `127.0.0.1:19090` 仅回环；置空禁用端点，仅关闭可观测性，worker 照常运行）（TH-P05-11） | — |
 
 生产校验由 `internal/config/config.go` 的 `validate()` 执行；任何不满足的配置都会在进程启动时报错退出，部署流水线应把「启动即退出」视为失败。
 
@@ -182,6 +183,23 @@ scripts/restore_drill.sh "$RESTORE_TARGET_URL" <dump 文件> <manifest 文件> "
   否则多个 worker 实例会重复执行对账或订阅回收、产生冲突结果。
 - API 无状态，可水平扩展；Redis 与 PostgreSQL 是共享状态。
 
+### 6.1 Worker 可观测性预期（TH-P05-11）
+
+- Worker 进程暴露独立的 `/metrics`（`WORKER_METRICS_ADDR`，默认
+  `127.0.0.1:19090`），与 API 共用同一套受审指标家族与标签策略
+  （`worker_cycles_total` / `worker_cycle_duration_seconds` /
+  `worker_lease_total`，见 `docs/OBSERVABILITY_METRICS.md`）。
+  Prometheus 需把**每个 worker 实例**都列入抓取目标；跨主机抓取时在网络层
+  放行该端口（端点本身无鉴权，勿暴露到公网）。
+- 多实例下每个 tick 只有一个实例记 `worker_lease_total{outcome="acquired"}`
+  与 `worker_cycles_total{outcome="success"}`，其余实例记 `skipped`——这是
+  租约竞争的正常形态，不是故障。聚合观测时按 `worker` 标签聚合（不带实例维度）。
+- Redis 租约错误是 **fail-closed**：该周期跳过、业务函数不执行，
+  `worker_lease_total{outcome="error"}` +1 且 `worker_cycles_total{outcome="failed"}` +1；
+  进程继续运行，下一周期自动重试。`error` 持续增长即代表 Redis 故障，应优先排查。
+- 指标端点绑定失败只降级可观测性（日志 `worker metrics server failed`），
+  租约调度与业务不受影响；发现该日志时修复监听配置即可。
+
 ## 7. 灰度与回滚
 
 - 灰度：API 新版本先在 1 个实例验证 `/health`、登录、一次真实网关调用，
@@ -203,6 +221,12 @@ scripts/restore_drill.sh "$RESTORE_TARGET_URL" <dump 文件> <manifest 文件> "
 - 非流式/流式失败请求全部能在 `usage_logs` 找到（`status=failed/partial`），
   不存在"账外请求"。
 - 4xx 错误率、网关延迟 P95、Redis 命中率、DB 连接数处于基线内。
+- Worker 周期指标处于基线（TH-P05-11）：60s 级 worker（`health_checker` /
+  `billing_sync`）与 1h 级 worker（`reconciler` / `subscription_expirer` /
+  `subscription_renewer`）的 `worker_cycles_total{outcome="success"}` 应按
+  调度周期持续增长；`outcome="failed"` / `panic_recovered` 出现即排查，
+  `worker_lease_total{outcome="error"}` 持续出现即 Redis 故障。
+  沉默判据与告警基线由 TH-P05-05 定义（见 `docs/OBSERVABILITY_METRICS.md` §5）。
 - 若发现异常，按 `docs/PROJECT_STATUS.md` 的已知问题章节排查。
 
 ## 9. 空环境部署验证（TH-P05-08，2026-09-03 已执行一次）

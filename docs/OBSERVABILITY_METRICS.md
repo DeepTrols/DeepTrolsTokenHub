@@ -1,13 +1,15 @@
-# Observability Metrics（TH-P05-04 基线）
+# Observability Metrics（TH-P05-04 基线 + TH-P05-11 Worker 扩展）
 
 P0.5 生产可观测性基线：网关流量与资金路径（reserve / settle / release /
 undercharge / pricing-incomplete / provider-before-call blocking）的最小
-低基数 Prometheus 计数器。
+低基数 Prometheus 计数器；TH-P05-11 将同一 registry 与标签策略扩展到
+worker 租约（lease）可观测性（周期结果 / 周期耗时 / 租约决策）。
 
 实现位置：`internal/pkg/metrics`（独立 registry）、
 `internal/handler/middleware/gateway_metrics.go`（请求计数）、
 `internal/service/billing/charger.go`（资金路径计数）、
-`internal/handler/gateway`（fail-closed / provider-blocked 计数）。
+`internal/handler/gateway`（fail-closed / provider-blocked 计数）、
+`cmd/worker/main.go`（worker 周期 / 租约计数与 worker `/metrics` 端点）。
 
 ## 1. 指标清单
 
@@ -46,9 +48,29 @@ executor 内部计数（executor 不知道调用为何没发生）。但资金�
 `wallet_missing` / `insufficient_balance` / `reserve_failed`）都恰好等于一次被
 阻止的 provider 调用。计数点位于各网关处理器的 fail-closed 分支。
 
+### Worker 租约可观测性（TH-P05-11）
+
+| 指标名 | 类型 | 标签 | 含义 |
+|---|---|---|---|
+| `worker_cycles_total` | Counter | `worker`, `outcome` | worker 周期按结果计数（`success` / `failed` / `panic_recovered` / `skipped`） |
+| `worker_cycle_duration_seconds` | Histogram | `worker` | 周期耗时（含租约获取；buckets: 0.05/0.1/0.25/0.5/1/2.5/5/10/30/60/120/300/600s） |
+| `worker_lease_total` | Counter | `worker`, `outcome` | 租约决策（`acquired` / `skipped` / `error`）；Redis 错误为 fail-closed：周期被跳过 |
+
+**语义**（租约协议本身由 `internal/pkg/lease` 提供，本批次不改变其行为）：
+
+- 租约获取成功 → 执行业务函数 → `success`（业务报错则 `failed`，panic 被
+  `runSafely` 的 recover 边界捕获则 `panic_recovered`）。
+- 租约已被其他实例持有 → 本周期跳过（`skipped`），**绝不重复执行**。
+- Redis 租约错误 → **fail-closed**：业务函数永不被调用，周期记为 `failed`，
+  租约记为 `error`；进程继续运行，下一周期重试。
+- `nil` Redis（单实例模式）→ 租约恒授予，行为与 TH-P05-11 之前完全一致。
+- 每个周期恰好产生一次周期观测（四种结果之一）与一次耗时观测；
+  指标故障由 `safely()` 吞掉，永远不会改变租约结果、重复执行 worker 或
+  阻塞周期。
+
 ## 2. 标签策略（Label policy）
 
-### 允许的低基数标签（仅此两个）
+### 允许的低基数标签（仅此四个）
 
 - `endpoint`：有界端点白名单。取值：
   `chat/completions`、`completions`、`responses`、`messages`、
@@ -61,13 +83,22 @@ executor 内部计数（executor 不知道调用为何没发生）。但资金�
   `insufficient_balance`、`reserve_failed`、`pricing_incomplete`、
   `wallet_missing`、`tx_not_reserved`、`settle_error`、`client_error`、
   `server_error`、`other`（钳制桶）。
+- `worker`（TH-P05-11）：有界 worker 白名单（`AllowedWorkers`）。取值：
+  `health_checker`、`reconciler`、`billing_sync`、`subscription_expirer`、
+  `subscription_renewer`、`other`（钳制桶）。新增租约 worker 必须**刻意**
+  加入白名单；动态或未知名称（原始租约键、主机名、pod id 等）一律钳制为
+  `other`，worker 身份不可能被走私进标签。
+- `outcome`（TH-P05-11）：有界结果白名单。周期结果取值：
+  `success`、`failed`、`panic_recovered`、`skipped`；租约决策取值：
+  `acquired`、`skipped`、`error`；其他一律钳制为 `other`。
 
 ### 结构性强制
 
 每个 setter 都在写入 Prometheus 之前经过 `SanitizeEndpoint` /
-`SanitizeReasonClass` 白名单消毒，未来的调用方**不可能**把高基数或敏感值
+`SanitizeReasonClass` / `SanitizeWorker` / `SanitizeCycleOutcome` /
+`SanitizeLeaseOutcome` 白名单消毒，未来的调用方**不可能**把高基数或敏感值
 写进标签（单元测试 `TestGatheredFamilies_NoForbiddenLabels` 对 Gather 结果
-做结构断言）。
+做结构断言，含恶意输入的 worker setter 场景）。
 
 ### 禁止出现（指标名、标签名、标签值均不得包含）
 
@@ -76,17 +107,40 @@ prompt 文本、原始错误文本、原始 URL、IP 地址。
 
 ## 3. 运维
 
-- `/metrics` 由 `App.RegisterRoutes` 挂载（Prometheus 文本格式，独立
-  registry：只含上述受审家族，无 Go runtime / 第三方采集器）。
+- API 进程：`/metrics` 由 `App.RegisterRoutes` 挂载（Prometheus 文本格式，
+  独立 registry：只含上述受审家族，无 Go runtime / 第三方采集器）。
+- Worker 进程（TH-P05-11）：`/metrics` 由 `serveWorkerMetrics` 提供，
+  监听地址由环境变量 `WORKER_METRICS_ADDR` 控制，**默认 `127.0.0.1:19090`
+  （仅回环）**；置空即禁用端点（仅关闭可观测性，worker 照常运行）；
+  绑定失败只降级可观测性、不影响租约调度。跨主机抓取时在网络层放行该端口。
+  该端点复用同一个 `metrics.Default` registry，因此 worker 家族与网关/资金
+  家族使用同一套标签策略与暴露面约束；**不存在第二个 registry**。
 - 与 `/health` 一样**无鉴权**；生产环境必须在网络层限制访问
   （内网 / firewall / scrape 专用网络），不要暴露到公网。
 - 所有 setter 均由 `safely()` 包裹（recover 守卫）：**指标故障永远不会影响
-  业务请求**（TH-P05-04 硬性要求，测试
-  `TestSafely_InstrumentationFailureNeverPropagates` 固化）。
+  业务请求或租约结果**（TH-P05-04 硬性要求，测试
+  `TestSafely_InstrumentationFailureNeverPropagates` 固化；TH-P05-11 要求
+  指标故障绝不重复执行 worker、不改变租约语义）。
 - 请求计数中间件在 handler 之后计数（`chimw.NewWrapResponseWriter`），
   且位于 `/v1` 路由链最前，保证鉴权/限流拒绝也被计入。
 
 ## 4. 范围边界
 
-- **不包含** worker 租约（lease）指标——属于 TH-P05-11 范围。
+- Worker 租约（lease）指标已由 TH-P05-11 纳入（见 §1「Worker 租约可观测性」）。
 - 不包含 Go runtime / process 采集器（刻意排除，保持暴露面最小）。
+
+## 5. Worker Silence 基线（供 TH-P05-05 使用）
+
+TH-P05-11 只提供**指标**，不定义告警规则（告警属 TH-P05-05 范围）。
+基于本批次计数器即可构造沉默检测，无需新增时间戳指标：
+
+- 每个租约 worker 的调度周期固定：`health_checker` / `billing_sync` 为
+  60s tick；`reconciler` / `subscription_expirer` / `subscription_renewer`
+  为 1h tick（后三者另有一次启动周期）。
+- 沉默判据（建议形式，窗口取周期的 2–3 倍）：
+  `increase(worker_cycles_total{worker="<name>",outcome="success"}[<window>]) == 0`。
+- 租约竞争场景下只有一个实例计入 `acquired`/`success`，沉默规则必须按
+  `worker` 聚合（不带实例维度）判断，否则会把健康的“另一实例被跳过”
+  误判为沉默。
+- 本批次**未**新增 `last_success_timestamp_seconds` 类 gauge：AC 未要求，
+  且计数器+调度周期已足以构造上述规则（见 TH-P05-11 执行记录）。
