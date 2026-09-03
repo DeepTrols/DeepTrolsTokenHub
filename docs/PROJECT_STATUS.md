@@ -4212,3 +4212,31 @@ p05_alerts_test.yml`，13 输入块 / 34 断言）、结构回归
   Backlog Gap（是否阻塞 TH-P05-09 由其 AC 判定）。
 - 至此 Sprint 1 全部 12+1 个 P0.5 任务 DONE；下一步仅解锁
   `TH-P05-09`（生产安全门 Harness），本批不执行。
+
+## 一百二十四、2026-09-03 [P0.5] 生产安全门通过（TH-P05-09，GATE PASS）
+
+### 124.1 门禁结论
+
+- **GATE PASS**：P0.5 全部 12 个前置任务 DONE（脚本化核对，
+  Missing / Dangling / Circular = 0），证据索引完整（12 份执行记录、
+  备份产物、9 条告警规则 + 34 断言 fixture、runbook、部署与发布阻断
+  策略、退出码契约），关键回归全绿。
+- 按 Batch 5 指令以最小收口形态执行：不新增 Harness 框架 / JSON
+  contract / failure injection / runner 抽象；门禁执行器复用
+  `scripts/gate_command.sh` 退出码契约，报告即
+  `docs/tasks/execution-logs/TH-P05-09.md`。
+- 操作性事件已处置：首次回归调用因日志目录并行竞争导致重定向失败，
+  门禁如实报非零（契约按预期工作）；同链预创建目录后复跑全绿。
+
+### 124.2 关键回归证据（真实退出码）
+
+- `go test ./... -count=1` 退出码 0：49 包 `ok`、0 FAIL 行、日志完整。
+- `go vet ./...` / `go build ./...` 退出码 0；`gofmt` 干净。
+
+### 124.3 解锁与移交
+
+- P1 支付阶段解锁：Payment Sprint 自本批开始（`TH-P1-01`、
+  `TH-P1-03` 进入执行）。资金安全红线与发布阻断策略继续有效
+  （`docs/DEPLOYMENT.md` §10）。
+- C-4 备份加密维持 Deferred；钱包-账本运行时不变量告警维持
+  Backlog Gap，均不阻塞本门。
