@@ -47,6 +47,7 @@ Epic: Payment
 Type: Backend / Contract
 Priority: P1
 Dependencies: TH-P05-09
+Status: DONE (Batch 5 — provider-neutral QueryOrder contract, see execution-logs/TH-P1-01.md)
 
 Objective:
 
@@ -182,6 +183,7 @@ Epic: Payment
 Type: Backend / Integration
 Priority: P1
 Dependencies: TH-P1-01
+Status: DONE (Batch 5 — channel factory fail-closed selection, see execution-logs/TH-P1-03.md)
 
 Objective:
 

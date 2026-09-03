@@ -4240,3 +4240,44 @@ p05_alerts_test.yml`，13 输入块 / 34 断言）、结构回归
   （`docs/DEPLOYMENT.md` §10）。
 - C-4 备份加密维持 Deferred；钱包-账本运行时不变量告警维持
   Backlog Gap，均不阻塞本门。
+
+## 一百二十五、2026-09-03 [P1] 支付契约与渠道工厂（TH-P1-01、TH-P1-03）
+
+Batch 5 在完成 P0.5 收尾（§124）后直接执行 P1 首批两个任务，均按
+核心资金路径 TDD（RED→GREEN）完成。
+
+### 125.1 TH-P1-01 QueryOrder Result Contract（DONE）
+
+- `Gateway` 接口新增主动查单 `QueryOrder`；定义提供者无关的
+  `QueryOrderResult` 与**封闭状态枚举**（`paid` / `not_paid` /
+  `closed` / `unknown`，精确大小写）。
+- `Validate()` 固化防错误结算不变量：paid 必须携带流水号 + 正数金额 +
+  支付时间；`Retryable` 结果禁止携带任何 paid 字段；
+  `NormalizeQueryState` 对未识别状态一律映射 `unknown`（永不 paid）。
+- epay 库（go-epay v0.0.4）无查单路径，`EpayGateway.QueryOrder` 返回
+  `ErrQueryUnsupported` 哨兵，真实查单留给补偿 worker（TH-P1-CW-*）。
+- 10 个新测试 + 编译期接口断言；既有 epay/service 回归全绿。
+
+### 125.2 TH-P1-03 Payment Channel Factory（DONE）
+
+- `newGatewayForChannel` 按 `payment_channel` 精确匹配：`epay` →
+  EpayGateway；`alipay`/`wechatpay` → `ErrChannelNotReady`；其余
+  （含 `"Epay"`/`"epay "`）→ `ErrInvalidChannel`。仅空设置回落
+  epay —— 配置笔误不会把付费流量路由到错误网关，且工厂失败发生在
+  建单之前，不留 `payment_orders` 行。
+- 订单行/响应 `Channel` 与 NotifyURL（`/api/payment/notify/<channel>`）
+  改为按生效渠道生成，为 TH-P1-04 回调路由打基础；epay 专属凭据检查
+  下沉到网关 `client()`；`Info()` 仅对已实现渠道暴露支付方式。
+- 日志只记录渠道值与错误类，从不打印凭据。
+- 8 个新测试（工厂表 + service 级无行断言 + 未知渠道注入）全绿。
+
+### 125.3 验证与解锁
+
+- 全量回归经门控退出码契约执行：`go test ./...` 49 包 ok、0 FAIL；
+  `go vet` / `go build` exit 0；gofmt clean。
+- TASK_INDEX 状态翻转：TH-P1-01、TH-P1-03 → DONE（P1 完成 2/35）。
+- 解锁：`TH-P1-02`（QueryOrder Settlement Intent，依赖 TH-P1-01）、
+  `TH-P1-04`（Callback Route Channel Resolver，依赖 TH-P1-03）、
+  `TH-P1-05`、`TH-P1-AL-01`、`TH-P1-WX-01`（依赖 TH-P1-03）。
+  本批授权范围为 TH-P1-01 + TH-P1-03，其余待下一批指令。
+- 详见 `docs/tasks/execution-logs/TH-P1-01.md`、`TH-P1-03.md`。

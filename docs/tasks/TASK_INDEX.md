@@ -21,9 +21,9 @@
 | TH-P05-11 | Worker Lease Observability | P0.5 | Production Safety Gate | Observability | P0 | TH-P05-04 | — | DONE |
 | TH-P05-12 | B5 Non-Chat And Multimodal Coverage Closure | P0.5 | Production Safety Gate | Safety / Billing | P0 | TH-P05-01 | — | DONE |
 | TH-P05-13 | Production Safety Test Determinism Stabilization | P0.5 | Production Safety Gate | Test / Reliability | P0 | TH-P05-03 | — | DONE |
-| TH-P1-01 | QueryOrder Result Contract | P1 | Payment | Backend / Contract | P1 | TH-P05-09 | — | TODO |
+| TH-P1-01 | QueryOrder Result Contract | P1 | Payment | Backend / Contract | P1 | TH-P05-09 | — | DONE |
 | TH-P1-02 | QueryOrder Settlement Intent Service | P1 | Payment | Backend / Service | P1 | TH-P1-01 | — | TODO |
-| TH-P1-03 | Payment Channel Factory | P1 | Payment | Backend / Integration | P1 | TH-P1-01 | — | TODO |
+| TH-P1-03 | Payment Channel Factory | P1 | Payment | Backend / Integration | P1 | TH-P1-01 | — | DONE |
 | TH-P1-04 | Callback Route Channel Resolver | P1 | Payment | Backend / Routing | P1 | TH-P1-03 | — | TODO |
 | TH-P1-05 | Payment Order Provider Metadata | P1 | Payment | Backend / Data Contract | P1 | TH-P1-03, TH-P05-10 | — | TODO |
 | TH-P1-AL-01 | Alipay Config And Startup Validation | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-03 | — | TODO |
