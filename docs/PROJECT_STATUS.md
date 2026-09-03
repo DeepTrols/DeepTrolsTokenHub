@@ -4105,3 +4105,58 @@ outcome="success"}[<窗口>]) == 0`（60s 级 / 1h 级调度，窗口取 2–3 �
 （AC 未要求）。告警规则属 TH-P05-05 范围。详见
 `docs/tasks/execution-logs/TH-P05-11.md` 与
 `docs/OBSERVABILITY_METRICS.md` §5。
+
+## 一百二十二、2026-09-03 [P0.5] 基础生产告警（TH-P05-05）
+
+Sprint 1 Batch 4B：交付 9 条生产告警（`ops/prometheus/tokenhub_p05.rules.yml`，
+单组 `tokenhub-p05-money-safety`），全部只消费既有受审指标，无日志 grep
+探针、无第二 registry、无传呼/告警平台集成。配套：处置手册
+`docs/RUNBOOK_ALERTS.md`、promtool fixture（`ops/prometheus/tests/
+p05_alerts_test.yml`，13 输入块 / 34 断言）、结构回归
+（`ops/prometheus/rules_test.go`）、示例抓取配置
+（`ops/prometheus/prometheus.example.yml`）。
+
+### 122.1 告警包与最小新增指标
+
+- 资金安全（critical）：`TokenHubBillingUndercharge`（少收证据，阈值刻意
+  取 1）、`TokenHubCriticalReconciliationDiff`（对账 detect-only 的
+  critical 差异）。
+- 沉默检测（critical，分层）：`TokenHubWorkerSilentFast`（60s 级，5m/2m）、
+  `TokenHubWorkerSilentReconciler`（无启动周期，2h/10m）、
+  `TokenHubWorkerSilentHourly`（有启动周期，90m/5m）；全部 `sum by (worker)`
+  全集群聚合 + `absent()` 臂，固定白名单、禁止通配，HA 对端 `skipped`
+  永不告警。
+- 依赖（critical）：`TokenHubDatabaseUnavailable` /
+  `TokenHubRedisUnavailable`（`min(app_dependency_up) == 0`）；
+  辅助定位（warning）：`TokenHubWorkerLeaseErrors`（租约错误，跳过不计）、
+  `TokenHubPricingIncomplete`（定价闸门生效但收入流失）。
+- 新增最小指标仅两个：`reconciliation_critical_diffs_total`（仅 critical
+  差异成功持久化后递增，warning 类结构性不计数）与
+  `app_dependency_up{dependency}`（API/worker 双进程 15s watchdog 探测，
+  白名单钳制）；对账 detect-only 语义与钱包资金语义零改动。
+
+### 122.2 验证证据
+
+- `promtool check rules` SUCCESS（9 规则）；`promtool test rules`
+  SUCCESS：A 少收 / B 对账差异 / C 60s 沉默+恢复+进程死亡 / D 1h 短间隙与
+  超窗 / E HA 租约健康不报 / F 数据库失联与恢复 / G Redis 失联、恢复与
+  未配置永不触发，全部通过。
+- **Noise（AC-04）：Unexpected Alerts 0 / 9**（3h 健康基线夹具）。
+- Go 结构回归 5/5：完整性、必备清单+分层、禁用词/未知指标/非白名单标签、
+  白名单无通配+全员工覆盖、runbook 契约（7 要素 + Human Review 路径）。
+- `-race`（metrics / reconciliation / ops）全绿；`go vet` / `go build` /
+  `gofmt` 干净；全量门 37 包 `ok`，唯一失败为预先存在的
+  `TestP0503_Gateway_CaseA` flake（见下）。
+- 发布阻断策略写入 `docs/DEPLOYMENT.md` §10：critical 告警触发期间阻断
+  官方支付上线，直至消除或评审豁免。
+
+### 122.3 已知问题与缺口
+
+- `TestP0503_Gateway_CaseA_ConcurrentRequests_OneProviderCall` 继续间歇性
+  失败（批前基线 4/6 取证在案，本批未触碰相关路径）。它只影响全量生产
+  安全门的确定性，不影响本任务 AC；**Production Safety Gate Ready 不予
+  宣布**，由 TH-P05-09 前置治理。
+- Backlog Gap：任务 Scope 提及的钱包账本运行时不变量告警无现成检查器/
+  指标可依（构建超出最小告警范围）；资金路径暂由少收 + 对账 + 定价三告警
+  覆盖，W1/W2 由恢复演练离线校验。
+- C-4 备份加密维持 Deferred。

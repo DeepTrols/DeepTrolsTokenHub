@@ -1,15 +1,19 @@
-# Observability Metrics（TH-P05-04 基线 + TH-P05-11 Worker 扩展）
+# Observability Metrics（TH-P05-04 基线 + TH-P05-11 Worker 扩展 + TH-P05-05 告警支持）
 
 P0.5 生产可观测性基线：网关流量与资金路径（reserve / settle / release /
 undercharge / pricing-incomplete / provider-before-call blocking）的最小
 低基数 Prometheus 计数器；TH-P05-11 将同一 registry 与标签策略扩展到
-worker 租约（lease）可观测性（周期结果 / 周期耗时 / 租约决策）。
+worker 租约（lease）可观测性（周期结果 / 周期耗时 / 租约决策）；
+TH-P05-05 仅追加告警包所需的最小支持家族（对账关键差异计数器、
+依赖可达性 gauge），告警规则本体见 `ops/prometheus/tokenhub_p05.rules.yml`。
 
-实现位置：`internal/pkg/metrics`（独立 registry）、
+实现位置：`internal/pkg/metrics`（独立 registry + 依赖 watchdog）、
 `internal/handler/middleware/gateway_metrics.go`（请求计数）、
 `internal/service/billing/charger.go`（资金路径计数）、
 `internal/handler/gateway`（fail-closed / provider-blocked 计数）、
-`cmd/worker/main.go`（worker 周期 / 租约计数与 worker `/metrics` 端点）。
+`cmd/worker/main.go`（worker 周期 / 租约计数与 worker `/metrics` 端点）、
+`internal/worker/reconciliation/reconciler.go`（critical 差异计数）、
+`cmd/api/main.go` + `cmd/worker/main.go`（依赖 watchdog 启动）。
 
 ## 1. 指标清单
 
@@ -68,9 +72,35 @@ executor 内部计数（executor 不知道调用为何没发生）。但资金�
   指标故障由 `safely()` 吞掉，永远不会改变租约结果、重复执行 worker 或
   阻塞周期。
 
+### 告警支持（TH-P05-05）
+
+| 指标名 | 类型 | 标签 | 含义 |
+|---|---|---|---|
+| `reconciliation_critical_diffs_total` | Counter | — | 成功持久化的 severity=critical 对账差异（undercharge_review / error_mislabel）；warning 类差异永不计数 |
+| `app_dependency_up` | Gauge | `dependency` | 1=可达 / 0=不可达；由进程内依赖 watchdog 每 15s 探测更新 |
+
+**语义**：
+
+- `reconciliation_critical_diffs_total` 只在差异行成功写入
+  `reconciliation_diffs` 之后、且仅当 `severity="critical"` 时递增；它是
+  对账“detect-only”语义的可观测投影——计数递增本身**从不**触发任何修正
+  动作。TH-P05-08 类 warning 差异（如幂等重放缺计费行）不进入该计数器，
+  因此不会对 critical 告警形成噪声。
+- `app_dependency_up` 由 `StartDependencyWatchdog`（15s 间隔、2s 探测超时）
+  驱动：API 与 worker 进程都启动该 watchdog；探测为 `Pool.Ping`
+  （`dependency="database"`）与 `Redis.Ping`（`dependency="redis"`，仅在
+  Redis 已配置时注册）。未配置 Redis 的单实例开发模式下对应序列不存在，
+  Redis 告警永不触发。探测与置值均由 `safely()` 包裹：watchdog 故障只影响
+  gauge，绝不影响业务请求或租约行为。
+- 告警规则（`ops/prometheus/tokenhub_p05.rules.yml`，9 条）只消费本清单内
+  的既有家族与上述两个支持家族；触发/恢复语义由
+  `ops/prometheus/tests/p05_alerts_test.yml`（promtool fixture）固化，
+  结构与安全策略由 `ops/prometheus/rules_test.go` 固化，处置手册为
+  `docs/RUNBOOK_ALERTS.md`。
+
 ## 2. 标签策略（Label policy）
 
-### 允许的低基数标签（仅此四个）
+### 允许的低基数标签（仅此五个）
 
 - `endpoint`：有界端点白名单。取值：
   `chat/completions`、`completions`、`responses`、`messages`、
@@ -91,14 +121,18 @@ executor 内部计数（executor 不知道调用为何没发生）。但资金�
 - `outcome`（TH-P05-11）：有界结果白名单。周期结果取值：
   `success`、`failed`、`panic_recovered`、`skipped`；租约决策取值：
   `acquired`、`skipped`、`error`；其他一律钳制为 `other`。
+- `dependency`（TH-P05-05）：有界依赖白名单。取值：`database`、`redis`、
+  `other`（钳制桶）。任何非白名单值（DSN 片段、host:port、连接串等）一律
+  钳制为 `other`——依赖身份不可能携带凭据或地址进入标签。
 
 ### 结构性强制
 
 每个 setter 都在写入 Prometheus 之前经过 `SanitizeEndpoint` /
 `SanitizeReasonClass` / `SanitizeWorker` / `SanitizeCycleOutcome` /
-`SanitizeLeaseOutcome` 白名单消毒，未来的调用方**不可能**把高基数或敏感值
-写进标签（单元测试 `TestGatheredFamilies_NoForbiddenLabels` 对 Gather 结果
-做结构断言，含恶意输入的 worker setter 场景）。
+`SanitizeLeaseOutcome` / `SanitizeDependency` 白名单消毒，未来的调用方
+**不可能**把高基数或敏感值写进标签（单元测试
+`TestGatheredFamilies_NoForbiddenLabels` 对 Gather 结果做结构断言，含恶意
+输入的 worker / dependency setter 场景）。
 
 ### 禁止出现（指标名、标签名、标签值均不得包含）
 
@@ -123,24 +157,37 @@ prompt 文本、原始错误文本、原始 URL、IP 地址。
   指标故障绝不重复执行 worker、不改变租约语义）。
 - 请求计数中间件在 handler 之后计数（`chimw.NewWrapResponseWriter`），
   且位于 `/v1` 路由链最前，保证鉴权/限流拒绝也被计入。
+- 依赖 watchdog（TH-P05-05）：API 与 worker 进程内各运行一个
+  `StartDependencyWatchdog`，每 15s 探测数据库 / Redis 连接并更新
+  `app_dependency_up`；探测是独立协程，故障只影响 gauge，不阻塞业务或
+  租约路径。生产环境两个进程都必须被 Prometheus 抓取（示例配置见
+  `ops/prometheus/prometheus.example.yml`）——`min()` 聚合保证任一进程
+  失联即触发依赖告警。
 
 ## 4. 范围边界
 
 - Worker 租约（lease）指标已由 TH-P05-11 纳入（见 §1「Worker 租约可观测性」）。
+- TH-P05-05 仅追加两个告警支持家族（见 §1「告警支持」）：没有日志 grep
+  探针、没有完整数据库 exporter、没有第二套观测架构；告警规则只消费
+  本清单内的指标。
 - 不包含 Go runtime / process 采集器（刻意排除，保持暴露面最小）。
 
-## 5. Worker Silence 基线（供 TH-P05-05 使用）
+## 5. Worker Silence 基线（TH-P05-05 已消费）
 
-TH-P05-11 只提供**指标**，不定义告警规则（告警属 TH-P05-05 范围）。
-基于本批次计数器即可构造沉默检测，无需新增时间戳指标：
+TH-P05-11 提供**指标**，TH-P05-05 基于它们实现了分层沉默告警
+（`ops/prometheus/tokenhub_p05.rules.yml` 中的三条 `TokenHubWorkerSilent*`
+规则），无需新增时间戳指标：
 
 - 每个租约 worker 的调度周期固定：`health_checker` / `billing_sync` 为
   60s tick；`reconciler` / `subscription_expirer` / `subscription_renewer`
-  为 1h tick（后三者另有一次启动周期）。
-- 沉默判据（建议形式，窗口取周期的 2–3 倍）：
-  `increase(worker_cycles_total{worker="<name>",outcome="success"}[<window>]) == 0`。
-- 租约竞争场景下只有一个实例计入 `acquired`/`success`，沉默规则必须按
-  `worker` 聚合（不带实例维度）判断，否则会把健康的“另一实例被跳过”
-  误判为沉默。
-- 本批次**未**新增 `last_success_timestamp_seconds` 类 gauge：AC 未要求，
-  且计数器+调度周期已足以构造上述规则（见 TH-P05-11 执行记录）。
+  为 1h tick。注意差异：`subscription_expirer` / `subscription_renewer`
+  有一次启动周期，**`reconciler` 没有启动周期**（以 `cmd/worker/main.go`
+  实际调度代码为准；TH-P05-05 的分层窗口即据此推导）。
+- 沉默判据采用两段式：`increase(...) == 0`（存活但停摆；increase 对计数器
+  重置安全，进程重启不会误报）`or absent(...)`（进程死亡 / 指标从未导出，
+  5m staleness 后触发）。
+- 租约竞争场景下只有一个实例计入 `acquired`/`success`，沉默规则按
+  `worker` 全集群聚合（不带实例维度）判断，健康的“另一实例被跳过”
+  （`outcome="skipped"`）永不触发告警。
+- 本批次**未**新增 `last_success_timestamp_seconds` 类 gauge：计数器+
+  调度周期已足以构造上述规则（见 TH-P05-11 执行记录）。

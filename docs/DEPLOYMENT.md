@@ -226,7 +226,8 @@ scripts/restore_drill.sh "$RESTORE_TARGET_URL" <dump 文件> <manifest 文件> "
   `subscription_renewer`）的 `worker_cycles_total{outcome="success"}` 应按
   调度周期持续增长；`outcome="failed"` / `panic_recovered` 出现即排查，
   `worker_lease_total{outcome="error"}` 持续出现即 Redis 故障。
-  沉默判据与告警基线由 TH-P05-05 定义（见 `docs/OBSERVABILITY_METRICS.md` §5）。
+  沉默判据与告警基线由 TH-P05-05 定义（见 `docs/OBSERVABILITY_METRICS.md` §5
+  与本手册 §10），上述少收 / 沉默 / 依赖失联场景均已配置生产告警。
 - 若发现异常，按 `docs/PROJECT_STATUS.md` 的已知问题章节排查。
 
 ## 9. 空环境部署验证（TH-P05-08，2026-09-03 已执行一次）
@@ -247,3 +248,50 @@ scripts/restore_drill.sh "$RESTORE_TARGET_URL" <dump 文件> <manifest 文件> "
   `scripts/p0508_recon_driver.go`（均 `//go:build ignore`，不进生产二进制）。
 - 支付宝/微信官方支付尚未实现（P1 任务），无配置项即无启动依赖；
   `ENABLE_FAKE_PAYMENT=false` 时演示充值端点固定返回 403。
+
+## 10. 生产告警与发布阻断策略（TH-P05-05）
+
+生产告警包位于 `ops/prometheus/tokenhub_p05.rules.yml`（9 条规则，
+单一分组 `tokenhub-p05-money-safety`）。规则只消费既有受审指标，
+没有日志 grep 探针；示例抓取配置见 `ops/prometheus/prometheus.example.yml`。
+每条告警的处置步骤、资金安全红线与恢复验证见 `docs/RUNBOOK_ALERTS.md`。
+
+### 10.1 告警含义速查
+
+| 告警 | 级别 | 表达式窗口 / for | 含义 |
+|---|---|---|---|
+| `TokenHubBillingUndercharge` | critical | `increase[10m] > 0` / 1m | settle fallback 产生少收证据——正在少收钱，阈值刻意取 1 |
+| `TokenHubCriticalReconciliationDiff` | critical | `increase[2h] > 0` / 1m | 对账持久化了 severity=critical 差异（detect-only，永不自动修正） |
+| `TokenHubWorkerSilentFast` | critical | `increase[5m] == 0 or absent` / 2m | 60s 级 worker（health_checker / billing_sync）5 分钟无成功周期 |
+| `TokenHubWorkerSilentReconciler` | critical | `increase[2h] == 0 or absent` / 10m | 对账器（1h、无启动周期）2 小时无成功运行——差异检测出现盲区 |
+| `TokenHubWorkerSilentHourly` | critical | `increase[90m] == 0 or absent` / 5m | 订阅过期/续费 worker（1h+启动周期）90 分钟无成功运行 |
+| `TokenHubDatabaseUnavailable` | critical | `min(app_dependency_up{dependency="database"}) == 0` / 1m | 任一进程 15s 探针探测数据库失联；资金操作 fail-closed 拒绝 |
+| `TokenHubRedisUnavailable` | critical | `min(app_dependency_up{dependency="redis"}) == 0` / 1m | 任一进程探测 Redis 失联；租约 fail-closed、限流降级。未配置 Redis 时序列不存在、永不触发 |
+| `TokenHubWorkerLeaseErrors` | warning | `increase[10m] > 0` / 1m | 租约获取错误（非健康跳过）——Redis 故障的 worker 侧指纹 |
+| `TokenHubPricingIncomplete` | warning | `increase[10m] > 0` / 1m | 定价不完整导致请求在 reserve 前被 fail-closed 拒绝（闸门生效，收入流失） |
+
+沉默规则按 `worker` 全集群聚合：一个实例持租成功、另一实例 `skipped`
+是健康的租约选举，永不告警；规则只使用固定 worker 白名单，绝不通配。
+
+### 10.2 发布阻断策略（Release-Blocking Policy）
+
+- 本告警包中任何 **critical** 告警在生产环境处于触发状态时，**阻断官方
+  支付渠道的上线与灰度推进**，直至告警消除，或由一次有记录的评审决定
+  明确豁免（豁免需写明理由、责任人与复核期限，记入
+  `docs/PROJECT_STATUS.md`）。
+- warning 级告警不构成发布阻断，但必须在下一个工作日处理并记录。
+- 修改任何规则后必须重跑两层验证：
+  `promtool check rules ops/prometheus/tokenhub_p05.rules.yml`、
+  `promtool test rules ops/prometheus/tests/p05_alerts_test.yml`，
+  以及 `go test ./ops/prometheus/... -count=1`（结构与红线回归）。
+
+### 10.3 部署要求
+
+- Prometheus 必须同时抓取 API 的 `/metrics` 与**每一个** worker 实例的
+  `WORKER_METRICS_ADDR`；遗漏任一会同时造成沉默告警的漏报与误判。
+- 依赖可达性由 API 与 worker 进程内的 15s watchdog 探针导出
+  （`app_dependency_up`，见 `docs/OBSERVABILITY_METRICS.md` §1「告警支持」），
+  不需要额外的数据库 exporter。
+- 健康基线：正常生产运行下本包应 0 告警（staging 3h 基线夹具已证明；
+  见 `ops/prometheus/tests/p05_alerts_test.yml` Noise 用例）。任何意外
+  触发都按事故对待，先按 `docs/RUNBOOK_ALERTS.md` 处置。
