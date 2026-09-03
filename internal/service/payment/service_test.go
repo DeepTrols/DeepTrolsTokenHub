@@ -131,7 +131,7 @@ func newTestService(settings *fakeSettings, gw Gateway) (*Service, *fakeOrders, 
 	orders := newFakeOrders()
 	wallets := &fakeWallets{walletID: uuid.New(), credited: map[string]decimal.Decimal{}}
 	s := NewService(orders, wallets, settings)
-	s.newGateway = func(*paymentConfig) Gateway { return gw }
+	s.newGateway = func(*paymentConfig) (Gateway, error) { return gw, nil }
 	s.now = func() time.Time { return time.Unix(1700000000, 0) }
 	return s, orders, wallets
 }

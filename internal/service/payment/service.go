@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
@@ -33,7 +34,7 @@ type Service struct {
 	orders     paymentorder.Repository
 	wallets    walletRepo
 	settings   settingReader
-	newGateway func(cfg *paymentConfig) Gateway
+	newGateway func(cfg *paymentConfig) (Gateway, error)
 	now        func() time.Time
 	// ActivateSubscription settles a paid subscription order (nil = disabled).
 	ActivateSubscription func(ctx context.Context, userID, planID uuid.UUID) (time.Time, error)
@@ -42,19 +43,44 @@ type Service struct {
 // NewService creates a payment Service.
 func NewService(orders paymentorder.Repository, wallets walletRepo, settings settingReader) *Service {
 	return &Service{
-		orders:   orders,
-		wallets:  wallets,
-		settings: settings,
-		newGateway: func(cfg *paymentConfig) Gateway {
-			return &EpayGateway{
-				PayAddress: cfg.PayAddress,
-				PartnerID:  cfg.EpayID,
-				Key:        cfg.EpayKey,
-				NotifyURL:  cfg.CallbackBase + "/api/payment/notify/epay",
-				ReturnURL:  cfg.CallbackBase + "/recharge",
-			}
-		},
-		now: time.Now,
+		orders:     orders,
+		wallets:    wallets,
+		settings:   settings,
+		newGateway: newGatewayForChannel,
+		now:        time.Now,
+	}
+}
+
+// normalizeChannel resolves the configured payment_channel value; only an
+// empty setting falls back to the default epay channel.
+func normalizeChannel(raw string) string {
+	if raw == "" {
+		return ChannelEpay
+	}
+	return raw
+}
+
+// newGatewayForChannel selects the gateway implementation for the configured
+// payment channel (TH-P1-03). epay is the only fully implemented channel
+// today; alipay and wechatpay fail closed with ErrChannelNotReady until
+// their provider tasks land concrete implementations, and any unknown value
+// fails with ErrInvalidChannel so it can never route paid traffic to the
+// wrong gateway. Logs the selected channel / error class, never credentials.
+func newGatewayForChannel(cfg *paymentConfig) (Gateway, error) {
+	channel := normalizeChannel(cfg.Channel)
+	switch channel {
+	case ChannelEpay:
+		return &EpayGateway{
+			PayAddress: cfg.PayAddress,
+			PartnerID:  cfg.EpayID,
+			Key:        cfg.EpayKey,
+			NotifyURL:  cfg.CallbackBase + "/api/payment/notify/" + ChannelEpay,
+			ReturnURL:  cfg.CallbackBase + "/recharge",
+		}, nil
+	case ChannelAlipay, ChannelWeChatPay:
+		return nil, fmt.Errorf("%w: %s (provider adapter not implemented yet)", ErrChannelNotReady, channel)
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrInvalidChannel, cfg.Channel)
 	}
 }
 
@@ -90,17 +116,11 @@ func (s *Service) config(ctx context.Context) (*paymentConfig, error) {
 	}, nil
 }
 
-func (s *Service) gateway(cfg *paymentConfig) Gateway {
+func (s *Service) gateway(cfg *paymentConfig) (Gateway, error) {
 	if s.newGateway != nil {
 		return s.newGateway(cfg)
 	}
-	return &EpayGateway{
-		PayAddress: cfg.PayAddress,
-		PartnerID:  cfg.EpayID,
-		Key:        cfg.EpayKey,
-		NotifyURL:  cfg.CallbackBase + "/api/payment/notify/epay",
-		ReturnURL:  cfg.CallbackBase + "/recharge",
-	}
+	return newGatewayForChannel(cfg)
 }
 
 // PayMethod is a user-facing payment method entry.
@@ -133,10 +153,13 @@ func (s *Service) Info(ctx context.Context) (*PaymentInfo, error) {
 		MinTopup:      cfg.MinTopup.StringFixed(2),
 		MaxTopup:      cfg.MaxTopup.StringFixed(2),
 		AmountOptions: cfg.AmountOptions,
-		Channel:       cfg.Channel,
+		Channel:       normalizeChannel(cfg.Channel), // effective channel
 		PayMethods:    []PayMethod{},
 	}
-	if info.Enabled && cfg.PayAddress != "" && cfg.EpayID != "" && cfg.EpayKey != "" {
+	// Pay methods exist only for the implemented epay channel; not-ready or
+	// unknown channels must not advertise payable methods.
+	if normalizeChannel(cfg.Channel) == ChannelEpay &&
+		info.Enabled && cfg.PayAddress != "" && cfg.EpayID != "" && cfg.EpayKey != "" {
 		info.PayMethods = []PayMethod{
 			{Name: "支付宝", Type: "alipay", Color: "#1677FF"},
 			{Name: "微信支付", Type: "wxpay", Color: "#07C160"},
@@ -167,25 +190,29 @@ func (s *Service) CreateOrder(ctx context.Context, userID uuid.UUID, amount deci
 	if payMethod != "alipay" && payMethod != "wxpay" {
 		return nil, ErrInvalidMethod
 	}
-	if cfg.PayAddress == "" || cfg.EpayID == "" || cfg.EpayKey == "" {
-		return nil, ErrNotConfigured
+	channel := normalizeChannel(cfg.Channel)
+	gw, err := s.gateway(cfg)
+	if err != nil {
+		log.Printf("payment: channel %q rejected: %v", cfg.Channel, err)
+		return nil, err
 	}
 	if amount.LessThan(cfg.MinTopup) || amount.GreaterThan(cfg.MaxTopup) {
 		return nil, ErrAmountRange
 	}
 
 	orderNo := genOrderNo()
-	res, err := s.gateway(cfg).CreateOrder(ctx, CreateOrderRequest{
+	res, err := gw.CreateOrder(ctx, CreateOrderRequest{
 		OrderNo:   orderNo,
 		Amount:    amount,
 		PayMethod: payMethod,
 		Subject:   "智曜TokenHub 平台充值 " + amount.StringFixed(2) + " 元",
-		NotifyURL: cfg.CallbackBase + "/api/payment/notify/epay",
+		NotifyURL: cfg.CallbackBase + "/api/payment/notify/" + channel,
 		ReturnURL: cfg.CallbackBase + "/recharge",
 	})
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("payment: order %s created via channel %q", orderNo, channel)
 
 	o := &paymentorder.Order{
 		ID:        uuid.New(),
@@ -193,7 +220,7 @@ func (s *Service) CreateOrder(ctx context.Context, userID uuid.UUID, amount deci
 		UserID:    userID,
 		Amount:    amount,
 		Currency:  "CNY",
-		Channel:   "epay",
+		Channel:   channel,
 		PayMethod: payMethod,
 		Status:    paymentorder.StatusPending,
 		PayURL:    &res.PayURL,
@@ -206,7 +233,7 @@ func (s *Service) CreateOrder(ctx context.Context, userID uuid.UUID, amount deci
 		OrderNo:   orderNo,
 		Amount:    amount.StringFixed(2),
 		Currency:  "CNY",
-		Channel:   "epay",
+		Channel:   channel,
 		PayMethod: payMethod,
 		PayURL:    res.PayURL,
 	}, nil
@@ -226,22 +253,26 @@ func (s *Service) CreateSubscriptionOrder(ctx context.Context, userID, planID uu
 	if payMethod != "alipay" && payMethod != "wxpay" {
 		return nil, ErrInvalidMethod
 	}
-	if cfg.PayAddress == "" || cfg.EpayID == "" || cfg.EpayKey == "" {
-		return nil, ErrNotConfigured
+	channel := normalizeChannel(cfg.Channel)
+	gw, err := s.gateway(cfg)
+	if err != nil {
+		log.Printf("payment: channel %q rejected: %v", cfg.Channel, err)
+		return nil, err
 	}
 
 	orderNo := genOrderNo()
-	res, err := s.gateway(cfg).CreateOrder(ctx, CreateOrderRequest{
+	res, err := gw.CreateOrder(ctx, CreateOrderRequest{
 		OrderNo:   orderNo,
 		Amount:    amount,
 		PayMethod: payMethod,
 		Subject:   "智曜TokenHub 订阅 " + amount.StringFixed(2) + " 元",
-		NotifyURL: cfg.CallbackBase + "/api/payment/notify/epay",
+		NotifyURL: cfg.CallbackBase + "/api/payment/notify/" + channel,
 		ReturnURL: cfg.CallbackBase + "/subscriptions",
 	})
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("payment: subscription order %s created via channel %q", orderNo, channel)
 	o := &paymentorder.Order{
 		ID:        uuid.New(),
 		OrderNo:   orderNo,
@@ -250,7 +281,7 @@ func (s *Service) CreateSubscriptionOrder(ctx context.Context, userID, planID uu
 		Currency:  "CNY",
 		Purpose:   "subscription",
 		PlanID:    &planID,
-		Channel:   "epay",
+		Channel:   channel,
 		PayMethod: payMethod,
 		Status:    paymentorder.StatusPending,
 		PayURL:    &res.PayURL,
@@ -263,7 +294,7 @@ func (s *Service) CreateSubscriptionOrder(ctx context.Context, userID, planID uu
 		OrderNo:   orderNo,
 		Amount:    amount.StringFixed(2),
 		Currency:  "CNY",
-		Channel:   "epay",
+		Channel:   channel,
 		PayMethod: payMethod,
 		PayURL:    res.PayURL,
 	}, nil
@@ -276,7 +307,11 @@ func (s *Service) HandleNotify(ctx context.Context, params map[string]string) (b
 	if err != nil {
 		return false, err
 	}
-	notify, err := s.gateway(cfg).VerifyNotify(ctx, params)
+	gw, err := s.gateway(cfg)
+	if err != nil {
+		return false, err
+	}
+	notify, err := gw.VerifyNotify(ctx, params)
 	if err != nil {
 		return false, err
 	}

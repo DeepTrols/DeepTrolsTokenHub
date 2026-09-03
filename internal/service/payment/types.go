@@ -150,6 +150,16 @@ type NotifyResult struct {
 	Success        bool
 }
 
+// Channel values persisted on payment_orders.channel and selected via the
+// payment_channel setting. Matching is exact; only an empty setting falls
+// back to the default (epay), so a typo can never silently route paid
+// traffic to the wrong gateway.
+const (
+	ChannelEpay      = "epay"
+	ChannelAlipay    = "alipay"
+	ChannelWeChatPay = "wechatpay"
+)
+
 var (
 	ErrPaymentDisabled = errors.New("payment: online topup disabled")
 	ErrNotConfigured   = errors.New("payment: gateway not configured")
@@ -160,4 +170,9 @@ var (
 	ErrOrderExpired    = errors.New("payment: order expired")
 	// ErrQueryUnsupported marks gateways with no active query path yet.
 	ErrQueryUnsupported = errors.New("payment: gateway does not support order query")
+	// ErrInvalidChannel marks unknown payment_channel values.
+	ErrInvalidChannel = errors.New("payment: invalid payment channel")
+	// ErrChannelNotReady marks known channels whose provider adapter has
+	// not landed yet (configuration error, fail closed).
+	ErrChannelNotReady = errors.New("payment: payment channel not ready")
 )
