@@ -320,6 +320,7 @@ Epic: Payment
 Type: Backend / Data Contract
 Priority: P1
 Dependencies: TH-P1-03, TH-P05-10
+Status: DONE (Batch 7 — migration 000037 nullable provider metadata, see execution-logs/TH-P1-05.md)
 
 Objective:
 
@@ -389,6 +390,7 @@ Epic: Payment
 Type: Backend / Provider Adapter
 Priority: P1
 Dependencies: TH-P1-03
+Status: DONE (Batch 7 — Alipay config validation + fail-fast, see execution-logs/TH-P1-AL-01.md)
 
 Objective:
 

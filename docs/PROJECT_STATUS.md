@@ -4327,3 +4327,50 @@ Batch 6 执行 P1 第二批两个任务，均按核心资金路径 TDD（RED→G
   `TH-P1-AL-03` / `TH-P1-WX-03` 的部分前置（TH-P1-04）已就绪。
   本批授权范围为 TH-P1-02 + TH-P1-04，其余待下一批指令。
 - 详见 `docs/tasks/execution-logs/TH-P1-02.md`、`TH-P1-04.md`。
+
+## 一百二十七、2026-09-04 [P1] 订单 Provider 元数据与支付宝配置校验（TH-P1-05、TH-P1-AL-01）
+
+Batch 7 执行 P1 第三批两个任务，均按核心资金路径 TDD（RED→GREEN）
+完成，业务提交 `dbb30ca`（15 files, +1229/−18）。
+
+### 127.1 TH-P1-05 Payment Order Provider Metadata（DONE）
+
+- 列审计：回调/对账身份（order_no、gateway_trade_no、channel、
+  pay_method、amount）已齐备；缺查单重试与复核元数据。迁移
+  `000037_payment_order_provider_metadata` 可空增量四列
+  （query_attempts / last_query_at / next_retry_at / review_reason）
+  + `next_retry_at` 部分索引，down 迁移成对并经集成测试实测往返。
+- 仓储写入路径 `RecordProviderQuery` / `SetReviewReason` 只改元数据列、
+  绝不触碰 status/amount，缺失订单 `ErrNotFound` 失败关闭；为后续
+  查单、回调、补偿与对账追踪（TH-P1-CW-*）提供数据契约。
+- 旧行（仅旧列或显式 NULL）四条读路径全部 nil 可读；console DTO 四字段
+  `omitempty`，无元数据行序列化为键缺省（合法 JSON、无 panic）。
+- 9 用例（3 回归 + 6 新增，含 up/down 往返与 NULL 注入）全绿。
+
+### 127.2 TH-P1-AL-01 Alipay Config And Startup Validation（DONE）
+
+- 生产/沙箱两套独立配置集（`alipay_sandbox` 选择），网关地址缺省回落
+  官方端点，覆盖值必须绝对 https 且有 host。
+- 构造性脱敏：`Validate()` 错误只含配置键名，私钥/URL 取值不可能进入
+  错误文本或日志（单测以独特密钥串对错误与捕获日志双重断言）。
+- 支付信息检查（`channel_error`，omitempty）：配置不全 → 点名缺失键、
+  零方式；配置完整 → 报告支付宝方式可用（仍受启用/合规闸门）。
+- 下单失败关闭：任何网关调用前先 `validateChannelConfig` →
+  `ErrChannelConfigInvalid`（新哨兵）、零订单行；配置完整时仍由工厂
+  返回 `ErrChannelNotReady` 直至 TH-P1-AL-02 落地（边界经测试固化）。
+- 新增 `payment_channel_config_ready{channel}` gauge（白名单钳制）。
+- CreateOrder / notify / query 客户端未动（Out of Scope）；epay 回归
+  （含 2 方式、空 channel_error）保持绿。部署文档 §1.1 新增支付宝
+  配置键清单。
+
+### 127.3 验证与解锁
+
+- 每任务独立全量回归（门控退出码契约）：`/tmp/p1-gate/p1-05.log` 与
+  `/tmp/p1-gate/p1-al-01.log` 均 49 包 ok、0 FAIL/panic、退出码 0；
+  `go vet` / `go build` exit 0；gofmt clean。
+- TASK_INDEX 状态翻转：TH-P1-05、TH-P1-AL-01 → DONE；累计 **6/34**。
+- 解锁：`TH-P1-CW-01`（Pending Order Scanner，依赖 TH-P1-05）、
+  `TH-P1-AL-02` / `TH-P1-AL-03` / `TH-P1-AL-05`（依赖 TH-P1-AL-01）。
+  本批授权范围为 TH-P1-05 + TH-P1-AL-01；按指令未执行 TH-P1-AL-02，
+  未开始任何微信支付任务（TH-P1-WX-01 早已解锁但不在授权内）。
+- 详见 `docs/tasks/execution-logs/TH-P1-05.md`、`TH-P1-AL-01.md`。

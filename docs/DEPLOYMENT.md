@@ -33,6 +33,28 @@
 
 生产校验由 `internal/config/config.go` 的 `validate()` 执行；任何不满足的配置都会在进程启动时报错退出，部署流水线应把「启动即退出」视为失败。
 
+### 1.1 支付渠道配置（settings 表，TH-P1-AL-01）
+
+支付渠道配置存放在 settings 表（管理后台维护），不是进程环境变量；渠道由
+`payment_channel` 选择（封闭集 `epay` / `alipay` / `wechatpay`，空值按
+`epay`）。`payment_channel=alipay` 时，下列字段在支付信息检查
+（`GET /api/payment/methods` 的 `channel_error`）与下单入口 fail-fast 校验，
+缺失或不合法会以**仅含配置键名**的诊断报错（私钥等取值绝不进入日志或响应）：
+
+| 配置键 | 用途 | 必填 |
+|---|---|---|
+| `payment_channel` | 渠道选择（`epay` / `alipay` / `wechatpay`） | 否（默认 `epay`） |
+| `alipay_sandbox` | 沙箱模式开关（选择沙箱配置集） | 否（默认生产） |
+| `alipay_app_id` | 生产商户 APPID | `alipay` 渠道必填 |
+| `alipay_private_key` | 生产商户应用私钥（SECRET，严禁出现在日志/镜像） | `alipay` 渠道必填 |
+| `alipay_gateway_url` | 生产网关地址 | 否（默认官方 `https://openapi.alipay.com/gateway.do`；必须 https） |
+| `alipay_sandbox_app_id` | 沙箱商户 APPID | `alipay_sandbox=true` 时必填 |
+| `alipay_sandbox_private_key` | 沙箱商户应用私钥（SECRET） | `alipay_sandbox=true` 时必填 |
+| `alipay_sandbox_gateway_url` | 沙箱网关地址 | 否（默认官方沙箱地址；必须 https） |
+
+回滚：把 `payment_channel` 切回 `alipay` 以外的值即可停用支付宝渠道；
+配置校验失败时订单创建与回调结算保持失败关闭，绝不降级到错误渠道。
+
 ## 2. 构建与启动
 
 ```bash

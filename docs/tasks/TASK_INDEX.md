@@ -25,8 +25,8 @@
 | TH-P1-02 | QueryOrder Settlement Intent Service | P1 | Payment | Backend / Service | P1 | TH-P1-01 | — | DONE |
 | TH-P1-03 | Payment Channel Factory | P1 | Payment | Backend / Integration | P1 | TH-P1-01 | — | DONE |
 | TH-P1-04 | Callback Route Channel Resolver | P1 | Payment | Backend / Routing | P1 | TH-P1-03 | — | DONE |
-| TH-P1-05 | Payment Order Provider Metadata | P1 | Payment | Backend / Data Contract | P1 | TH-P1-03, TH-P05-10 | — | TODO |
-| TH-P1-AL-01 | Alipay Config And Startup Validation | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-03 | — | TODO |
+| TH-P1-05 | Payment Order Provider Metadata | P1 | Payment | Backend / Data Contract | P1 | TH-P1-03, TH-P05-10 | — | DONE |
+| TH-P1-AL-01 | Alipay Config And Startup Validation | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-03 | — | DONE |
 | TH-P1-AL-02 | Alipay CreateOrder Client | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-AL-01 | — | TODO |
 | TH-P1-AL-03 | Alipay Notify Signature Verification | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-AL-01, TH-P1-04 | — | TODO |
 | TH-P1-AL-04 | Alipay Notify Settlement Integration | P1 | Payment | Backend / Finance | P1 | TH-P1-AL-03 | — | TODO |
