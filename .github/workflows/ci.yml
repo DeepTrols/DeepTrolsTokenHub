@@ -43,7 +43,7 @@ jobs:
 
       - name: gofmt check (whole repo)
         run: |
-          unformatted=$(gofmt -l $(find . -name '*.go' -not -path './web/node_modules/*' -not -path './node_modules/*'))
+          unformatted=$(gofmt -l $(find . -name '*.go' -not -path '*/node_modules/*'))
           if [ -n "$unformatted" ]; then
             echo "The following files are not gofmt-ed:"
             echo "$unformatted"
@@ -88,3 +88,35 @@ jobs:
 
       - name: Tests
         run: npm test
+
+  public-site:
+    name: Nuxt and repository harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.1"
+          cache: pnpm
+          cache-dependency-path: |
+            ai-nuxt/pnpm-lock.yaml
+            harness/pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: |
+          pnpm install:ai
+          pnpm install:harness
+
+      - name: Harness type check and relocation regression
+        run: |
+          pnpm harness:typecheck
+          pnpm harness:test
+          pnpm harness:audit
+
+      - name: Nuxt type check and build
+        run: |
+          pnpm typecheck
+          pnpm build

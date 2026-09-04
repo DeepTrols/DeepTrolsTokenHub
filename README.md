@@ -1,6 +1,62 @@
-# DeepTrols — AI Token 聚合平台
+# 智曜TokenHub (DeepTrolsTokenHub)
 
 企业级 AI 模型推理聚合平台。不只是反向代理——围绕模型调用构建完整的计费、风控、对账与运营系统。
+
+## 统一工程入口
+
+本仓库同时管理 Nuxt 公共站点、Go API/Worker、React 后台控制台和项目级 harness。
+所有下列命令均在 `DeepTrolsTokenHub/` 根目录执行，不再依赖仓库外的文件。
+
+```text
+DeepTrolsTokenHub/
+├── ai-nuxt/       # Nuxt 4 + Vue 3 + TypeScript + SCSS + Tailwind CSS v4
+├── web/           # React 后台控制台
+├── cmd/           # Go API / Worker 入口
+├── internal/      # Go 业务逻辑
+├── migrations/    # 数据库迁移
+├── harness/       # 源码审计、品牌守卫和运行态冒烟
+├── package.json   # 统一安装、启动、构建和验证命令
+└── README.md      # 工程说明与启动入口
+```
+
+前置工具：Node.js 22.13+、pnpm 10.31.0、Go 与 Docker（后端要求见下文）。
+
+```sh
+# 按现有锁文件安装三个 JavaScript 工程的依赖
+pnpm install:all
+
+# 各自在独立终端运行
+pnpm dev                  # Nuxt: http://127.0.0.1:4173/ai/
+pnpm backend:web:dev      # 后台: http://127.0.0.1:3000/login
+```
+
+API 仍使用 `http://127.0.0.1:8080`，启动方式见下方「本地开发启动」。
+Nuxt 由自己的开发服务直接提供 `/ai/` 路由，不是 Go API 的静态页面目录。
+本次目录合并不改变 Nuxt 页面视觉，也不把其本地模型数据快照改成真实后端数据。
+
+`package.json` 是必要的统一命令入口，不承载业务逻辑。暂不把三个前端包转换成
+共享依赖工作区：`ai-nuxt`、`harness` 保留各自的 `pnpm-lock.yaml`，
+`web` 保留既有 `package-lock.json` 和 `npm ci` 安装方式，以避免迁移时更新依赖。
+日常启动和验证可统一通过根目录 pnpm 脚本执行。
+
+```sh
+pnpm typecheck
+pnpm build                # Nuxt 构建，输出 ai-nuxt/.output
+pnpm backend:web:build    # 后台构建，输出 web/dist
+pnpm backend:web:test
+pnpm harness:typecheck
+pnpm harness:test         # 目录迁移和统一入口回归
+pnpm harness:audit        # 不要求服务启动
+pnpm harness:smoke        # 要求 Nuxt、后台控制台和 API 已启动
+pnpm harness:check        # audit + smoke
+```
+
+Harness 报告位于 `harness/reports/latest.json`，不提交生成报告、依赖目录或构建缓存。
+`pnpm backend:test` 复用仓库现有 `make guard-test-db`，必须配置独立的 `TEST_DATABASE_URL`；
+随后仅测试 `cmd`、`internal`、`migrations`、`ops`、`scripts`、`tools` 内的 Go 包，
+不扫描前端 `node_modules` 示例代码。不可将跳过数据库集成测试视为通过。
+部署与目录迁移后的恢复方式见 [DEPLOYMENT.md](docs/DEPLOYMENT.md)。
+本次归并的文件一致性、干净构建与运行验证记录见 [WORKSPACE_MIGRATION.md](docs/WORKSPACE_MIGRATION.md)。
 
 ## 架构
 
@@ -19,7 +75,9 @@
 | 数据库 | PostgreSQL 16 |
 | 缓存 | Redis 7 |
 | 执行代理 | OpenAI 兼容直连（渠道实例 base_url；内置 LiteLLM 已于 2026-08-19 移除） |
-| 前端 | React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui + TanStack Query |
+| 后台控制台 | React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui + TanStack Query |
+| 公共站点 | Nuxt 4 + Vue 3 Composition API + `<script setup>` + TypeScript + SCSS + Tailwind CSS v4 theme bridge |
+| 项目验证 | TypeScript harness，源码审计、品牌资源守卫和 HTTP 冒烟 |
 
 ## 项目结构
 
@@ -66,6 +124,9 @@ internal/
     usageparser/             # 上游 usage 解析（OpenAI 兼容格式）
 migrations/                  # PostgreSQL DDL（000001~000036，30+ 张表）
 web/                         # React 前端（34 页面组件，含系统设置子分区）
+ai-nuxt/                     # Nuxt 公共站点，直接提供 /ai/ 页面
+harness/                     # 项目级源码与运行态验证
+package.json                 # 根目录统一命令入口
 ```
 
 ## 快速启动
@@ -74,7 +135,7 @@ web/                         # React 前端（34 页面组件，含系统设置�
 
 - Go 1.22+
 - Docker & Docker Compose
-- Node.js 18+（前端开发）
+- Node.js 22.13+、pnpm 10.31.0（前端与 harness）
 - [golang-migrate](https://github.com/golang-migrate/migrate)（数据库迁移）
 
 ### 2. 一键启动（Docker Compose）
@@ -102,8 +163,12 @@ migrate -path migrations -database "$DATABASE_URL" up
 go run ./cmd/api          # API 服务器（:8080）
 go run ./cmd/worker       # Worker（后台任务）
 
-# 5. 启动前端
-cd web && npm install && npm run dev   # Vite 开发服务器（:5173）
+# 5. 根目录安装前端与 harness 依赖
+pnpm install:all
+
+# 6. 在不同终端启动后台控制台与 Nuxt
+pnpm backend:web:dev      # Vite 开发服务器（:3000）
+pnpm dev                  # Nuxt 开发服务器（:4173/ai/）
 ```
 
 ### 4. 关键环境变量

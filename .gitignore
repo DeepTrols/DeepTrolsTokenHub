@@ -33,6 +33,15 @@ web/node_modules/
 web/dist/
 web/coverage/
 
+# Nuxt and repository harness artifacts
+.nuxt/
+.output/
+harness/reports/
+ai-nuxt/.env*
+!ai-nuxt/.env.example
+harness/.env*
+!harness/.env.example
+
 # Temp
 tmp/
 

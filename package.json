@@ -1,0 +1,28 @@
+{
+  "name": "zhiyao-tokenhub",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "install:ai": "pnpm --dir ai-nuxt install --frozen-lockfile && pnpm --dir ai-nuxt exec nuxt prepare",
+    "install:web": "npm --prefix web ci",
+    "install:all": "pnpm run install:ai && pnpm run install:web && pnpm run install:harness",
+    "dev": "pnpm --dir ai-nuxt dev",
+    "dev:ai": "pnpm --dir ai-nuxt dev",
+    "build": "pnpm --dir ai-nuxt build",
+    "typecheck": "pnpm --dir ai-nuxt typecheck",
+    "backend:web:dev": "pnpm --dir web run dev --host 127.0.0.1",
+    "backend:web:build": "pnpm --dir web run build",
+    "backend:web:test": "pnpm --dir web run test",
+    "backend:test": "make guard-test-db && go test -cover -count=1 ./cmd/... ./internal/... ./migrations/... ./ops/... ./scripts/... ./tools/...",
+    "install:harness": "pnpm --dir harness install --frozen-lockfile",
+    "harness:audit": "pnpm --dir harness run audit",
+    "harness:smoke": "pnpm --dir harness run smoke",
+    "harness:check": "pnpm --dir harness run check",
+    "harness:typecheck": "pnpm --dir harness run typecheck",
+    "harness:test": "pnpm --dir harness run test"
+  },
+  "packageManager": "pnpm@10.31.0"
+}

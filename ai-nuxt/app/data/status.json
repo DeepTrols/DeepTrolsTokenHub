@@ -1,0 +1,92 @@
+{
+  "data": {
+    "HeaderNavModules": "{\"home\":true,\"console\":true,\"pricing\":{\"enabled\":true,\"requireAuth\":false},\"docs\":true,\"about\":false}",
+    "SidebarModulesAdmin": "{\"chat\":{\"enabled\":true,\"playground\":true,\"chat\":false},\"console\":{\"enabled\":true,\"detail\":true,\"token\":true,\"log\":true,\"midjourney\":false,\"task\":false},\"personal\":{\"enabled\":true,\"topup\":true,\"personal\":true},\"admin\":{\"enabled\":true,\"channel\":true,\"models\":true,\"deployment\":false,\"redemption\":true,\"user\":true,\"subscription\":true,\"setting\":true}}",
+    "announcements_enabled": false,
+    "api_info_enabled": false,
+    "chats": [
+      {
+        "Cherry Studio": "cherrystudio://providers/api-keys?v=1&data={cherryConfig}"
+      },
+      {
+        "AionUI": "aionui://provider/add?v=1&data={aionuiConfig}"
+      },
+      {
+        "流畅阅读": "fluentread"
+      },
+      {
+        "CC Switch": "ccswitch"
+      },
+      {
+        "Lobe Chat 官方示例": "https://chat-preview.lobehub.com/?settings={\"keyVaults\":{\"openai\":{\"apiKey\":\"{key}\",\"baseURL\":\"{address}/v1\"}}}"
+      },
+      {
+        "AI as Workspace": "https://aiaw.app/set-provider?provider={\"type\":\"openai\",\"settings\":{\"apiKey\":\"{key}\",\"baseURL\":\"{address}/v1\",\"compatibility\":\"strict\"}}"
+      },
+      {
+        "AMA 问天": "ama://set-api-key?server={address}&key={key}"
+      },
+      {
+        "OpenCat": "opencat://team/join?domain={address}&token={key}"
+      }
+    ],
+    "checkin_enabled": false,
+    "custom_currency_exchange_rate": 1,
+    "custom_currency_symbol": "¤",
+    "data_export_default_time": "hour",
+    "default_collapse_sidebar": false,
+    "default_use_auto_group": false,
+    "demo_site_enabled": false,
+    "discord_client_id": "",
+    "discord_oauth": false,
+    "display_in_currency": true,
+    "docs_link": "https://opcstore.com/apidoc.html",
+    "email_verification": false,
+    "enable_batch_update": false,
+    "enable_data_export": true,
+    "enable_drawing": true,
+    "enable_task": true,
+    "faq_enabled": false,
+    "footer_html": "",
+    "github_client_id": "",
+    "github_oauth": false,
+    "linuxdo_client_id": "",
+    "linuxdo_minimum_trust_level": 0,
+    "linuxdo_oauth": false,
+    "logo": "https://opcstore.com/logo-kong.png",
+    "mj_notify_enabled": false,
+    "oidc_authorization_endpoint": "",
+    "oidc_client_id": "",
+    "oidc_enabled": false,
+    "passkey_allow_insecure": false,
+    "passkey_attachment": "",
+    "passkey_display_name": "AI OPCSTORE",
+    "passkey_login": false,
+    "passkey_origins": "https://ai.opcstore.com",
+    "passkey_rp_id": "ai.opcstore.com",
+    "passkey_user_verification": "preferred",
+    "price": 7.3,
+    "privacy_policy_enabled": false,
+    "quota_display_type": "CNY",
+    "quota_per_unit": 500000,
+    "self_use_mode_enabled": false,
+    "server_address": "https://ai.opcstore.com",
+    "setup": true,
+    "start_time": 1786699469,
+    "stripe_unit_price": 8,
+    "system_name": "同橙算力超市",
+    "telegram_bot_name": "",
+    "telegram_oauth": false,
+    "top_up_link": "",
+    "turnstile_check": false,
+    "turnstile_site_key": "",
+    "uptime_kuma_enabled": false,
+    "usd_exchange_rate": 7.2,
+    "user_agreement_enabled": false,
+    "version": "",
+    "wechat_login": false,
+    "wechat_qrcode": ""
+  },
+  "message": "",
+  "success": true
+}

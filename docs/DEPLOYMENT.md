@@ -81,6 +81,40 @@ go build -trimpath -ldflags "-s -w" -o bin/worker ./cmd/worker
 - 存活探针：`GET /health`（200 且 `{"status":"ok"}`）
 - 就绪探针：`GET /readyz`（校验 DB / Redis 连通性；Redis 未配置时仅校验 DB）
 
+### 2.1 单仓库前端与 Harness（2026-09-04）
+
+`ai-nuxt/`、`harness/`、`web/` 与 Go 源码现在同属 `DeepTrolsTokenHub` 仓库。
+拉取仓库后无需再克隆 Nuxt 子仓库。统一入口为根目录 `package.json`，外层旧 README
+已合并到仓库 README；自动化脚本的工作目录须改为仓库根目录。
+
+```sh
+# Node.js 22.13+，pnpm 10.31.0；使用既有锁文件，不升级依赖
+pnpm install:all
+pnpm typecheck
+pnpm build
+pnpm backend:web:build
+pnpm harness:typecheck
+pnpm harness:test
+pnpm harness:audit
+
+# Nuxt 生产进程，由进程管理器托管
+NITRO_HOST=127.0.0.1 NITRO_PORT=4173 node ai-nuxt/.output/server/index.mjs
+```
+
+Nuxt 继续提供 `/ai/`，反向代理须原样转发该前缀；后台构建目录仍为 `web/dist`。
+现有 Docker Compose 不会自动启动 Nuxt，需独立托管上述 Node 进程。
+API/Worker 配置、数据库 schema、数据和业务资金逻辑不因本次目录合并而改变。
+`.dockerignore` 排除前端依赖、构建缓存、环境密钥文件和报告，避免它们进入 Go 构建上下文。
+
+三项服务启动后运行 `pnpm harness:check`，报告写入 `harness/reports/latest.json`。
+地址可通过 `harness/.env` 设置（模板见 `harness/.env.example`），不提交实际环境配置。
+此工程 Harness 不替代 TH-P05-09 及其后续任务定义的资金安全生产门禁。
+
+回滚：部署上一发布版本的构建产物，不回滚数据库。若需恢复迁移前的开发目录，
+先停止 Nuxt，移出 `ai-nuxt` 与 `harness` 并恢复原根脚本路径；原 Nuxt Git 元数据
+保存在本机 `.git/local-backups/ai-nuxt-20260904.git`，不是共享依赖，不能放回新仓库的
+`ai-nuxt/.git` 后再提交，否则会形成嵌套仓库。其他开发者始终从当前主仓库获取完整源码。
+
 ## 3. 数据库迁移
 
 > **现状（TH-P05-08 于 2026-09-03 在空库上实际验证）**：本仓库**不维护

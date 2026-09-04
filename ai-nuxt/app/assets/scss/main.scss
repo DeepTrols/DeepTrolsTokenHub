@@ -1,0 +1,103 @@
+:root {
+  --opc-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --opc-canvas: #151517;
+  --opc-surface: #202126;
+  --opc-surface-muted: #2a2b31;
+  --opc-ink: #f0f2f8;
+  --opc-ink-muted: #a5a9b8;
+  --opc-brand: #ff8500;
+  --opc-brand-soft: #ffab40;
+  --opc-brand-deep: #cf6400;
+  --opc-teal: #3e84a0;
+  --opc-line: rgba(255, 255, 255, 0.09);
+  --opc-shadow-panel: 0 18px 60px rgba(0, 0, 0, 0.34);
+  --opc-home-canvas: #06060f;
+  --opc-hero-subtitle: rgba(240, 242, 248, 0.82);
+  --opc-stat-label: rgba(240, 242, 248, 0.68);
+  --opc-code-panel: #08090e;
+  --opc-code-text: #d7dbe8;
+  --opc-cta-canvas: #090a10;
+  --opc-price-card: var(--semi-color-bg-1);
+  --opc-auth-page: #05060a;
+  --opc-auth-shell: rgba(9, 9, 14, 0.78);
+  --opc-auth-label: rgba(255, 255, 255, 0.85);
+  --opc-auth-input-bg: rgba(255, 255, 255, 0.17);
+  --opc-auth-input-icon: rgba(255, 255, 255, 0.56);
+  --opc-auth-input-action: rgba(255, 255, 255, 0.62);
+  --opc-auth-placeholder: rgba(255, 255, 255, 0.42);
+  --opc-auth-muted: rgba(255, 255, 255, 0.58);
+  --opc-auth-submit-end: #ff8f00;
+  --opc-header-logo-size: 24px;
+  --opc-header-brand-gap: 2px;
+  --opc-brand-logo-radius: 8px;
+  --opc-auth-brand-title-line: 32px;
+  --opc-auth-brand-subtitle-line: 22px;
+  --opc-auth-brand-title-gap: 4px;
+  --opc-auth-brand-logo-size: calc(var(--opc-auth-brand-title-line) + var(--opc-auth-brand-subtitle-line) + var(--opc-auth-brand-title-gap));
+  --opc-auth-brand-logo-radius: 12px;
+  --opc-auth-brand-subtitle: rgba(255, 255, 255, 0.76);
+  --opc-auth-intro-bg: rgba(255, 255, 255, 0.1);
+  --opc-auth-intro-orb-strong: rgba(255, 255, 255, 0.12);
+  --opc-auth-intro-orb-soft: rgba(255, 255, 255, 0.1);
+  --opc-auth-feature-icon-bg: rgba(255, 255, 255, 0.13);
+  --opc-auth-feature-desc: rgba(255, 255, 255, 0.84);
+  --semi-color-primary: #ff8500;
+  --semi-color-primary-hover: #ffab40;
+  --semi-color-primary-active: #f07800;
+  --semi-color-primary-light-default: rgba(255, 133, 0, 0.12);
+  --semi-color-primary-light-hover: rgba(255, 133, 0, 0.22);
+  --semi-color-primary-light-active: rgba(255, 133, 0, 0.38);
+  --semi-color-bg-0: #171719;
+  --semi-color-bg-1: #202126;
+  --semi-color-bg-2: #2b2c32;
+  --semi-color-fill-0: #2d2e35;
+  --semi-color-fill-1: #383940;
+  --semi-color-fill-2: #45464f;
+  --semi-color-border: rgba(255, 255, 255, 0.1);
+  --semi-color-overlay-bg: rgba(22, 22, 26, 0.6);
+  --semi-border-radius-large: 12px;
+  --semi-shadow-elevated: 0 0 1px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.1);
+  --semi-color-text-0: #f0f2f8;
+  --semi-color-text-1: #a7abb8;
+  --semi-color-text-2: #747987;
+  --semi-color-warning: #ffab40;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --opc-header-logo-size: 28px;
+  }
+}
+
+@keyframes brand-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(1.5);
+  }
+}
+
+@keyframes marquee-left {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes marquee-right {
+  from {
+    transform: translateX(-50%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
