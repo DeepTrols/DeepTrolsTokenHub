@@ -82,7 +82,17 @@ type paymentOrderDTO struct {
 	Status    string `json:"status"`
 	PayURL    string `json:"pay_url,omitempty"`
 	CreatedAt string `json:"created_at"`
+
+	// Provider metadata (TH-P1-05): operational tracking for provider query,
+	// compensation and reconciliation. All omitempty — rows without metadata
+	// (legacy or never queried) serialize the keys as absent, never null.
+	QueryAttempts *int   `json:"query_attempts,omitempty"`
+	LastQueryAt   string `json:"last_query_at,omitempty"`
+	NextRetryAt   string `json:"next_retry_at,omitempty"`
+	ReviewReason  string `json:"review_reason,omitempty"`
 }
+
+const dtoTimeLayout = "2006-01-02 15:04:05"
 
 func toOrderDTO(o paymentorder.Order) paymentOrderDTO {
 	dto := paymentOrderDTO{
@@ -93,10 +103,22 @@ func toOrderDTO(o paymentorder.Order) paymentOrderDTO {
 		Channel:   o.Channel,
 		PayMethod: o.PayMethod,
 		Status:    o.Status,
-		CreatedAt: o.CreatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt: o.CreatedAt.Format(dtoTimeLayout),
 	}
 	if o.Status == paymentorder.StatusPending && o.PayURL != nil {
 		dto.PayURL = *o.PayURL
+	}
+	if o.QueryAttempts != nil {
+		dto.QueryAttempts = o.QueryAttempts
+	}
+	if o.LastQueryAt != nil {
+		dto.LastQueryAt = o.LastQueryAt.Format(dtoTimeLayout)
+	}
+	if o.NextRetryAt != nil {
+		dto.NextRetryAt = o.NextRetryAt.Format(dtoTimeLayout)
+	}
+	if o.ReviewReason != nil {
+		dto.ReviewReason = *o.ReviewReason
 	}
 	return dto
 }

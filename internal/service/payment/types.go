@@ -178,4 +178,9 @@ var (
 	// ErrChannelNotReady marks known channels whose provider adapter has
 	// not landed yet (configuration error, fail closed).
 	ErrChannelNotReady = errors.New("payment: payment channel not ready")
+	// ErrChannelConfigInvalid marks known channels whose merchant
+	// configuration failed validation (TH-P1-AL-01). Wrapped diagnostics
+	// name the offending setting keys only, never configured values, so
+	// they are safe to log and surface (fail-fast, fail closed).
+	ErrChannelConfigInvalid = errors.New("payment: payment channel configuration invalid")
 )

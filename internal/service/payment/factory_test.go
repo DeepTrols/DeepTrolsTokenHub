@@ -89,18 +89,20 @@ func TestCreateOrderUnknownChannelCreatesNoRow(t *testing.T) {
 	}
 }
 
-// AC-02 (service level): order creation on the not-ready alipay channel
-// returns the configuration error and creates no row. Real factory restored
-// for the same reason as above.
-func TestCreateOrderAlipayChannelNotReady(t *testing.T) {
+// AC-02 (service level): order creation on the alipay channel without
+// Alipay config fails fail-fast with the configuration error (TH-P1-AL-01)
+// and creates no row. Real factory restored for the same reason as above.
+// (With complete config the same path reaches the factory's
+// ErrChannelNotReady — see alipay_config_test.go.)
+func TestCreateOrderAlipayChannelConfigInvalidFailFast(t *testing.T) {
 	s, orders, _ := newTestService(settingsWithChannel("alipay"), &fakeGateway{payURL: "https://pay/u"})
 	s.newGateway = newGatewayForChannel
 	_, err := s.CreateOrder(context.Background(), uuid.New(), decimal.NewFromInt(50), "alipay")
-	if !errors.Is(err, ErrChannelNotReady) {
-		t.Fatalf("error = %v, want ErrChannelNotReady", err)
+	if !errors.Is(err, ErrChannelConfigInvalid) {
+		t.Fatalf("error = %v, want ErrChannelConfigInvalid", err)
 	}
 	if len(orders.byNo) != 0 {
-		t.Fatalf("not-ready channel must create no order rows, got %d", len(orders.byNo))
+		t.Fatalf("config-invalid channel must create no order rows, got %d", len(orders.byNo))
 	}
 }
 

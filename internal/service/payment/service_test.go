@@ -109,6 +109,33 @@ func (f *fakeOrders) MarkClosed(ctx context.Context, id uuid.UUID) error {
 	f.byID[id].Status = paymentorder.StatusClosed
 	return nil
 }
+func (f *fakeOrders) RecordProviderQuery(ctx context.Context, id uuid.UUID, nextRetryAt *time.Time) error {
+	ord, ok := f.byID[id]
+	if !ok {
+		return paymentorder.ErrNotFound
+	}
+	attempts := 1
+	if ord.QueryAttempts != nil {
+		attempts = *ord.QueryAttempts + 1
+	}
+	ord.QueryAttempts = &attempts
+	now := time.Now()
+	ord.LastQueryAt = &now
+	ord.NextRetryAt = nextRetryAt
+	return nil
+}
+func (f *fakeOrders) SetReviewReason(ctx context.Context, id uuid.UUID, reason string) error {
+	ord, ok := f.byID[id]
+	if !ok {
+		return paymentorder.ErrNotFound
+	}
+	if reason == "" {
+		ord.ReviewReason = nil
+		return nil
+	}
+	ord.ReviewReason = &reason
+	return nil
+}
 
 type fakeWallets struct {
 	walletID   uuid.UUID

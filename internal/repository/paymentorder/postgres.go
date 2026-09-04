@@ -28,7 +28,8 @@ var _ Repository = (*PostgresRepository)(nil)
 var ErrNotFound = errors.New("paymentorder: not found")
 
 const orderCols = `id, order_no, user_id, amount, currency, purpose, plan_id, channel, pay_method, status,
-	gateway_trade_no, pay_url, notify_raw, paid_at, expires_at, created_at, updated_at`
+	gateway_trade_no, pay_url, notify_raw, paid_at, expires_at, created_at, updated_at,
+	query_attempts, last_query_at, next_retry_at, review_reason`
 
 func (r *PostgresRepository) Create(ctx context.Context, o *Order) error {
 	if o.Purpose == "" {
@@ -51,9 +52,15 @@ func scanOrder(row pgx.Row) (*Order, error) {
 	var planID *uuid.UUID
 	var notifyRaw []byte
 	var paidAt *time.Time
+	// Provider metadata (TH-P1-05): nullable columns scan into pointers so
+	// pre-migration rows surface as nil, never fabricated zero values.
+	var queryAttempts *int
+	var lastQueryAt, nextRetryAt *time.Time
+	var reviewReason *string
 	err := row.Scan(&o.ID, &o.OrderNo, &o.UserID, &o.Amount, &o.Currency,
 		&o.Purpose, &planID, &o.Channel, &o.PayMethod, &o.Status, &gatewayTradeNo, &payURL, &notifyRaw, &paidAt,
-		&o.ExpiresAt, &o.CreatedAt, &o.UpdatedAt)
+		&o.ExpiresAt, &o.CreatedAt, &o.UpdatedAt,
+		&queryAttempts, &lastQueryAt, &nextRetryAt, &reviewReason)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +69,10 @@ func scanOrder(row pgx.Row) (*Order, error) {
 	o.NotifyRaw = notifyRaw
 	o.PaidAt = paidAt
 	o.PlanID = planID
+	o.QueryAttempts = queryAttempts
+	o.LastQueryAt = lastQueryAt
+	o.NextRetryAt = nextRetryAt
+	o.ReviewReason = reviewReason
 	return &o, nil
 }
 
@@ -174,6 +185,46 @@ func (r *PostgresRepository) MarkClosed(ctx context.Context, id uuid.UUID) error
 		`UPDATE payment_orders SET status='closed', updated_at=NOW() WHERE id=$1 AND status='pending'`, id)
 	if err != nil {
 		return fmt.Errorf("paymentorder mark closed: %w", err)
+	}
+	return nil
+}
+
+// RecordProviderQuery implements Repository. The UPDATE touches only the
+// TH-P1-05 metadata columns; status, amount and payment fields are never
+// modified, so a retry bookkeeping bug can never settle an order.
+func (r *PostgresRepository) RecordProviderQuery(ctx context.Context, id uuid.UUID, nextRetryAt *time.Time) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE payment_orders
+		 SET query_attempts = COALESCE(query_attempts, 0) + 1,
+		     last_query_at = NOW(),
+		     next_retry_at = $2,
+		     updated_at = NOW()
+		 WHERE id=$1`,
+		id, nextRetryAt)
+	if err != nil {
+		return fmt.Errorf("paymentorder record provider query: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetReviewReason implements Repository. Empty reason stores NULL (clears
+// the flag); status and amount are never modified.
+func (r *PostgresRepository) SetReviewReason(ctx context.Context, id uuid.UUID, reason string) error {
+	var value any
+	if reason != "" {
+		value = reason
+	}
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE payment_orders SET review_reason=$2, updated_at=NOW() WHERE id=$1`,
+		id, value)
+	if err != nil {
+		return fmt.Errorf("paymentorder set review reason: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

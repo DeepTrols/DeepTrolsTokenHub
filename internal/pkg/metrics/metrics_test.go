@@ -192,6 +192,8 @@ func TestHandler_Scrapeable(t *testing.T) {
 	SetDependencyUp(DependencyDatabase, true)
 	// TH-P1-04 family: CounterVec needs one child.
 	IncPaymentNotifyRouteMismatch("alipay", "epay")
+	// TH-P1-AL-01 family: GaugeVec needs one child.
+	SetPaymentChannelConfigReady("alipay", true)
 	rec := httptest.NewRecorder()
 	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	if rec.Code != http.StatusOK {
@@ -212,6 +214,7 @@ func TestHandler_Scrapeable(t *testing.T) {
 		NameWorkerCyclesTotal, NameWorkerCycleDuration, NameWorkerLeaseTotal,
 		NameReconciliationCriticalDiffTotal, NameDependencyUp,
 		NamePaymentNotifyRouteMismatchTotal,
+		NamePaymentChannelConfigReady,
 	} {
 		if !strings.Contains(body, name) {
 			t.Errorf("metrics body missing family %s", name)

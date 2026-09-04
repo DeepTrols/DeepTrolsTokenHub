@@ -63,6 +63,9 @@ const (
 
 	// TH-P1-04: payment callback routing observability.
 	NamePaymentNotifyRouteMismatchTotal = "payment_notify_route_mismatch_total"
+
+	// TH-P1-AL-01: payment channel config readiness observability.
+	NamePaymentChannelConfigReady = "payment_channel_config_ready"
 )
 
 // Allowed reason_class label values (bounded by construction).
@@ -319,6 +322,9 @@ type Metrics struct {
 
 	// TH-P1-04: payment callback routing observability.
 	PaymentNotifyRouteMismatchTotal *prometheus.CounterVec // {route, order_channel}
+
+	// TH-P1-AL-01: payment channel config readiness observability.
+	PaymentChannelConfigReady *prometheus.GaugeVec // {channel}: 1 ready / 0 not ready
 }
 
 // durationBuckets covers LLM request latencies (sub-second cache hits to
@@ -415,6 +421,11 @@ func New() *Metrics {
 			Name: NamePaymentNotifyRouteMismatchTotal,
 			Help: "Payment callbacks rejected before settlement because the notify route channel did not match the order's persisted channel (TH-P1-04).",
 		}, []string{"route", "order_channel"}),
+		// TH-P1-AL-01: payment channel config readiness observability.
+		PaymentChannelConfigReady: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: NamePaymentChannelConfigReady,
+			Help: "Payment channel merchant configuration readiness as observed by the payment info check (1 ready / 0 not ready) (TH-P1-AL-01).",
+		}, []string{"channel"}),
 	}
 	reg.MustRegister(
 		m.RequestsTotal, m.SuccessTotal, m.ErrorTotal, m.RequestDurationSeconds,
@@ -425,6 +436,7 @@ func New() *Metrics {
 		m.WorkerCyclesTotal, m.WorkerCycleDuration, m.WorkerLeaseTotal,
 		m.ReconciliationCriticalDiffTotal, m.DependencyUp,
 		m.PaymentNotifyRouteMismatchTotal,
+		m.PaymentChannelConfigReady,
 	)
 	return m
 }
@@ -550,4 +562,16 @@ func SetDependencyUp(dependency string, up bool) {
 		v = 1
 	}
 	safely(func() { Default.DependencyUp.WithLabelValues(d).Set(v) })
+}
+
+// SetPaymentChannelConfigReady records the latest merchant configuration
+// readiness observation for a payment channel (TH-P1-AL-01). The channel
+// label is whitelist-clamped; no setting value ever reaches a label.
+func SetPaymentChannelConfigReady(channel string, ready bool) {
+	c := SanitizePaymentRoute(channel)
+	v := 0.0
+	if ready {
+		v = 1
+	}
+	safely(func() { Default.PaymentChannelConfigReady.WithLabelValues(c).Set(v) })
 }

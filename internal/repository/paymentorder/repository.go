@@ -17,6 +17,17 @@ const (
 )
 
 // Order is a recharge order. Crediting happens via wallet_transactions.
+//
+// Provider metadata (TH-P1-05, migration 000037) — all nullable so rows
+// created before the migration read back as nil, never zero-valued garbage:
+//
+//	QueryAttempts  provider order-query attempts already made (nil = never).
+//	LastQueryAt    time of the most recent provider query.
+//	NextRetryAt    when the query/compensation worker may retry (nil = none).
+//	ReviewReason   why the order is flagged for manual review (nil = not).
+//
+// Callback and reconciliation identity is carried by OrderNo, Channel,
+// PayMethod, Amount and GatewayTradeNo.
 type Order struct {
 	ID             uuid.UUID
 	OrderNo        string
@@ -35,6 +46,11 @@ type Order struct {
 	ExpiresAt      time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+
+	QueryAttempts *int
+	LastQueryAt   *time.Time
+	NextRetryAt   *time.Time
+	ReviewReason  *string
 }
 
 // Repository defines payment_orders data access.
@@ -49,4 +65,13 @@ type Repository interface {
 	MarkPaid(ctx context.Context, id uuid.UUID, gatewayTradeNo string, notifyRaw []byte) (bool, error)
 	// MarkClosed atomically transitions pending→closed (expired/cancelled).
 	MarkClosed(ctx context.Context, id uuid.UUID) error
+	// RecordProviderQuery records one provider query attempt (TH-P1-05):
+	// increments query_attempts, stamps last_query_at and schedules the next
+	// retry (nil clears the schedule). Never changes status or amount.
+	// Returns ErrNotFound when the order does not exist.
+	RecordProviderQuery(ctx context.Context, id uuid.UUID, nextRetryAt *time.Time) error
+	// SetReviewReason flags an order for manual review (TH-P1-05); an empty
+	// reason clears the flag. Never changes status or amount. Returns
+	// ErrNotFound when the order does not exist.
+	SetReviewReason(ctx context.Context, id uuid.UUID, reason string) error
 }

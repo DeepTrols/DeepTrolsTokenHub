@@ -53,6 +53,62 @@ func TestToOrderDTO_ClosedAndRefundedHidePayURL(t *testing.T) {
 	}
 }
 
+// TestToOrderDTO_MapsProviderMetadata verifies TH-P1-05 at the mapping layer:
+// provider query/retry/review metadata on the order maps onto the DTO for
+// query/compensation/reconciliation tracking.
+func TestToOrderDTO_MapsProviderMetadata(t *testing.T) {
+	o := pendingOrderWithURL("https://pay.example/o1")
+	attempts := 3
+	lastQuery := time.Unix(1700000000, 0).UTC()
+	nextRetry := time.Unix(1700000300, 0).UTC()
+	reason := "amount_mismatch"
+	o.QueryAttempts = &attempts
+	o.LastQueryAt = &lastQuery
+	o.NextRetryAt = &nextRetry
+	o.ReviewReason = &reason
+
+	dto := toOrderDTO(o)
+	if dto.QueryAttempts == nil || *dto.QueryAttempts != 3 {
+		t.Fatalf("query_attempts not mapped: %+v", dto.QueryAttempts)
+	}
+	if dto.LastQueryAt != "2023-11-14 22:13:20" {
+		t.Fatalf("last_query_at not mapped: %q", dto.LastQueryAt)
+	}
+	if dto.NextRetryAt != "2023-11-14 22:18:20" {
+		t.Fatalf("next_retry_at not mapped: %q", dto.NextRetryAt)
+	}
+	if dto.ReviewReason != "amount_mismatch" {
+		t.Fatalf("review_reason not mapped: %q", dto.ReviewReason)
+	}
+}
+
+// TestToOrderDTO_NullMetadata_OmitsFields verifies TH-P1-05 AC-03 at the
+// mapping layer: rows without provider metadata (legacy or never queried)
+// marshal to valid JSON with the metadata keys absent, never null garbage or
+// a panic.
+func TestToOrderDTO_NullMetadata_OmitsFields(t *testing.T) {
+	dto := toOrderDTO(pendingOrderWithURL("https://pay.example/o1"))
+	if dto.QueryAttempts != nil || dto.LastQueryAt != "" || dto.NextRetryAt != "" || dto.ReviewReason != "" {
+		t.Fatalf("nil metadata must map to zero values, got %+v", dto)
+	}
+	b, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatalf("response is not valid JSON: %v", err)
+	}
+	for _, key := range []string{"query_attempts", "last_query_at", "next_retry_at", "review_reason"} {
+		if _, present := back[key]; present {
+			t.Fatalf("metadata key %q must be omitted when nil, got %s", key, b)
+		}
+	}
+	if back["order_no"] != "DTPDTO1" {
+		t.Fatalf("core fields must survive metadata omission: %s", b)
+	}
+}
+
 // TestToOrderDTO_NullPayURL_OmitsField verifies TH-P05-10 AC-03: legacy rows
 // with NULL pay_url still marshal to valid JSON and omit the field.
 func TestToOrderDTO_NullPayURL_OmitsField(t *testing.T) {

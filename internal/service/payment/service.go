@@ -96,6 +96,7 @@ type paymentConfig struct {
 	AmountOptions []string
 	CallbackBase  string
 	Channel       string
+	Alipay        AlipayConfig // TH-P1-AL-01
 }
 
 func (s *Service) config(ctx context.Context) (*paymentConfig, error) {
@@ -114,7 +115,34 @@ func (s *Service) config(ctx context.Context) (*paymentConfig, error) {
 		AmountOptions: rawArray(all, "amount_options"),
 		CallbackBase:  rawStr(all, "callback_base_url"),
 		Channel:       rawStr(all, "payment_channel"),
+		Alipay:        loadAlipayConfig(all),
 	}, nil
+}
+
+// channelConfigReady reports whether the effective channel's merchant
+// configuration is complete (TH-P1-AL-01 observability). wechatpay has no
+// config path yet and is never ready.
+func channelConfigReady(cfg *paymentConfig) bool {
+	switch normalizeChannel(cfg.Channel) {
+	case ChannelEpay:
+		return cfg.PayAddress != "" && cfg.EpayID != "" && cfg.EpayKey != ""
+	case ChannelAlipay:
+		return cfg.Alipay.Validate() == nil
+	default:
+		return false
+	}
+}
+
+// validateChannelConfig fails fast on invalid merchant configuration for the
+// effective channel (TH-P1-AL-01). Diagnostics are redacted by construction
+// (setting key names only), so the caller may log them safely.
+func validateChannelConfig(cfg *paymentConfig) error {
+	if normalizeChannel(cfg.Channel) == ChannelAlipay {
+		if err := cfg.Alipay.Validate(); err != nil {
+			return fmt.Errorf("%w: %v", ErrChannelConfigInvalid, err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) gateway(cfg *paymentConfig) (Gateway, error) {
@@ -140,6 +168,10 @@ type PaymentInfo struct {
 	MaxTopup      string      `json:"max_topup"`
 	AmountOptions []string    `json:"amount_options"`
 	Channel       string      `json:"channel"`
+	// ChannelError carries a sanitized channel-configuration diagnostic
+	// (TH-P1-AL-01): setting key names only, never configured values.
+	// Empty when the effective channel configuration is valid.
+	ChannelError string `json:"channel_error,omitempty"`
 }
 
 // Info returns the currently available payment methods and amount bounds.
@@ -148,23 +180,43 @@ func (s *Service) Info(ctx context.Context) (*PaymentInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	channel := normalizeChannel(cfg.Channel)
 	info := &PaymentInfo{
 		Enabled:       cfg.Enabled && cfg.Compliance,
 		Compliance:    cfg.Compliance,
 		MinTopup:      cfg.MinTopup.StringFixed(2),
 		MaxTopup:      cfg.MaxTopup.StringFixed(2),
 		AmountOptions: cfg.AmountOptions,
-		Channel:       normalizeChannel(cfg.Channel), // effective channel
+		Channel:       channel, // effective channel
 		PayMethods:    []PayMethod{},
 	}
-	// Pay methods exist only for the implemented epay channel; not-ready or
-	// unknown channels must not advertise payable methods.
-	if normalizeChannel(cfg.Channel) == ChannelEpay &&
-		info.Enabled && cfg.PayAddress != "" && cfg.EpayID != "" && cfg.EpayKey != "" {
-		info.PayMethods = []PayMethod{
-			{Name: "支付宝", Type: "alipay", Color: "#1677FF"},
-			{Name: "微信支付", Type: "wxpay", Color: "#07C160"},
+	// Config readiness by channel (TH-P1-AL-01 observability).
+	metrics.SetPaymentChannelConfigReady(channel, channelConfigReady(cfg))
+
+	switch channel {
+	case ChannelEpay:
+		// Pay methods exist only once the epay credentials are complete.
+		if info.Enabled && channelConfigReady(cfg) {
+			info.PayMethods = []PayMethod{
+				{Name: "支付宝", Type: "alipay", Color: "#1677FF"},
+				{Name: "微信支付", Type: "wxpay", Color: "#07C160"},
+			}
 		}
+	case ChannelAlipay:
+		// TH-P1-AL-01 AC-01/AC-02: the info check reports the config error
+		// (sanitized) or the Alipay method once the config is complete.
+		if err := cfg.Alipay.Validate(); err != nil {
+			info.ChannelError = err.Error()
+			log.Printf("payment: alipay channel configuration invalid: %v", err)
+			break
+		}
+		if info.Enabled {
+			info.PayMethods = []PayMethod{
+				{Name: "支付宝", Type: "alipay", Color: "#1677FF"},
+			}
+		}
+	default:
+		// Not-ready or unknown channels advertise nothing.
 	}
 	return info, nil
 }
@@ -190,6 +242,12 @@ func (s *Service) CreateOrder(ctx context.Context, userID uuid.UUID, amount deci
 	}
 	if payMethod != "alipay" && payMethod != "wxpay" {
 		return nil, ErrInvalidMethod
+	}
+	// Fail fast on invalid merchant configuration BEFORE any gateway call
+	// (TH-P1-AL-01); the diagnostic is redacted by construction.
+	if err := validateChannelConfig(cfg); err != nil {
+		log.Printf("payment: channel config invalid: %v", err)
+		return nil, err
 	}
 	channel := normalizeChannel(cfg.Channel)
 	gw, err := s.gateway(cfg)
@@ -253,6 +311,12 @@ func (s *Service) CreateSubscriptionOrder(ctx context.Context, userID, planID uu
 	}
 	if payMethod != "alipay" && payMethod != "wxpay" {
 		return nil, ErrInvalidMethod
+	}
+	// Fail fast on invalid merchant configuration BEFORE any gateway call
+	// (TH-P1-AL-01); the diagnostic is redacted by construction.
+	if err := validateChannelConfig(cfg); err != nil {
+		log.Printf("payment: channel config invalid: %v", err)
+		return nil, err
 	}
 	channel := normalizeChannel(cfg.Channel)
 	gw, err := s.gateway(cfg)
