@@ -27,7 +27,7 @@
 | TH-P1-04 | Callback Route Channel Resolver | P1 | Payment | Backend / Routing | P1 | TH-P1-03 | — | DONE |
 | TH-P1-05 | Payment Order Provider Metadata | P1 | Payment | Backend / Data Contract | P1 | TH-P1-03, TH-P05-10 | — | DONE |
 | TH-P1-AL-01 | Alipay Config And Startup Validation | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-03 | — | DONE |
-| TH-P1-AL-02 | Alipay CreateOrder Client | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-AL-01 | — | TODO |
+| TH-P1-AL-02 | Alipay CreateOrder Client | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-AL-01 | — | DONE |
 | TH-P1-AL-03 | Alipay Notify Signature Verification | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-AL-01, TH-P1-04 | — | TODO |
 | TH-P1-AL-04 | Alipay Notify Settlement Integration | P1 | Payment | Backend / Finance | P1 | TH-P1-AL-03 | — | TODO |
 | TH-P1-AL-05 | Alipay QueryOrder Client | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-AL-01, TH-P1-01 | — | TODO |
@@ -40,7 +40,7 @@
 | TH-P1-WX-05 | WeChat Pay QueryOrder Client | P1 | Payment | Backend / Provider Adapter | P1 | TH-P1-WX-01, TH-P1-01 | — | TODO |
 | TH-P1-WX-06 | WeChat Pay Sandbox Integration Test | P1 | Payment | Test / Provider | P1 | TH-P1-WX-02, TH-P1-WX-04, TH-P1-WX-05 | — | TODO |
 | TH-P1-WX-07 | WeChat Pay Production Small Amount Verification Runbook | P1 | Payment | Operations / Provider | P1 | TH-P1-WX-06 | — | TODO |
-| TH-P1-CW-01 | Pending Payment Order Scanner | P1 | Payment | Worker | P1 | TH-P1-05 | — | TODO |
+| TH-P1-CW-01 | Pending Payment Order Scanner | P1 | Payment | Worker | P1 | TH-P1-05 | — | DONE |
 | TH-P1-CW-02 | Provider Query Dispatcher | P1 | Payment | Worker | P1 | TH-P1-CW-01, TH-P1-AL-05, TH-P1-WX-05 | — | TODO |
 | TH-P1-CW-03 | Paid Order Compensation | P1 | Payment | Worker / Finance | P1 | TH-P1-CW-02, TH-P1-02 | — | TODO |
 | TH-P1-CW-04 | Closed And Expired Order Handling | P1 | Payment | Worker | P1 | TH-P1-CW-02 | — | TODO |

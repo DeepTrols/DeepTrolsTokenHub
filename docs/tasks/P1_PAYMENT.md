@@ -458,6 +458,7 @@ Epic: Payment
 Type: Backend / Provider Adapter
 Priority: P1
 Dependencies: TH-P1-AL-01
+Status: DONE (Batch 8 — RSA2-signed precreate client + fail-closed error mapping, see execution-logs/TH-P1-AL-02.md)
 
 Objective:
 
@@ -1335,6 +1336,7 @@ Epic: Payment
 Type: Worker
 Priority: P1
 Dependencies: TH-P1-05
+Status: DONE (Batch 8 — read-only candidate scanner + eligibility rules, see execution-logs/TH-P1-CW-01.md)
 
 Objective:
 

@@ -4374,3 +4374,63 @@ Batch 7 执行 P1 第三批两个任务，均按核心资金路径 TDD（RED→G
   本批授权范围为 TH-P1-05 + TH-P1-AL-01；按指令未执行 TH-P1-AL-02，
   未开始任何微信支付任务（TH-P1-WX-01 早已解锁但不在授权内）。
 - 详见 `docs/tasks/execution-logs/TH-P1-05.md`、`TH-P1-AL-01.md`。
+
+## 一百二十八、2026-09-04 [P1] 待查订单扫描器与支付宝下单客户端（TH-P1-CW-01、TH-P1-AL-02）
+
+Batch 8 执行 P1 第四批两个任务，均按核心资金路径 TDD（RED→GREEN）
+完成，业务提交 `0d2ace3`（16 files, +1517/−28）。
+
+### 128.1 TH-P1-CW-01 Pending Payment Order Scanner（DONE）
+
+- 两层分工：仓储层 `ListPendingCandidates(ctx, olderThan, limit, channel)`
+  （`status='pending' AND created_at<=olderThan`，可选渠道过滤，
+  `ORDER BY created_at ASC, order_no ASC LIMIT`，纯 SELECT 绝不写库）；
+  工人层 `internal/worker/paymentscan` 以纯函数 `eligible(o, now)` 执行
+  到期规则（状态 pending、未过期——到期时刻边界排除、重试窗口已到——
+  恰在重试时刻视为到期），`Scanner.Run` 每周期一条候选查询
+  （默认 minAge=60s、batch=20），错误失败关闭。
+- 只读构造：扫描器对订单行与钱包零写入，集成测试扫描前后全行快照
+  逐字节比对；提供方查单调用不在本任务（CW-02 消费 eligible 集）。
+- 过载风险构造性钳制：批量 20 + 账龄 60s + 60s 周期 + Redis 租约
+  单实例（`worker:lease:payment_scanner` TTL 50s），扫描器自身零提供方
+  调用。新增 `payment_order_scan_total{channel}` 与
+  `payment_order_scan_eligible_total{channel}` 计数器（白名单钳制）。
+- 资格规则按 Documentation Requirement 落文档（执行日志 §0）。
+- 5 仓储集成 + 6 工人单测全绿；门控全量 50 包 ok（新增 paymentscan
+  包使 49→50）、0 FAIL/panic。
+
+### 128.2 TH-P1-AL-02 Alipay CreateOrder Client（DONE）
+
+- `AlipayGateway` 调 `alipay.trade.precreate`：RSA2 签名（排序 `k=v`
+  连接、排除 sign 与空值、SHA256+PKCS1v15+base64），biz_content 金额
+  decimal 两位；信封 `alipay_trade_precreate_response`，成功 =
+  `code=="10000"` 且支付码非空。
+- 失败关闭错误族：新哨兵 `ErrAlipayProvider` / `ErrAlipayTimeout`，
+  零订单行、零钱包影响；提供方 code/sub_code 按 Risk 条目经
+  `sanitizeAlipayCode`（`[A-Za-z0-9_.-]` ≤64）消毒保留在错误元数据。
+  私钥解析接受 PKCS8/PKCS1 PEM 或裸 base64，错误脱敏。
+- 工厂 alipay 分支复检配置并解析私钥（通知路由构造绕过下单门）；
+  错误类语义迁移：alipay 配置问题 `ErrChannelNotReady` →
+  `ErrChannelConfigInvalid`，wechatpay 保持未就绪；三个既有测试手术式
+  更新。回调验签（AL-03）与对账查单（AL-05）以失败关闭占位。
+- 可观测性：`payment_alipay_create_total{outcome}` +
+  `payment_alipay_create_duration_seconds{outcome}`（outcome 白名单：
+  success/provider_error/timeout/error）。
+- 集成测试不 mock 签名逻辑：`httptest.NewTLSServer` 模拟网关服务端
+  真实公钥验签，真实工厂 + 真实签名仅换传输层。沙箱下单探针按
+  Documentation Requirement 写入 `docs/DEPLOYMENT.md` §1.1。
+- 10 新用例 + 手术更新测试全绿；门控全量 50 包 ok、0 FAIL/panic。
+
+### 128.3 验证与解锁
+
+- 每任务独立全量回归（TH-P05-13 门控退出码契约）：
+  `/tmp/p1-gate/p1-cw-01.log` 与 `/tmp/p1-gate/p1-al-02.log` 均 50 包
+  ok、0 FAIL/panic、退出码 0（两日志 MD5 不同，独立运行）；批收口
+  门控 `/tmp/p1-gate/batch8.log` 全量复核亦 50 包 ok、0 FAIL/panic、
+  退出码 0（3506 字节）；`go vet` / `go build` exit 0；gofmt clean。
+- TASK_INDEX 状态翻转：TH-P1-CW-01、TH-P1-AL-02 → DONE；累计 **8/34**。
+- 解锁：本批未新增解锁任务。`TH-P1-AL-03`（回调验签）与
+  `TH-P1-AL-05`（对账查单）已在 Batch 7 由 AL-01 解锁、仍待授权；
+  `TH-P1-AL-04` 还需 AL-03；`TH-P1-AL-06` 还需 AL-04+AL-05；
+  `TH-P1-CW-02` 仍被 AL-05+WX-05 阻塞；微信任务不在本批授权内。
+- 详见 `docs/tasks/execution-logs/TH-P1-CW-01.md`、`TH-P1-AL-02.md`。
