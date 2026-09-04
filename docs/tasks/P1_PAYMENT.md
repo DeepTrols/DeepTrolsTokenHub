@@ -115,6 +115,7 @@ Epic: Payment
 Type: Backend / Service
 Priority: P1
 Dependencies: TH-P1-01
+Status: DONE (Batch 6 — settlement intent table, see execution-logs/TH-P1-02.md)
 
 Objective:
 
@@ -251,6 +252,7 @@ Epic: Payment
 Type: Backend / Routing
 Priority: P1
 Dependencies: TH-P1-03
+Status: DONE (Batch 6 — per-channel callback resolver, see execution-logs/TH-P1-04.md)
 
 Objective:
 

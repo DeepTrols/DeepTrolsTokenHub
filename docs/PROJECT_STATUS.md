@@ -4275,9 +4275,55 @@ Batch 5 在完成 P0.5 收尾（§124）后直接执行 P1 首批两个任务，
 
 - 全量回归经门控退出码契约执行：`go test ./...` 49 包 ok、0 FAIL；
   `go vet` / `go build` exit 0；gofmt clean。
-- TASK_INDEX 状态翻转：TH-P1-01、TH-P1-03 → DONE（P1 完成 2/35）。
+- TASK_INDEX 状态翻转：TH-P1-01、TH-P1-03 → DONE（P1 完成 2/34）。
 - 解锁：`TH-P1-02`（QueryOrder Settlement Intent，依赖 TH-P1-01）、
   `TH-P1-04`（Callback Route Channel Resolver，依赖 TH-P1-03）、
   `TH-P1-05`、`TH-P1-AL-01`、`TH-P1-WX-01`（依赖 TH-P1-03）。
   本批授权范围为 TH-P1-01 + TH-P1-03，其余待下一批指令。
 - 详见 `docs/tasks/execution-logs/TH-P1-01.md`、`TH-P1-03.md`。
+
+## 一百二十六、2026-09-04 [P1] 结算意图与回调路由解析（TH-P1-02、TH-P1-04）
+
+Batch 6 执行 P1 第二批两个任务，均按核心资金路径 TDD（RED→GREEN）
+完成，业务提交 `43759d2`（9 files, +594/−22）。
+
+### 126.1 TH-P1-02 QueryOrder Settlement Intent Service（DONE）
+
+- 新增封闭意图集 `SettlementIntentKind`（mark_paid / already_settled /
+  amount_mismatch / retryable / no_action / mark_closed）；
+  `QuerySettlementIntent` 只做契约校验 + 订单查询 + 意图转换，**从不
+  触碰钱包、从不修改订单**，执行权在调用方（后续补偿 worker）。
+- 安全检查与回调路径完全对齐：契约 Validate 前置、仅 pending 可结算、
+  金额必须相等；`paid` 答 + 本地 closed → no_action 转人工，宁严勿松。
+- 意图表固化于 godoc 与执行日志；全部路径断言 0 次钱包调用
+  （fake 计数器）。7 个新测试全绿。
+
+### 126.2 TH-P1-04 Callback Route Channel Resolver（DONE）
+
+- `channelForRoute` 封闭集（epay/alipay/wechatpay）；
+  `HandleNotifyForChannel` 在签名验证与钱包结算**之前**匹配路由渠道与
+  订单持久化渠道，不匹配即 `ErrChannelMismatch` 拒绝 —— 错误路由的
+  报文永远无法入账。
+- 网关按**路由渠道**构造（非全局设置）：切换期间历史订单经原渠道结算；
+  provider 未落地 → `ErrChannelNotReady`，回调返回失败文本、订单保持
+  pending（失败关闭）。
+- 新注册 `/api/payment/notify/alipay`、`/notify/wechatpay`（POST+GET）；
+  旧 `HandleNotify` 委托 epay 路由，回归兼容。
+- 新增 `payment_notify_route_mismatch_total{route, order_channel}`，
+  标签白名单消毒（SanitizePaymentRoute），订单号不入标签。
+- 7 个新测试（含路由不匹配/缺订单号/未知路由注入）全绿；
+  既有 epay notify 回归保持绿。
+
+### 126.3 验证与解锁
+
+- 全量回归经门控退出码契约执行：`go test ./...` 49 包 ok、0 FAIL
+  （/tmp/p1-gate/batch6.log，3442 字节）；`go vet` / `go build`
+  exit 0；gofmt clean。
+- TASK_INDEX 状态翻转：TH-P1-02、TH-P1-04 → DONE。
+  更正：§125.3 原文分母误写为 35，P1 任务总数实为 34
+  （5+7+7+9+6），原文已订正为 2/34；现累计 **4/34**。
+- 解锁：`TH-P1-05`（Provider Metadata，依赖 TH-P1-03+TH-P05-10）、
+  `TH-P1-AL-01` / `TH-P1-WX-01`（Provider 启动校验，依赖 TH-P1-03）、
+  `TH-P1-AL-03` / `TH-P1-WX-03` 的部分前置（TH-P1-04）已就绪。
+  本批授权范围为 TH-P1-02 + TH-P1-04，其余待下一批指令。
+- 详见 `docs/tasks/execution-logs/TH-P1-02.md`、`TH-P1-04.md`。
