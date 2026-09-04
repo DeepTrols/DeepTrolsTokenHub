@@ -66,6 +66,14 @@ const (
 
 	// TH-P1-AL-01: payment channel config readiness observability.
 	NamePaymentChannelConfigReady = "payment_channel_config_ready"
+
+	// TH-P1-CW-01: pending order scanner observability.
+	NamePaymentOrderScanTotal         = "payment_order_scan_total"
+	NamePaymentOrderScanEligibleTotal = "payment_order_scan_eligible_total"
+
+	// TH-P1-AL-02: Alipay create-order observability.
+	NameAlipayCreateTotal    = "payment_alipay_create_total"
+	NameAlipayCreateDuration = "payment_alipay_create_duration_seconds"
 )
 
 // Allowed reason_class label values (bounded by construction).
@@ -153,6 +161,7 @@ var AllowedWorkers = map[string]bool{
 	"billing_sync":         true,
 	"subscription_expirer": true,
 	"subscription_renewer": true,
+	"payment_scanner":      true,
 }
 
 var allowedCycleOutcomes = map[string]bool{
@@ -242,6 +251,34 @@ func SanitizePaymentRoute(route string) string {
 	return paymentRouteOther
 }
 
+// TH-P1-AL-02: Alipay create-order outcome label values. The space is
+// bounded by construction; raw provider codes, sub_codes or error text
+// never become label values (they stay in the sanitized error metadata
+// instead).
+const alipayOutcomeOther = "other"
+
+const (
+	AlipayOutcomeSuccess       = "success"
+	AlipayOutcomeProviderError = "provider_error"
+	AlipayOutcomeTimeout       = "timeout"
+	AlipayOutcomeError         = "error"
+)
+
+var allowedAlipayOutcomes = map[string]bool{
+	AlipayOutcomeSuccess:       true,
+	AlipayOutcomeProviderError: true,
+	AlipayOutcomeTimeout:       true,
+	AlipayOutcomeError:         true,
+}
+
+// SanitizeAlipayOutcome clamps an Alipay create outcome to the allowlist.
+func SanitizeAlipayOutcome(outcome string) string {
+	if allowedAlipayOutcomes[outcome] {
+		return outcome
+	}
+	return alipayOutcomeOther
+}
+
 // SanitizeEndpoint clamps an endpoint label value to the allowlist.
 // Route-pattern prefixes ("/v1/") are stripped first; unknown, empty and
 // high-cardinality values all become endpointOther.
@@ -325,6 +362,14 @@ type Metrics struct {
 
 	// TH-P1-AL-01: payment channel config readiness observability.
 	PaymentChannelConfigReady *prometheus.GaugeVec // {channel}: 1 ready / 0 not ready
+
+	// TH-P1-CW-01: pending order scanner observability.
+	PaymentOrderScanTotal         *prometheus.CounterVec // {channel}: pending candidates examined by the scanner
+	PaymentOrderScanEligibleTotal *prometheus.CounterVec // {channel}: candidates eligible for a provider query
+
+	// TH-P1-AL-02: Alipay create-order observability.
+	AlipayCreateTotal    *prometheus.CounterVec   // {outcome}: create-order attempts by bounded outcome class
+	AlipayCreateDuration *prometheus.HistogramVec // {outcome}: create-order latency by outcome class
 }
 
 // durationBuckets covers LLM request latencies (sub-second cache hits to
@@ -426,6 +471,25 @@ func New() *Metrics {
 			Name: NamePaymentChannelConfigReady,
 			Help: "Payment channel merchant configuration readiness as observed by the payment info check (1 ready / 0 not ready) (TH-P1-AL-01).",
 		}, []string{"channel"}),
+		// TH-P1-CW-01: pending order scanner observability.
+		PaymentOrderScanTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: NamePaymentOrderScanTotal,
+			Help: "Pending payment order candidates examined by the payment scanner, by order channel (TH-P1-CW-01).",
+		}, []string{"channel"}),
+		PaymentOrderScanEligibleTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: NamePaymentOrderScanEligibleTotal,
+			Help: "Pending payment order candidates eligible for a provider query after expiry/retry rules, by order channel (TH-P1-CW-01).",
+		}, []string{"channel"}),
+		// TH-P1-AL-02: Alipay create-order observability.
+		AlipayCreateTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: NameAlipayCreateTotal,
+			Help: "Alipay create-order attempts by bounded outcome class (success / provider_error / timeout / error) (TH-P1-AL-02).",
+		}, []string{"outcome"}),
+		AlipayCreateDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    NameAlipayCreateDuration,
+			Help:    "Alipay create-order duration in seconds by outcome class (TH-P1-AL-02).",
+			Buckets: durationBuckets,
+		}, []string{"outcome"}),
 	}
 	reg.MustRegister(
 		m.RequestsTotal, m.SuccessTotal, m.ErrorTotal, m.RequestDurationSeconds,
@@ -437,6 +501,8 @@ func New() *Metrics {
 		m.ReconciliationCriticalDiffTotal, m.DependencyUp,
 		m.PaymentNotifyRouteMismatchTotal,
 		m.PaymentChannelConfigReady,
+		m.PaymentOrderScanTotal, m.PaymentOrderScanEligibleTotal,
+		m.AlipayCreateTotal, m.AlipayCreateDuration,
 	)
 	return m
 }
@@ -574,4 +640,38 @@ func SetPaymentChannelConfigReady(channel string, ready bool) {
 		v = 1
 	}
 	safely(func() { Default.PaymentChannelConfigReady.WithLabelValues(c).Set(v) })
+}
+
+// AddPaymentOrderScanned counts pending order candidates examined by the
+// payment scanner for an order channel (TH-P1-CW-01). The channel label is
+// whitelist-clamped; order numbers and user identity never reach labels.
+func AddPaymentOrderScanned(channel string, n int) {
+	if n <= 0 {
+		return
+	}
+	c := SanitizePaymentRoute(channel)
+	safely(func() { Default.PaymentOrderScanTotal.WithLabelValues(c).Add(float64(n)) })
+}
+
+// AddPaymentOrderScanEligible counts scanned candidates that passed the
+// expiry/retry eligibility rules and may be handed to a provider query
+// stage (TH-P1-CW-01). The channel label is whitelist-clamped.
+func AddPaymentOrderScanEligible(channel string, n int) {
+	if n <= 0 {
+		return
+	}
+	c := SanitizePaymentRoute(channel)
+	safely(func() { Default.PaymentOrderScanEligibleTotal.WithLabelValues(c).Add(float64(n)) })
+}
+
+// RecordAlipayCreateOrder counts one finished Alipay create-order attempt by
+// bounded outcome class and observes its duration (TH-P1-AL-02). The outcome
+// label is whitelist-clamped; raw provider codes and error text stay in the
+// sanitized error metadata and never reach labels.
+func RecordAlipayCreateOrder(outcome string, duration time.Duration) {
+	o := SanitizeAlipayOutcome(outcome)
+	safely(func() {
+		Default.AlipayCreateTotal.WithLabelValues(o).Inc()
+		Default.AlipayCreateDuration.WithLabelValues(o).Observe(duration.Seconds())
+	})
 }

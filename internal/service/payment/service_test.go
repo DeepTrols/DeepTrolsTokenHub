@@ -95,6 +95,9 @@ func (f *fakeOrders) ListByUser(ctx context.Context, u uuid.UUID, l, o int) ([]p
 func (f *fakeOrders) List(ctx context.Context, l, o int, s *string, u *uuid.UUID) ([]paymentorder.Order, error) {
 	return nil, nil
 }
+func (f *fakeOrders) ListPendingCandidates(ctx context.Context, olderThan time.Time, limit int, channel *string) ([]paymentorder.Order, error) {
+	return nil, nil
+}
 func (f *fakeOrders) MarkPaid(ctx context.Context, id uuid.UUID, gtn string, raw []byte) (bool, error) {
 	ord := f.byID[id]
 	if ord.Status == paymentorder.StatusPending {

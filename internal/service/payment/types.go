@@ -183,4 +183,16 @@ var (
 	// name the offending setting keys only, never configured values, so
 	// they are safe to log and surface (fail-fast, fail closed).
 	ErrChannelConfigInvalid = errors.New("payment: payment channel configuration invalid")
+	// ErrAlipayProvider marks an Alipay provider-side failure during order
+	// creation (TH-P1-AL-02): a business failure code, a transport error or
+	// a malformed response. Wrapped diagnostics carry the SANITIZED
+	// provider code/sub_code only — never raw message text, request bodies
+	// or merchant secrets — so the raw provider identity survives for
+	// debugging without leaking sensitive content. No order row or wallet
+	// effect is produced on this class (fail closed).
+	ErrAlipayProvider = errors.New("payment: alipay provider error")
+	// ErrAlipayTimeout marks an Alipay call that hit its context deadline
+	// or transport timeout (TH-P1-AL-02). No order state and no wallet
+	// transaction is produced on this class (fail closed).
+	ErrAlipayTimeout = errors.New("payment: alipay request timed out")
 )

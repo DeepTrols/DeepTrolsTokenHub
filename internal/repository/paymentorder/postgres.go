@@ -228,3 +228,27 @@ func (r *PostgresRepository) SetReviewReason(ctx context.Context, id uuid.UUID, 
 	}
 	return nil
 }
+
+// ListPendingCandidates implements Repository (TH-P1-CW-01). It is the
+// scanner's candidate query: pending orders at least as old as olderThan,
+// optionally restricted to one channel, in a deterministic oldest-first
+// order with order_no as the tiebreak, capped at limit. It is a pure
+// SELECT — expiry and retry eligibility are enforced by the worker-level
+// rules (internal/worker/paymentscan), and nothing here ever writes.
+func (r *PostgresRepository) ListPendingCandidates(ctx context.Context, olderThan time.Time, limit int, channel *string) ([]Order, error) {
+	query := `SELECT ` + orderCols + ` FROM payment_orders WHERE status=$1 AND created_at<=$2`
+	args := []any{StatusPending, olderThan}
+	if channel != nil {
+		args = append(args, *channel)
+		query += fmt.Sprintf(" AND channel=$%d", len(args))
+	}
+	args = append(args, limit)
+	query += fmt.Sprintf(" ORDER BY created_at ASC, order_no ASC LIMIT $%d", len(args))
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("paymentorder list pending candidates: %w", err)
+	}
+	defer rows.Close()
+	return scanOrders(rows)
+}

@@ -42,16 +42,18 @@ func TestFactorySelectsEpay(t *testing.T) {
 	}
 }
 
-// AC-02: payment_channel=alipay before the Alipay provider lands returns a
-// channel configuration error, never a gateway.
-func TestFactoryAlipayNotReadyIsConfigError(t *testing.T) {
+// AC-02 (updated by TH-P1-AL-02): payment_channel=alipay with missing
+// merchant configuration fails closed at the factory with the configuration
+// error class — never a gateway. (With complete, parseable config the same
+// path now constructs the real AlipayGateway; see alipay_test.go.)
+func TestFactoryAlipayMissingConfigIsConfigError(t *testing.T) {
 	cfg := &paymentConfig{Channel: "alipay"}
 	gw, err := newGatewayForChannel(cfg)
 	if gw != nil {
-		t.Fatalf("expected nil gateway for unimplemented channel, got %T", gw)
+		t.Fatalf("expected nil gateway for unconfigured channel, got %T", gw)
 	}
-	if !errors.Is(err, ErrChannelNotReady) {
-		t.Fatalf("error = %v, want ErrChannelNotReady", err)
+	if !errors.Is(err, ErrChannelConfigInvalid) {
+		t.Fatalf("error = %v, want ErrChannelConfigInvalid", err)
 	}
 }
 

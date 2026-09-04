@@ -18,6 +18,7 @@ import (
 	"github.com/deeptrols/api/internal/pkg/lease"
 	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/worker/health_checker"
+	"github.com/deeptrols/api/internal/worker/paymentscan"
 	"github.com/deeptrols/api/internal/worker/reconciliation"
 	"github.com/deeptrols/api/internal/worker/subscriptions"
 )
@@ -62,6 +63,9 @@ func main() {
 	reconciler := reconciliation.New(application.Pool)
 	subscriptionExpirer := subscriptions.New(application.Pool)
 	subscriptionRenewer := subscriptions.NewRenewer(application.Pool, application.Wallets, application.Subscriptions)
+	// TH-P1-CW-01: pending payment order scanner (read-only candidate
+	// selection across all channels; provider queries are CW-02's job).
+	paymentScanner := paymentscan.New(application.PaymentOrders)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -71,6 +75,7 @@ func main() {
 	go runBillingSync(ctx, application, application.Redis)
 	go runSubscriptionExpirer(ctx, subscriptionExpirer, application.Redis)
 	go runSubscriptionRenewer(ctx, subscriptionRenewer, application.Redis)
+	go runPaymentScanner(ctx, paymentScanner, application.Redis)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -212,6 +217,33 @@ func runBillingSync(ctx context.Context, application *app.App, redis *goredis.Cl
 					}
 					runs := application.BillingSync.RunDue(ctx, time.Now().UTC())
 					log.Printf("billing_sync: ran %d due connectors", len(runs))
+					return nil
+				})
+			})
+		}
+	}
+}
+
+// runPaymentScanner periodically selects pending payment orders eligible for
+// a provider query (TH-P1-CW-01). The scanner is read-only: it never mutates
+// orders or wallets, and it never calls a provider itself — consuming the
+// eligible set belongs to the follow-up workers. Runs every minute under the
+// Redis lease, in small deterministic batches.
+func runPaymentScanner(ctx context.Context, s *paymentscan.Scanner, redis *goredis.Client) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runSafely("payment_scanner", func() error {
+				return withLease(ctx, "payment_scanner", redis, "worker:lease:payment_scanner", 50*time.Second, func() error {
+					res, err := s.Run(ctx)
+					if err != nil {
+						return err
+					}
+					log.Printf("payment_scanner: %d/%d pending orders eligible for provider query", len(res.Eligible), res.Scanned)
 					return nil
 				})
 			})

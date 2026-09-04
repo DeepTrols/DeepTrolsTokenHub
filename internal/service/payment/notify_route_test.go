@@ -74,19 +74,21 @@ func TestNotifyRouteMismatchRejectedBeforeWallet(t *testing.T) {
 	}
 }
 
-// AC-03: a route whose provider adapter has not landed returns the provider
-// configuration error and leaves the order pending (historical orders keep
-// settling through their original channel; a missing adapter fails closed).
-// The real factory must run so alipay is genuinely not ready.
+// AC-03: a route whose provider adapter has not landed returns the not-ready
+// error and leaves the order pending (historical orders keep settling through
+// their original channel; a missing adapter fails closed). The real factory
+// must run so wechatpay is genuinely not ready. (Alipay got its create-order
+// client in TH-P1-AL-02; its callback path still fails closed and is covered
+// in alipay_test.go.)
 func TestNotifyRouteProviderNotReadyLeavesOrderPending(t *testing.T) {
 	s, orders, wallets := newTestService(enabledSettings(), &fakeGateway{
 		notify: &NotifyResult{OrderNo: "DTPR3", GatewayTradeNo: "G3", Amount: decimal.NewFromInt(50), Success: true},
 	})
 	s.newGateway = newGatewayForChannel
 	o := seedPendingOrder(orders, "DTPR3", decimal.NewFromInt(50))
-	o.Channel = "alipay" // order created on the alipay channel
+	o.Channel = "wechatpay" // order created on the not-ready channel
 
-	handled, err := s.HandleNotifyForChannel(context.Background(), "alipay", map[string]string{"out_trade_no": "DTPR3"})
+	handled, err := s.HandleNotifyForChannel(context.Background(), "wechatpay", map[string]string{"out_trade_no": "DTPR3"})
 	if !errors.Is(err, ErrChannelNotReady) {
 		t.Fatalf("error = %v, want ErrChannelNotReady", err)
 	}

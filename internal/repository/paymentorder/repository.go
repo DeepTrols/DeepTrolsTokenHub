@@ -74,4 +74,10 @@ type Repository interface {
 	// reason clears the flag. Never changes status or amount. Returns
 	// ErrNotFound when the order does not exist.
 	SetReviewReason(ctx context.Context, id uuid.UUID, reason string) error
+	// ListPendingCandidates returns pending orders old enough for the
+	// scanner (created_at <= olderThan), oldest first with order_no as the
+	// deterministic tiebreak, capped at limit (TH-P1-CW-01). A non-nil
+	// channel restricts candidates to that channel. The query is strictly
+	// read-only: it never mutates status, metadata or timestamps.
+	ListPendingCandidates(ctx context.Context, olderThan time.Time, limit int, channel *string) ([]Order, error)
 }

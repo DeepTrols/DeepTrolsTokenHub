@@ -62,11 +62,15 @@ func normalizeChannel(raw string) string {
 }
 
 // newGatewayForChannel selects the gateway implementation for the configured
-// payment channel (TH-P1-03). epay is the only fully implemented channel
-// today; alipay and wechatpay fail closed with ErrChannelNotReady until
-// their provider tasks land concrete implementations, and any unknown value
+// payment channel (TH-P1-03). epay and the alipay create-order client
+// (TH-P1-AL-02) are implemented; wechatpay fails closed with
+// ErrChannelNotReady until its provider tasks land, and any unknown value
 // fails with ErrInvalidChannel so it can never route paid traffic to the
-// wrong gateway. Logs the selected channel / error class, never credentials.
+// wrong gateway. For alipay, missing/unparseable merchant configuration
+// fails with ErrChannelConfigInvalid — validation runs here as well (not
+// only at the CreateOrder fail-fast gate) because notify-route construction
+// bypasses that gate. Logs the selected channel / error class, never
+// credentials.
 func newGatewayForChannel(cfg *paymentConfig) (Gateway, error) {
 	channel := normalizeChannel(cfg.Channel)
 	switch channel {
@@ -78,7 +82,22 @@ func newGatewayForChannel(cfg *paymentConfig) (Gateway, error) {
 			NotifyURL:  cfg.CallbackBase + "/api/payment/notify/" + ChannelEpay,
 			ReturnURL:  cfg.CallbackBase + "/recharge",
 		}, nil
-	case ChannelAlipay, ChannelWeChatPay:
+	case ChannelAlipay:
+		if err := cfg.Alipay.Validate(); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrChannelConfigInvalid, err)
+		}
+		eff := cfg.Alipay.effective()
+		key, err := parseAlipayPrivateKey(eff.PrivateKey)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrChannelConfigInvalid, err)
+		}
+		return &AlipayGateway{
+			AppID:      eff.AppID,
+			PrivateKey: key,
+			GatewayURL: eff.GatewayURL,
+			NotifyURL:  cfg.CallbackBase + "/api/payment/notify/" + ChannelAlipay,
+		}, nil
+	case ChannelWeChatPay:
 		return nil, fmt.Errorf("%w: %s (provider adapter not implemented yet)", ErrChannelNotReady, channel)
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrInvalidChannel, cfg.Channel)

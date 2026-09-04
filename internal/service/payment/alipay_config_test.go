@@ -288,19 +288,24 @@ func TestCreateOrderAlipayFailFastOnMissingConfig(t *testing.T) {
 	}
 }
 
-// TestCreateOrderAlipayValidConfigStillNotReady guards the AL-01 scope line:
-// even with fully valid config the alipay provider adapter has not landed
-// yet (TH-P1-AL-02), so order creation still fails closed — now past the
-// config gate, at the factory — and creates no row.
-func TestCreateOrderAlipayValidConfigStillNotReady(t *testing.T) {
+// TestCreateOrderAlipayUnparseableKeyFailsClosed (TH-P1-AL-02 supersedes
+// the AL-01 not-ready guard): with a complete config SHAPE but an
+// unparseable private key, order creation fails closed at the factory with
+// the configuration error class, creates no row, and never leaks the key
+// body. Complete config with a parseable key now creates real orders — see
+// alipay_test.go.
+func TestCreateOrderAlipayUnparseableKeyFailsClosed(t *testing.T) {
 	s, orders, _ := newTestService(completeAlipaySettings(), &fakeGateway{payURL: "https://pay/u"})
 	s.newGateway = newGatewayForChannel
 	_, err := s.CreateOrder(context.Background(), uuid.New(), decimal.NewFromInt(50), "alipay")
-	if !errors.Is(err, ErrChannelNotReady) {
-		t.Fatalf("error = %v, want ErrChannelNotReady", err)
+	if !errors.Is(err, ErrChannelConfigInvalid) {
+		t.Fatalf("error = %v, want ErrChannelConfigInvalid", err)
 	}
 	if len(orders.byNo) != 0 {
-		t.Fatalf("not-ready channel must create no order rows, got %d", len(orders.byNo))
+		t.Fatalf("unparseable key must create no order rows, got %d", len(orders.byNo))
+	}
+	if strings.Contains(err.Error(), alipayTestSecret) {
+		t.Fatalf("error leaks private key body: %q", err.Error())
 	}
 }
 

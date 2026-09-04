@@ -63,7 +63,7 @@ func TestSanitizeReasonClass(t *testing.T) {
 // exact leased-worker whitelist passes, everything else — raw lease keys,
 // hostnames, dynamic strings — is clamped to "other".
 func TestSanitizeWorker(t *testing.T) {
-	for _, in := range []string{"health_checker", "reconciler", "billing_sync", "subscription_expirer", "subscription_renewer"} {
+	for _, in := range []string{"health_checker", "reconciler", "billing_sync", "subscription_expirer", "subscription_renewer", "payment_scanner"} {
 		if got := SanitizeWorker(in); got != in {
 			t.Errorf("SanitizeWorker(%q) = %q, want %q", in, got, in)
 		}
@@ -145,11 +145,21 @@ func TestGatheredFamilies_NoForbiddenLabels(t *testing.T) {
 	SetDependencyUp(DependencyDatabase, true)
 	SetDependencyUp("postgres://user:pass@10.0.0.5:5432/prod", false)
 
-	allowedLabelNames := map[string]bool{"endpoint": true, "reason_class": true, "worker": true, "outcome": true, "dependency": true}
+	// TH-P1-CW-01 scan setters, including a hostile channel value.
+	AddPaymentOrderScanned("alipay", 2)
+	AddPaymentOrderScanEligible("user_id=1", 1)
+
+	// TH-P1-AL-02 create setters, including a hostile outcome value.
+	RecordAlipayCreateOrder(AlipayOutcomeSuccess, time.Millisecond)
+	RecordAlipayCreateOrder("order_no=DTP1 raw provider text", time.Second)
+
+	allowedLabelNames := map[string]bool{"endpoint": true, "reason_class": true, "worker": true, "outcome": true, "dependency": true, "channel": true}
 	allowedLabelValue := func(val string) bool {
 		return allowedEndpoints[val] || allowedReasons[val] || AllowedWorkers[val] ||
 			allowedCycleOutcomes[val] || allowedLeaseOutcomes[val] || allowedDependencies[val] ||
-			val == endpointOther || val == reasonOther || val == workerOther || val == dependencyOther
+			allowedPaymentRoutes[val] || allowedAlipayOutcomes[val] ||
+			val == endpointOther || val == reasonOther || val == workerOther || val == dependencyOther ||
+			val == paymentRouteOther || val == alipayOutcomeOther
 	}
 	families, err := Default.Registry.Gather()
 	if err != nil {
@@ -194,6 +204,12 @@ func TestHandler_Scrapeable(t *testing.T) {
 	IncPaymentNotifyRouteMismatch("alipay", "epay")
 	// TH-P1-AL-01 family: GaugeVec needs one child.
 	SetPaymentChannelConfigReady("alipay", true)
+	// TH-P1-CW-01 families: CounterVecs need one child each; the hostile
+	// channel value must clamp and never reach the exposition.
+	AddPaymentOrderScanned("epay", 3)
+	AddPaymentOrderScanEligible("order_no=DTP123 hostile", 1)
+	// TH-P1-AL-02 families: counter + histogram need one child each.
+	RecordAlipayCreateOrder(AlipayOutcomeProviderError, time.Millisecond)
 	rec := httptest.NewRecorder()
 	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	if rec.Code != http.StatusOK {
@@ -215,6 +231,8 @@ func TestHandler_Scrapeable(t *testing.T) {
 		NameReconciliationCriticalDiffTotal, NameDependencyUp,
 		NamePaymentNotifyRouteMismatchTotal,
 		NamePaymentChannelConfigReady,
+		NamePaymentOrderScanTotal, NamePaymentOrderScanEligibleTotal,
+		NameAlipayCreateTotal, NameAlipayCreateDuration,
 	} {
 		if !strings.Contains(body, name) {
 			t.Errorf("metrics body missing family %s", name)
