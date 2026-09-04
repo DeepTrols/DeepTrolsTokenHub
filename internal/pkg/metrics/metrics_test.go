@@ -190,6 +190,8 @@ func TestHandler_Scrapeable(t *testing.T) {
 	// one child.
 	IncReconciliationCriticalDiff()
 	SetDependencyUp(DependencyDatabase, true)
+	// TH-P1-04 family: CounterVec needs one child.
+	IncPaymentNotifyRouteMismatch("alipay", "epay")
 	rec := httptest.NewRecorder()
 	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	if rec.Code != http.StatusOK {
@@ -209,6 +211,7 @@ func TestHandler_Scrapeable(t *testing.T) {
 		NameProviderBlockedTotal,
 		NameWorkerCyclesTotal, NameWorkerCycleDuration, NameWorkerLeaseTotal,
 		NameReconciliationCriticalDiffTotal, NameDependencyUp,
+		NamePaymentNotifyRouteMismatchTotal,
 	} {
 		if !strings.Contains(body, name) {
 			t.Errorf("metrics body missing family %s", name)
@@ -217,6 +220,22 @@ func TestHandler_Scrapeable(t *testing.T) {
 	for _, leak := range []string{"user_id", "request_id", "tenant_id", "order_no", "api_key", "Bearer", "@", "worker:lease:", "postgres://", "10.0.0.5"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("metrics body contains sensitive substring %q", leak)
+		}
+	}
+}
+
+// TestSanitizePaymentRoute_ClampsToAllowlist verifies the TH-P1-04 label
+// sanitizer: only the closed channel set passes; anything else (typos,
+// dynamic strings) is clamped to the other bucket.
+func TestSanitizePaymentRoute_ClampsToAllowlist(t *testing.T) {
+	for _, route := range []string{"epay", "alipay", "wechatpay", " epay "} {
+		if got := SanitizePaymentRoute(route); got != strings.TrimSpace(route) {
+			t.Errorf("SanitizePaymentRoute(%q) = %q, want %q", route, got, strings.TrimSpace(route))
+		}
+	}
+	for _, route := range []string{"", "bitcoin", "Epay", "DTP20260904"} {
+		if got := SanitizePaymentRoute(route); got != "other" {
+			t.Errorf("SanitizePaymentRoute(%q) = %q, want other", route, got)
 		}
 	}
 }

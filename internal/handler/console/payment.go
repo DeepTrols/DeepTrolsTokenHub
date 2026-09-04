@@ -9,6 +9,7 @@ import (
 	"github.com/deeptrols/api/internal/app"
 	"github.com/deeptrols/api/internal/pkg/jwtutil"
 	"github.com/deeptrols/api/internal/repository/paymentorder"
+	payment "github.com/deeptrols/api/internal/service/payment"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -122,30 +123,48 @@ func HandleListMyPaymentOrders(a *app.App) http.HandlerFunc {
 	}
 }
 
-// HandlePaymentNotify is the unauthenticated gateway callback (epay).
-func HandlePaymentNotify(a *app.App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		params := map[string]string{}
-		for k, v := range r.URL.Query() {
-			if len(v) > 0 {
-				params[k] = v[0]
-			}
+// notifyParams collects query and form parameters from a gateway callback.
+func notifyParams(r *http.Request) map[string]string {
+	params := map[string]string{}
+	for k, v := range r.URL.Query() {
+		if len(v) > 0 {
+			params[k] = v[0]
 		}
-		if r.Method == http.MethodPost {
-			if err := r.ParseForm(); err == nil {
-				for k, v := range r.PostForm {
-					if len(v) > 0 {
-						params[k] = v[0]
-					}
+	}
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err == nil {
+			for k, v := range r.PostForm {
+				if len(v) > 0 {
+					params[k] = v[0]
 				}
 			}
 		}
+	}
+	return params
+}
+
+// HandlePaymentNotify is the unauthenticated epay gateway callback. Kept as
+// the epay entry point; resolution goes through the channel resolver
+// (TH-P1-04).
+func HandlePaymentNotify(a *app.App) http.HandlerFunc {
+	return HandlePaymentNotifyForChannel(a, payment.ChannelEpay)
+}
+
+// HandlePaymentNotifyForChannel is the unauthenticated per-channel gateway
+// callback (TH-P1-04). The route channel is fixed at registration and
+// matched against the order's persisted channel by the service BEFORE any
+// settlement; mismatches, unknown routes and provider failures all answer
+// the provider failure text so the gateway retries while the local order
+// stays pending.
+func HandlePaymentNotifyForChannel(a *app.App, routeChannel string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		params := notifyParams(r)
 		if len(params) == 0 {
 			w.Write([]byte("fail"))
 			return
 		}
-		if _, err := a.Payment.HandleNotify(r.Context(), params); err != nil {
-			log.Printf("console: payment notify: %v", err)
+		if _, err := a.Payment.HandleNotifyForChannel(r.Context(), routeChannel, params); err != nil {
+			log.Printf("console: payment notify (%s): %v", routeChannel, err)
 			w.Write([]byte("fail"))
 			return
 		}

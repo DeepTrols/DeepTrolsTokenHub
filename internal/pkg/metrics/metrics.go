@@ -60,6 +60,9 @@ const (
 	// TH-P05-05: alert-support baseline.
 	NameReconciliationCriticalDiffTotal = "reconciliation_critical_diffs_total"
 	NameDependencyUp                    = "app_dependency_up"
+
+	// TH-P1-04: payment callback routing observability.
+	NamePaymentNotifyRouteMismatchTotal = "payment_notify_route_mismatch_total"
 )
 
 // Allowed reason_class label values (bounded by construction).
@@ -213,6 +216,29 @@ func SanitizeDependency(dependency string) string {
 	return dependencyOther
 }
 
+// TH-P1-04: payment callback route / order channel label values. The space
+// is bounded by construction; any other value is clamped to
+// paymentRouteOther. The literals mirror the payment service channel
+// constants (kept literal here because this package must not import the
+// service layer).
+const paymentRouteOther = "other"
+
+var allowedPaymentRoutes = map[string]bool{
+	"epay":      true,
+	"alipay":    true,
+	"wechatpay": true,
+}
+
+// SanitizePaymentRoute clamps a payment notify route or order channel label
+// value to the allowlist.
+func SanitizePaymentRoute(route string) string {
+	r := strings.TrimSpace(route)
+	if allowedPaymentRoutes[r] {
+		return r
+	}
+	return paymentRouteOther
+}
+
 // SanitizeEndpoint clamps an endpoint label value to the allowlist.
 // Route-pattern prefixes ("/v1/") are stripped first; unknown, empty and
 // high-cardinality values all become endpointOther.
@@ -290,6 +316,9 @@ type Metrics struct {
 	// TH-P05-05: alert-support baseline.
 	ReconciliationCriticalDiffTotal prometheus.Counter   // critical reconciliation diffs (detect-only)
 	DependencyUp                    *prometheus.GaugeVec // {dependency}: 1 reachable / 0 unreachable
+
+	// TH-P1-04: payment callback routing observability.
+	PaymentNotifyRouteMismatchTotal *prometheus.CounterVec // {route, order_channel}
 }
 
 // durationBuckets covers LLM request latencies (sub-second cache hits to
@@ -381,6 +410,11 @@ func New() *Metrics {
 			Name: NameDependencyUp,
 			Help: "Dependency reachability as observed by the process watchdog (1 reachable / 0 unreachable).",
 		}, []string{"dependency"}),
+		// TH-P1-04: payment callback routing observability.
+		PaymentNotifyRouteMismatchTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: NamePaymentNotifyRouteMismatchTotal,
+			Help: "Payment callbacks rejected before settlement because the notify route channel did not match the order's persisted channel (TH-P1-04).",
+		}, []string{"route", "order_channel"}),
 	}
 	reg.MustRegister(
 		m.RequestsTotal, m.SuccessTotal, m.ErrorTotal, m.RequestDurationSeconds,
@@ -390,6 +424,7 @@ func New() *Metrics {
 		m.UnderchargeFallbackTotal, m.PricingIncompleteTotal, m.ProviderBlockedTotal,
 		m.WorkerCyclesTotal, m.WorkerCycleDuration, m.WorkerLeaseTotal,
 		m.ReconciliationCriticalDiffTotal, m.DependencyUp,
+		m.PaymentNotifyRouteMismatchTotal,
 	)
 	return m
 }
@@ -493,6 +528,16 @@ func IncWorkerLease(worker, outcome string) {
 // can never trigger an automatic Spend/Adjust/TopUp/debit/credit.
 func IncReconciliationCriticalDiff() {
 	safely(func() { Default.ReconciliationCriticalDiffTotal.Inc() })
+}
+
+// IncPaymentNotifyRouteMismatch counts one payment callback rejected before
+// settlement because the notify route channel did not match the order's
+// persisted channel (TH-P1-04). Both labels are whitelist-clamped; order
+// numbers and payload content never reach labels.
+func IncPaymentNotifyRouteMismatch(route, orderChannel string) {
+	safely(func() {
+		Default.PaymentNotifyRouteMismatchTotal.WithLabelValues(SanitizePaymentRoute(route), SanitizePaymentRoute(orderChannel)).Inc()
+	})
 }
 
 // SetDependencyUp records the latest reachability probe result for a

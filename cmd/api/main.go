@@ -23,6 +23,7 @@ import (
 	"github.com/deeptrols/api/internal/handler/gateway"
 	"github.com/deeptrols/api/internal/handler/middleware"
 	"github.com/deeptrols/api/internal/pkg/metrics"
+	payment "github.com/deeptrols/api/internal/service/payment"
 )
 
 func main() {
@@ -123,9 +124,20 @@ func main() {
 	r.Get("/api/oauth/google/callback",
 		middleware.IPRateLimit(application.RateLimiter, 30, 1*time.Minute)(console.HandleGoogleCallback(application)).ServeHTTP)
 
-	// Payment gateway callback (public, no auth; verified by signature).
+	// Payment gateway callbacks (public, no auth; verified by signature).
+	// Per-channel routes (TH-P1-04): the resolver matches the route channel
+	// against the order's persisted channel before any settlement, so
+	// historical orders settle through their original channel during
+	// cutover. Callback URLs per channel:
+	//   epay      -> /api/payment/notify/epay
+	//   alipay    -> /api/payment/notify/alipay
+	//   wechatpay -> /api/payment/notify/wechatpay
 	r.Post("/api/payment/notify/epay", console.HandlePaymentNotify(application))
 	r.Get("/api/payment/notify/epay", console.HandlePaymentNotify(application))
+	r.Post("/api/payment/notify/alipay", console.HandlePaymentNotifyForChannel(application, payment.ChannelAlipay))
+	r.Get("/api/payment/notify/alipay", console.HandlePaymentNotifyForChannel(application, payment.ChannelAlipay))
+	r.Post("/api/payment/notify/wechatpay", console.HandlePaymentNotifyForChannel(application, payment.ChannelWeChatPay))
+	r.Get("/api/payment/notify/wechatpay", console.HandlePaymentNotifyForChannel(application, payment.ChannelWeChatPay))
 
 	// OpenAI-compatible gateway (public).
 	r.Route("/v1", func(r chi.Router) {

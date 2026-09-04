@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/deeptrols/api/internal/domain"
+	"github.com/deeptrols/api/internal/pkg/metrics"
 	"github.com/deeptrols/api/internal/repository/paymentorder"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -302,13 +303,68 @@ func (s *Service) CreateSubscriptionOrder(ctx context.Context, userID, planID uu
 
 // HandleNotify verifies a gateway callback and settles the order idempotently.
 // It returns true when the order was settled on this call, false on a replay.
+// Legacy entry point for the epay notify route; resolves through the epay
+// channel resolver (TH-P1-04).
 func (s *Service) HandleNotify(ctx context.Context, params map[string]string) (bool, error) {
+	return s.HandleNotifyForChannel(ctx, ChannelEpay, params)
+}
+
+// channelForRoute resolves a notify route segment onto the closed channel
+// set (TH-P1-04). Anything outside the set is rejected outright so an
+// unknown route can never reach verification or settlement.
+func channelForRoute(route string) (string, error) {
+	switch route {
+	case ChannelEpay, ChannelAlipay, ChannelWeChatPay:
+		return route, nil
+	default:
+		return "", fmt.Errorf("%w: %q", ErrInvalidChannel, route)
+	}
+}
+
+// gatewayForRoute builds the gateway for the resolved callback channel
+// (never the current global setting alone), so historical orders settle
+// through their original channel during cutover.
+func (s *Service) gatewayForRoute(cfg *paymentConfig, routeChannel string) (Gateway, error) {
+	routed := *cfg
+	routed.Channel = routeChannel
+	return s.gateway(&routed)
+}
+
+// HandleNotifyForChannel verifies a gateway callback posted to the
+// per-channel notify route and settles the order idempotently (TH-P1-04).
+// The route channel is matched against the order's persisted channel BEFORE
+// any signature verification or wallet settlement, so a payload posted to
+// the wrong route can never credit a wallet. It returns true when the order
+// was settled on this call, false on a replay.
+func (s *Service) HandleNotifyForChannel(ctx context.Context, routeChannel string, params map[string]string) (bool, error) {
+	route, err := channelForRoute(routeChannel)
+	if err != nil {
+		return false, err
+	}
+	orderNo := params["out_trade_no"]
+	if orderNo == "" {
+		return false, ErrOrderNotFound
+	}
+	order, err := s.orders.FindByOrderNo(ctx, orderNo)
+	if err != nil {
+		return false, err
+	}
+	orderChannel := order.Channel
+	if orderChannel == "" {
+		orderChannel = ChannelEpay // legacy rows predate channel tracking
+	}
+	if orderChannel != route {
+		metrics.IncPaymentNotifyRouteMismatch(route, orderChannel)
+		log.Printf("payment: notify route %q rejected: order channel is %q", route, orderChannel)
+		return false, ErrChannelMismatch
+	}
 	cfg, err := s.config(ctx)
 	if err != nil {
 		return false, err
 	}
-	gw, err := s.gateway(cfg)
+	gw, err := s.gatewayForRoute(cfg, route)
 	if err != nil {
+		log.Printf("payment: notify route %q has no provider: %v", route, err)
 		return false, err
 	}
 	notify, err := gw.VerifyNotify(ctx, params)
@@ -317,10 +373,6 @@ func (s *Service) HandleNotify(ctx context.Context, params map[string]string) (b
 	}
 	if !notify.Success {
 		return false, nil
-	}
-	order, err := s.orders.FindByOrderNo(ctx, notify.OrderNo)
-	if err != nil {
-		return false, err
 	}
 	if order.Status != paymentorder.StatusPending {
 		return false, nil // already settled

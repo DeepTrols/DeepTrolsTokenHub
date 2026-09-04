@@ -172,6 +172,9 @@ var (
 	ErrQueryUnsupported = errors.New("payment: gateway does not support order query")
 	// ErrInvalidChannel marks unknown payment_channel values.
 	ErrInvalidChannel = errors.New("payment: invalid payment channel")
+	// ErrChannelMismatch marks callbacks whose notify route channel does
+	// not match the order's persisted channel (rejected before settlement).
+	ErrChannelMismatch = errors.New("payment: notify route does not match order channel")
 	// ErrChannelNotReady marks known channels whose provider adapter has
 	// not landed yet (configuration error, fail closed).
 	ErrChannelNotReady = errors.New("payment: payment channel not ready")
