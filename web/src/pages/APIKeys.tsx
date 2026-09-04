@@ -229,7 +229,7 @@ function KeyFields({
               value="block"
               checked={form.overLimitAction === "block"}
               onChange={(e) => set({ overLimitAction: e.target.value })}
-              className="accent-[#4F6BED]"
+              className="accent-[#F78B28]"
               aria-label={t("apikeys.block")}
             />
             <span className="text-sm text-[#161A23]">{t("apikeys.block")}</span>
@@ -241,7 +241,7 @@ function KeyFields({
               value="warn"
               checked={form.overLimitAction === "warn"}
               onChange={(e) => set({ overLimitAction: e.target.value })}
-              className="accent-[#4F6BED]"
+              className="accent-[#F78B28]"
               aria-label={t("apikeys.warn")}
             />
             <span className="text-sm text-[#161A23]">{t("apikeys.warn")}</span>
@@ -257,7 +257,7 @@ function KeyFields({
             id="key-status"
             value={form.status}
             onChange={(e) => set({ status: e.target.value })}
-            className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F6BED]/25"
+            className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#F78B28]/25"
           >
             <option value="active">{t("apikeys.active")}</option>
             <option value="disabled">{t("apikeys.disabled")}</option>
@@ -438,13 +438,13 @@ export default function APIKeys() {
                   <td className="px-4 py-3 text-[#161A23]">{k.group_name || "-"}</td>
                   <td className="px-4 py-3 text-[13px] text-[#161A23]">{formatRateLimit(k.rate_limit_rpm, k.rate_limit_tpm)}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-[13px]">
-                    <button className="text-[#4F6BED] hover:underline" onClick={() => openView(k)}>
+                    <button className="text-primary-700 hover:underline" onClick={() => openView(k)}>
                       {t("apikeys.viewKey")}
                     </button>
-                    <button className="text-[#4F6BED] hover:underline ml-3" onClick={() => openEdit(k)}>
+                    <button className="text-primary-700 hover:underline ml-3" onClick={() => openEdit(k)}>
                       {t("apikeys.edit")}
                     </button>
-                    <button className="text-[#4F6BED] hover:underline ml-3" onClick={() => handleDelete(k)}>
+                    <button className="text-primary-700 hover:underline ml-3" onClick={() => handleDelete(k)}>
                       {t("apikeys.delete")}
                     </button>
                   </td>

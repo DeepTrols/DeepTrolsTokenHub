@@ -27,7 +27,7 @@ export default function SelectMenu({ value, options, onChange, ariaLabel, placeh
         type="button"
         aria-label={ariaLabel}
         onClick={() => setOpen((v) => !v)}
-        className="glass-soft rounded-lg px-3 py-2 text-sm inline-flex items-center gap-2 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
+        className="glass-soft rounded-lg px-3 py-2 text-sm inline-flex items-center gap-2 focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20"
       >
         <span className="max-w-[220px] truncate">{selected?.label ?? placeholder ?? t("components.selectPlaceholder")}</span>
         <ChevronDown size={14} className="text-[#5C6472] shrink-0" />
@@ -49,7 +49,7 @@ export default function SelectMenu({ value, options, onChange, ariaLabel, placeh
                 }`}
               >
                 <span className="truncate">{o.label}</span>
-                {o.value === value && <Check size={14} className="text-[#4F6BED] shrink-0" />}
+                {o.value === value && <Check size={14} className="text-primary-700 shrink-0" />}
               </button>
             ))}
           </div>

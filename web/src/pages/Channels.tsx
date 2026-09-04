@@ -208,7 +208,7 @@ export default function Channels() {
       </div>
 
       {loadError && <Card className="mb-4 border-destructive/20"><CardContent className="p-4 text-destructive text-sm"><p className="font-medium">{t("channels.loadFailed")}</p><p className="mt-1">{loadError}</p><Button variant="destructive" size="sm" className="mt-2" onClick={() => refetch()}>{t("channels.retry")}</Button></CardContent></Card>}
-      {isLoading && <Card><CardContent className="p-12 text-center"><div className="animate-spin w-8 h-8 border-2 border-[#4F6BED] border-t-transparent rounded-full mx-auto mb-3" /><p className="text-muted-foreground">{t("channels.loading")}</p></CardContent></Card>}
+      {isLoading && <Card><CardContent className="p-12 text-center"><div className="animate-spin w-8 h-8 border-2 border-[#F78B28] border-t-transparent rounded-full mx-auto mb-3" /><p className="text-muted-foreground">{t("channels.loading")}</p></CardContent></Card>}
 
       {credentials.length > 0 ? (
         <div className="space-y-4">
@@ -260,7 +260,7 @@ export default function Channels() {
                 <div className="mt-3 pt-3 border-t border-black/10">
                   <button
                     onClick={() => setExpandedId(expandedId === cred.id ? null : cred.id)}
-                    className="text-sm font-medium text-[#4F6BED] hover:underline"
+                    className="text-sm font-medium text-primary-700 hover:underline"
                   >
                     {expandedId === cred.id ? t("channels.collapse") : t("channels.boundModels", { count: cred.model_count })}
                   </button>
@@ -321,8 +321,8 @@ export default function Channels() {
                     { v: "round_robin", l: t("channels.roundRobin"), desc: t("channels.roundRobinDesc") },
                     { v: "weighted_random", l: t("channels.weightedRandom"), desc: t("channels.weightedRandomDesc") },
                   ].map((rm) => (
-                    <label key={rm.v} className={`flex items-center gap-3 p-3 glass-soft rounded-xl cursor-pointer transition-all ${chRoundMode === rm.v ? "border-[#4F6BED]/50 bg-[#4F6BED]/[0.06] shadow-[0_10px_26px_rgba(63,76,128,0.10)]" : "hover:bg-white/80"}`}>
-                      <input type="radio" name="roundMode" value={rm.v} checked={chRoundMode === rm.v} onChange={(e) => setChRoundMode(e.target.value)} className="text-[#4F6BED]" />
+                    <label key={rm.v} className={`flex items-center gap-3 p-3 glass-soft rounded-xl cursor-pointer transition-all ${chRoundMode === rm.v ? "border-[#F78B28]/50 bg-[#F78B28]/[0.06] shadow-[0_10px_26px_rgba(137,76,32,0.10)]" : "hover:bg-white/80"}`}>
+                      <input type="radio" name="roundMode" value={rm.v} checked={chRoundMode === rm.v} onChange={(e) => setChRoundMode(e.target.value)} className="text-primary-700" />
                       <div><p className="text-sm font-medium">{rm.l}</p><p className="text-xs text-muted-foreground">{rm.desc}</p></div>
                     </label>
                   ))}
@@ -383,17 +383,17 @@ export default function Channels() {
               </div>
               <div className="space-y-2">
                 <Label>{t("channels.modelMapping")}</Label>
-                <textarea value={chModelMapping} onChange={(e) => setChModelMapping(e.target.value)} placeholder='{"gpt-4": "gpt-4-0613"}' rows={3} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                <textarea value={chModelMapping} onChange={(e) => setChModelMapping(e.target.value)} placeholder='{"gpt-4": "gpt-4-0613"}' rows={3} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
                 <p className="text-xs text-muted-foreground">{t("channels.modelMappingHint")}</p>
               </div>
               <div className="space-y-2">
                 <Label>{t("channels.paramOverride")}</Label>
-                <textarea value={chParamOverride} onChange={(e) => setChParamOverride(e.target.value)} placeholder='{"temperature": 0.8}' rows={4} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                <textarea value={chParamOverride} onChange={(e) => setChParamOverride(e.target.value)} placeholder='{"temperature": 0.8}' rows={4} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
                 <p className="text-xs text-muted-foreground">{t("channels.paramOverrideHint")}</p>
               </div>
               <div className="space-y-2">
                 <Label>{t("channels.customHeaders")}</Label>
-                <textarea value={chCustomHeaders} onChange={(e) => setChCustomHeaders(e.target.value)} placeholder={"X-Gateway-Id: gw-east-1\nX-Tenant: acme"} rows={4} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                <textarea value={chCustomHeaders} onChange={(e) => setChCustomHeaders(e.target.value)} placeholder={"X-Gateway-Id: gw-east-1\nX-Tenant: acme"} rows={4} className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
                 <p className="text-xs text-muted-foreground">{t("channels.customHeadersHint")}</p>
               </div>
               <div className="space-y-2">
@@ -416,7 +416,7 @@ export default function Channels() {
                     onChange={(e) => setChCustomOverride(e.target.value)}
                     placeholder={'{"method":"POST","url":"https://api.example.com/v1/{model}/generate","headers":{"X-Custom":"dt-{model}"},"body":"{\\"model\\":\\"{model}\\"}"}'}
                     rows={5}
-                    className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
+                    className="w-full px-3 py-2 glass-soft rounded-xl text-xs font-mono focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20"
                   />
                   <p className="text-xs text-muted-foreground">{t("channels.customOverrideHint")}</p>
                 </div>

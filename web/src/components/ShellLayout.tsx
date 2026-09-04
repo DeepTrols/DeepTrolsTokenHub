@@ -23,25 +23,25 @@ interface NavItem {
 }
 
 const userItems: NavItem[] = [
-  { to: "/dashboard", icon: LayoutDashboard, labelKey: "nav.dashboard", color: "text-[#4F6BED]" },
-  { to: "/api-keys", icon: Key, labelKey: "nav.apiKeys", color: "text-[#0FA88B]" },
-  { to: "/recharge", icon: Wallet, labelKey: "nav.recharge", color: "text-[#0FA88B]" },
-  { to: "/subscriptions", icon: Crown, labelKey: "nav.subscriptions", color: "text-[#D3A94E]" },
-  { to: "/bills", icon: Receipt, labelKey: "nav.bills", color: "text-[#0FA88B]" },
-  { to: "/models", icon: Box, labelKey: "nav.models", color: "text-[#D3A94E]" },
-  { to: "/playground", icon: Play, labelKey: "nav.playground", color: "text-[#4F6BED]" },
-  { to: "/docs", icon: Book, labelKey: "nav.docs", color: "text-[#0FA88B]" },
-  { to: "/account", icon: UserCircle, labelKey: "nav.account", color: "text-[#4F6BED]" },
+  { to: "/dashboard", icon: LayoutDashboard, labelKey: "nav.dashboard", color: "text-primary-700" },
+  { to: "/api-keys", icon: Key, labelKey: "nav.apiKeys", color: "text-[#9A4D06]" },
+  { to: "/recharge", icon: Wallet, labelKey: "nav.recharge", color: "text-[#9A4D06]" },
+  { to: "/subscriptions", icon: Crown, labelKey: "nav.subscriptions", color: "text-[#E9A23B]" },
+  { to: "/bills", icon: Receipt, labelKey: "nav.bills", color: "text-[#9A4D06]" },
+  { to: "/models", icon: Box, labelKey: "nav.models", color: "text-[#E9A23B]" },
+  { to: "/playground", icon: Play, labelKey: "nav.playground", color: "text-primary-700" },
+  { to: "/docs", icon: Book, labelKey: "nav.docs", color: "text-[#9A4D06]" },
+  { to: "/account", icon: UserCircle, labelKey: "nav.account", color: "text-primary-700" },
 ];
 
 const adminItems: NavItem[] = [
-  { to: "/admin/channels", icon: Radio, labelKey: "nav.channels", color: "text-[#0FA88B]" },
-  { to: "/admin/models", icon: Box, labelKey: "nav.modelMgmt", color: "text-[#4F6BED]" },
-  { to: "/admin/redemption", icon: Ticket, labelKey: "nav.redemption", color: "text-[#D3A94E]" },
-  { to: "/admin/subscription-plans", icon: Crown, labelKey: "nav.plans", color: "text-[#D3A94E]" },
-  { to: "/admin/subscriptions", icon: Receipt, labelKey: "nav.subRecords", color: "text-[#8B6FE8]" },
-  { to: "/admin/users", icon: Users, labelKey: "nav.users", color: "text-[#D3A94E]" },
-  { to: "/admin/settings", icon: Settings, labelKey: "nav.settings", color: "text-[#8B6FE8]" },
+  { to: "/admin/channels", icon: Radio, labelKey: "nav.channels", color: "text-[#9A4D06]" },
+  { to: "/admin/models", icon: Box, labelKey: "nav.modelMgmt", color: "text-primary-700" },
+  { to: "/admin/redemption", icon: Ticket, labelKey: "nav.redemption", color: "text-[#E9A23B]" },
+  { to: "/admin/subscription-plans", icon: Crown, labelKey: "nav.plans", color: "text-[#E9A23B]" },
+  { to: "/admin/subscriptions", icon: Receipt, labelKey: "nav.subRecords", color: "text-[#B94723]" },
+  { to: "/admin/users", icon: Users, labelKey: "nav.users", color: "text-[#E9A23B]" },
+  { to: "/admin/settings", icon: Settings, labelKey: "nav.settings", color: "text-[#B94723]" },
 ];
 
 function NavLinkItem({ item }: { item: NavItem }) {
@@ -53,14 +53,14 @@ function NavLinkItem({ item }: { item: NavItem }) {
       className={({ isActive }) =>
         `flex items-center gap-[10px] px-[9px] py-[7px] rounded-[10px] text-[14px] font-semibold border transition-all ${
           isActive
-            ? "bg-white/80 border-white/95 text-[#4F6BED] shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_26px_rgba(63,76,128,0.10)]"
+            ? "bg-white/80 border-white/95 text-primary-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_26px_rgba(137,76,32,0.10)]"
             : "border-transparent text-[#5C6472] hover:text-[#161A23] hover:bg-white/40"
         }`
       }
     >
       {({ isActive }) => (
         <>
-          <span className={`nav-ic !w-[30px] !h-[30px] !rounded-[9px] ${isActive ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]" : item.color}`}>
+          <span className={`nav-ic !w-[30px] !h-[30px] !rounded-[9px] ${isActive ? "bg-gradient-to-br from-[#F78B28] to-[#E85D3F] text-white border-0 shadow-[0_6px_16px_rgba(247,139,40,0.35)]" : item.color}`}>
             <Icon size={15} />
           </span>
           {t(item.labelKey)}
@@ -87,9 +87,9 @@ export default function ShellLayout() {
 
   return (
     <div className="relative h-screen overflow-hidden">
-      <div className="lg-orb w-[520px] h-[460px] bg-[#4F6BED]/20 -top-[170px] -right-[110px]" />
-      <div className="lg-orb w-[460px] h-[420px] bg-[#0FA88B]/20 -bottom-[160px] -left-[130px]" />
-      <div className="lg-orb w-[320px] h-[300px] bg-[#C9A96A]/14 top-[16%] left-[46%]" />
+      <div className="lg-orb w-[520px] h-[460px] bg-[#F78B28]/20 -top-[170px] -right-[110px]" />
+      <div className="lg-orb w-[460px] h-[420px] bg-[#D97706]/20 -bottom-[160px] -left-[130px]" />
+      <div className="lg-orb w-[320px] h-[300px] bg-[#D9A15D]/14 top-[16%] left-[46%]" />
 
       <div className="relative z-10 flex h-full gap-5 p-5">
         <aside className="glass w-[220px] shrink-0 rounded-[20px] p-[12px] flex flex-col">
@@ -116,7 +116,7 @@ export default function ShellLayout() {
 
           <div className="mt-auto pt-3">
             <div className="glass-soft flex items-center gap-2.5 rounded-xl p-2">
-              <span className="grid w-9 h-9 shrink-0 place-items-center rounded-[10px] bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white text-[12px] font-bold shadow-[0_6px_18px_rgba(79,107,237,0.35)]">{avatarChar}</span>
+              <span className="grid w-9 h-9 shrink-0 place-items-center rounded-[10px] bg-gradient-to-br from-[#F78B28] to-[#E85D3F] text-white text-[12px] font-bold shadow-[0_6px_18px_rgba(247,139,40,0.35)]">{avatarChar}</span>
               <span className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold truncate">{displayName}</div>
                 <div className="text-[11px] text-[#5C6472] truncate">{user?.email || "智曜TokenHub"} · {t(admin ? "nav.roleAdmin" : "nav.roleUser")}</div>
@@ -124,7 +124,7 @@ export default function ShellLayout() {
               <button
                 onClick={() => (currentLang === "zh-CN" ? setLanguage("en") : setLanguage("zh-CN"))}
                 aria-label="Switch language"
-                className="grid w-7 h-7 place-items-center rounded-lg text-[#5C6472] hover:text-[#4F6BED] hover:bg-white/70 transition-colors shrink-0 text-[11px] font-bold"
+                className="grid w-7 h-7 place-items-center rounded-lg text-[#5C6472] hover:text-primary-700 hover:bg-white/70 transition-colors shrink-0 text-[11px] font-bold"
               >
                 {currentLang === "zh-CN" ? "EN" : "中"}
               </button>

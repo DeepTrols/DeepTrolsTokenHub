@@ -65,7 +65,7 @@ export default function SecuritySettingsSection() {
               type="checkbox"
               checked={registerEnabled}
               onChange={(e) => setRegisterEnabled(e.target.checked)}
-              className="accent-[#4F6BED]"
+              className="accent-[#F78B28]"
             />
             <Label htmlFor="register_enabled">{t("settings.openRegister")}</Label>
           </div>
@@ -84,7 +84,7 @@ export default function SecuritySettingsSection() {
           <CardDescription>
             {t("settings.oauthGithubDesc")}
             {" "}
-            <code className="text-[#4F6BED]">
+            <code className="text-primary-700">
               {(oauthRedirectBase || t("settings.callbackHint")) + "/api/oauth/github/callback"}
             </code>
           </CardDescription>
@@ -152,7 +152,7 @@ export default function SecuritySettingsSection() {
           <CardDescription>
             {t("settings.oauthGoogleDesc")}
             {" "}
-            <code className="text-[#4F6BED]">
+            <code className="text-primary-700">
               {(oauthRedirectBase || t("settings.callbackHint")) + "/api/oauth/google/callback"}
             </code>
           </CardDescription>

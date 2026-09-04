@@ -169,7 +169,7 @@ export default function RangePicker({ from, to, preset, now, onApply }: RangePic
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="glass-soft rounded-lg px-3 py-2 text-sm inline-flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-[#4F6BED]/20"
+        className="glass-soft rounded-lg px-3 py-2 text-sm inline-flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-[#F78B28]/20"
       >
         <CalendarDays size={14} className="text-[#5C6472]" />
         <span className="font-mono">{formatRangeLabel(from, to)}</span>
@@ -193,7 +193,7 @@ export default function RangePicker({ from, to, preset, now, onApply }: RangePic
                     }`}
                   >
                     {t(p.label)}
-                    {activePreset === p.key && <Check size={14} className="text-[#4F6BED]" />}
+                    {activePreset === p.key && <Check size={14} className="text-primary-700" />}
                   </button>
                 ))}
               </div>

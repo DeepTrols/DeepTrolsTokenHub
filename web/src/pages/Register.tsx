@@ -37,9 +37,9 @@ export default function Register() {
 
   return (
     <div className="relative min-h-screen overflow-hidden flex items-center justify-center p-6">
-      <div className="lg-orb w-[520px] h-[460px] bg-[#4F6BED]/22 -top-[170px] -right-[110px]" />
-      <div className="lg-orb w-[460px] h-[420px] bg-[#0FA88B]/20 -bottom-[160px] -left-[130px]" />
-      <div className="lg-orb w-[320px] h-[300px] bg-[#C9A96A]/14 top-[16%] left-[46%]" />
+      <div className="lg-orb w-[520px] h-[460px] bg-[#F78B28]/22 -top-[170px] -right-[110px]" />
+      <div className="lg-orb w-[460px] h-[420px] bg-[#D97706]/20 -bottom-[160px] -left-[130px]" />
+      <div className="lg-orb w-[320px] h-[300px] bg-[#D9A15D]/14 top-[16%] left-[46%]" />
 
       <div className="relative z-10 glass rounded-[22px] w-full max-w-md p-10">
         <div className="text-center pb-2">
@@ -72,7 +72,7 @@ export default function Register() {
             {error && <div className="p-3 bg-[#E5484D]/10 border border-[#E5484D]/20 rounded-xl text-[#C4372C] text-sm">{error}</div>}
             <Button type="submit" disabled={loading} className="w-full" size="lg">{loading ? t("register.submitting") : t("register.submit")}</Button>
           </form>
-          <p className="text-center text-xs text-[#5C6472] mt-6">{t("register.hasAccount")} <Link to="/login" className="text-[#4F6BED] font-semibold hover:underline">{t("register.loginNow")}</Link></p>
+          <p className="text-center text-xs text-[#5C6472] mt-6">{t("register.hasAccount")} <Link to="/login" className="text-primary-700 font-semibold hover:underline">{t("register.loginNow")}</Link></p>
         </div>
       </div>
     </div>

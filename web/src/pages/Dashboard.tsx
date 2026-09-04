@@ -22,7 +22,7 @@ import { AlertTriangle, Download, MoreVertical, RotateCw } from "lucide-react";
 import "../i18n";
 import { useTranslation } from "react-i18next";
 
-const PALETTE = ["#4F6BED", "#0FA88B", "#8B6FE8", "#D3A94E", "#E5484D", "#12A5B0", "#C9A96A"];
+const PALETTE = ["#F78B28", "#D97706", "#E85D3F", "#E9A23B", "#E5484D", "#E76F51", "#D9A15D"];
 
 export { gmt8DayKey, gmt8DayStart, gmt8MonthStart, formatRangeLabel, rangeForPreset } from "../lib/gmt8";
 export type { PresetKey } from "../lib/gmt8";
@@ -234,7 +234,7 @@ export default function Dashboard() {
           <p className="text-[13px] text-[#5C6472] mt-1">{t("dashboard.subtitle")}</p>
         </div>
         <div className="glass rounded-2xl p-12 text-center">
-          <div className="animate-spin w-8 h-8 border-2 border-[#4F6BED] border-t-transparent rounded-full mx-auto mb-3" />
+          <div className="animate-spin w-8 h-8 border-2 border-[#F78B28] border-t-transparent rounded-full mx-auto mb-3" />
           <p className="text-muted-foreground">{t("dashboard.loading")}</p>
         </div>
       </div>
@@ -276,19 +276,19 @@ export default function Dashboard() {
       <div>
         <h2 className="font-display text-[25px] font-bold tracking-tight">{t("dashboard.title")}</h2>
         <p className="text-[13px] text-[#5C6472] mt-1">{t("dashboard.subtitle")}</p>
-        <a href="/usage" className="inline-block mt-1 text-sm font-medium text-[#4F6BED] hover:underline">{t("dashboard.viewUsage")}</a>
+        <a href="/usage" className="inline-block mt-1 text-sm font-medium text-primary-700 hover:underline">{t("dashboard.viewUsage")}</a>
       </div>
 
       {wallet?.below_threshold && (
-        <div className="glass-soft rounded-xl border-[#D3A94E]/40 p-3.5 flex items-center justify-between gap-3">
+        <div className="glass-soft rounded-xl border-[#E9A23B]/40 p-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-[13px]">
-            <span className="grid w-7 h-7 shrink-0 place-items-center rounded-lg bg-[#D3A94E]/15 text-[#A06B12]">
+            <span className="grid w-7 h-7 shrink-0 place-items-center rounded-lg bg-[#E9A23B]/15 text-[#A06B12]">
               <AlertTriangle size={14} />
             </span>
             <span className="font-semibold text-[#8a6d1f]">{t("dashboard.balanceAlert")}</span>
             <span className="text-[#8a6d1f]/80">{t("dashboard.balanceAlertDesc")}</span>
           </div>
-          <Link to="/bills" className="shrink-0 text-[13px] font-semibold text-[#4F6BED] hover:underline">
+          <Link to="/bills" className="shrink-0 text-[13px] font-semibold text-primary-700 hover:underline">
             {t("dashboard.setAlert")}
           </Link>
         </div>
@@ -350,7 +350,7 @@ export default function Dashboard() {
             setApiKeyId("");
             setSelectedModel("");
           }}
-          className="text-[13px] font-medium text-[#4F6BED] hover:underline"
+          className="text-[13px] font-medium text-primary-700 hover:underline"
         >
           {t("dashboard.clearFilters")}
         </button>
@@ -414,7 +414,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
           <h3 className="font-display text-[15px] font-bold">
             {t("dashboard.chartCost")}
-            <span className="ml-2 font-mono text-[#4F6BED]">¥{formatAmount(stats.cost)}</span>
+            <span className="ml-2 font-mono text-primary-700">¥{formatAmount(stats.cost)}</span>
           </h3>
           <div className="flex rounded-lg bg-black/5 p-0.5">
             {(["model", "apikey"] as const).map((g) => (
@@ -443,7 +443,7 @@ export default function Dashboard() {
                 domain={[0, (max: number) => Math.ceil(max * 1.2)]}
               />
               <Tooltip
-                cursor={{ fill: "rgba(79,107,237,0.06)" }}
+                cursor={{ fill: "rgba(247,139,40,0.06)" }}
                 contentStyle={{
                   background: "rgba(255,255,255,0.95)",
                   border: "1px solid rgba(0,0,0,0.08)",
@@ -491,8 +491,8 @@ export default function Dashboard() {
                 <AreaChart data={modelDaily} margin={{ top: 8, right: 4, left: -18, bottom: 0 }}>
                   <defs>
                     <linearGradient id="reqGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#4F6BED" stopOpacity={0.28} />
-                      <stop offset="100%" stopColor="#4F6BED" stopOpacity={0.03} />
+                      <stop offset="0%" stopColor="#F78B28" stopOpacity={0.28} />
+                      <stop offset="100%" stopColor="#F78B28" stopOpacity={0.03} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke="rgba(22,26,35,0.08)" vertical={false} />
@@ -507,7 +507,7 @@ export default function Dashboard() {
                     }}
                     formatter={(v: number) => [v.toLocaleString("en-US"), t("dashboard.requests")]}
                   />
-                  <Area type="monotone" dataKey="requests" stroke="#4F6BED" strokeWidth={2} fill="url(#reqGrad)" />
+                  <Area type="monotone" dataKey="requests" stroke="#F78B28" strokeWidth={2} fill="url(#reqGrad)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -528,7 +528,7 @@ export default function Dashboard() {
                     tickFormatter={(v: number) => (v >= 1_000_000 ? `${Math.round(v / 1_000_000)}M` : v >= 1000 ? `${Math.round(v / 1000)}K` : String(v))}
                   />
                   <Tooltip
-                    cursor={{ fill: "rgba(79,107,237,0.06)" }}
+                    cursor={{ fill: "rgba(247,139,40,0.06)" }}
                     contentStyle={{
                       background: "rgba(255,255,255,0.95)",
                       border: "1px solid rgba(0,0,0,0.08)",
@@ -537,7 +537,7 @@ export default function Dashboard() {
                     }}
                     formatter={(v: number) => [v.toLocaleString("en-US"), "Tokens"]}
                   />
-                  <Bar dataKey="tokens" fill="#8FB0F5" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="tokens" fill="#E9A23B" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

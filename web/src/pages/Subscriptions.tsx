@@ -129,9 +129,9 @@ export default function Subscriptions() {
       ) : (
         <>
           {active.length > 0 && (
-            <div className="mb-5 p-4 glass-soft rounded-2xl border-[#0FA88B]/30">
+            <div className="mb-5 p-4 glass-soft rounded-2xl border-[#1BA878]/30">
               <div className="flex items-center gap-3">
-                <span className="grid w-10 h-10 place-items-center rounded-xl bg-gradient-to-br from-[#0FA88B] to-[#35A7FF] text-white">
+                <span className="grid w-10 h-10 place-items-center rounded-xl bg-gradient-to-br from-[#1BA878] to-[#0FA88B] text-white">
                   <Crown size={17} />
                 </span>
                 <div>
@@ -179,7 +179,7 @@ export default function Subscriptions() {
                     <span className="text-[12px] text-[#5C6472]">/ {durationLabel(p.duration_days, t)}</span>
                   </div>
                   {p.group_name && (
-                    <span className="mt-2 inline-flex w-fit items-center rounded-full bg-[#4F6BED]/10 text-[#4F6BED] text-[11.5px] font-semibold px-2.5 py-0.5">
+                    <span className="mt-2 inline-flex w-fit items-center rounded-full bg-[#F78B28]/10 text-primary-700 text-[11.5px] font-semibold px-2.5 py-0.5">
                       {t("subscriptions.includesGroup", { name: p.group_name })}
                     </span>
                   )}
@@ -263,7 +263,7 @@ export default function Subscriptions() {
               type="checkbox"
               checked={autoRenewConsent}
               onChange={(e) => setAutoRenewConsent(e.target.checked)}
-              className="accent-[#4F6BED]"
+              className="accent-[#F78B28]"
             />
             {t("subscriptions.autoRenewConsent")}
           </label>

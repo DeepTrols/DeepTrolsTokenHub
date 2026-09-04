@@ -32,7 +32,7 @@ export function PaymentQrDialog({ open, onClose, payURL, orderNo, paid }: Props)
               {payURL ? (
                 <QRCodeSVG value={payURL} size={220} />
               ) : (
-                <Loader2 className="animate-spin text-[#4F6BED]" size={32} />
+                <Loader2 className="animate-spin text-primary-700" size={32} />
               )}
               <p className="text-xs text-[#5C6472] text-center">
                 {t("components.qrScanHint")}

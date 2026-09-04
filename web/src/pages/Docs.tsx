@@ -22,7 +22,7 @@ function QuickstartSection() {
             { s: "3", t: t("docs.qsStep3"), d: t("docs.qsStep3Desc") },
           ].map((i) => (
             <div key={i.s} className="flex gap-3">
-              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-[#4F6BED]/10 text-[#4F6BED] flex items-center justify-center text-sm font-bold">
+              <span className="flex-shrink-0 w-7 h-7 rounded-full bg-[#F78B28]/10 text-primary-700 flex items-center justify-center text-sm font-bold">
                 {i.s}
               </span>
               <div>
@@ -74,7 +74,7 @@ function ApiReferenceSection() {
       </div>
       <div>
         <h3 className="text-lg font-semibold mb-3">{t("docs.apiChat")}</h3>
-        <div className="glass-soft border-[#4F6BED]/10 rounded-xl p-4 mb-3">
+        <div className="glass-soft border-[#F78B28]/10 rounded-xl p-4 mb-3">
           <div className="flex items-center gap-2 mb-2">
             <Badge variant="success" className="font-mono">POST</Badge>
             <code className="text-sm font-mono">/v1/chat/completions</code>
@@ -92,7 +92,7 @@ function ApiReferenceSection() {
       </div>
       <div>
         <h3 className="text-lg font-semibold mb-3">{t("docs.apiListModels")}</h3>
-        <div className="glass-soft border-[#4F6BED]/10 rounded-xl p-4 mb-3">
+        <div className="glass-soft border-[#F78B28]/10 rounded-xl p-4 mb-3">
           <div className="flex items-center gap-2 mb-2">
             <Badge className="font-mono">GET</Badge>
             <code className="text-sm font-mono">/v1/models</code>
@@ -168,7 +168,7 @@ function BillingSection() {
       <div>
         <h3 className="text-lg font-semibold mb-3">{t("docs.billWallet")}</h3>
         <p className="text-sm text-muted-foreground mb-4">{t("docs.billWalletDesc")}</p>
-        <div className="glass-soft border-[#4F6BED]/10 rounded-xl p-4 space-y-2">
+        <div className="glass-soft border-[#F78B28]/10 rounded-xl p-4 space-y-2">
           {[
             [t("docs.bwPeriod"), t("docs.bwPeriodV")],
             [t("docs.bwSnapshot"), t("docs.bwSnapshotV")],

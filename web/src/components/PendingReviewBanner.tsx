@@ -18,9 +18,9 @@ export function PendingReviewBanner({ tenantStatus }: PendingReviewBannerProps) 
   return (
     <div
       role="status"
-      className="mb-6 flex items-start gap-3 rounded-2xl glass-soft border-[#D3A94E]/30 p-4 text-sm"
+      className="mb-6 flex items-start gap-3 rounded-2xl glass-soft border-[#E9A23B]/30 p-4 text-sm"
     >
-      <Info size={18} className="mt-0.5 shrink-0 text-[#D3A94E]" />
+      <Info size={18} className="mt-0.5 shrink-0 text-[#E9A23B]" />
       <div>
         <p className="font-medium text-[#A06B12]">{t("components.pendingTitle")}</p>
         <p className="mt-0.5 text-[#A06B12]/85">{t("components.pendingDesc")}</p>

@@ -85,7 +85,7 @@ const PERIODS: Array<{ id: RankingPeriod; label: string }> = [
   { id: "year", label: "rankings.periodYear" },
 ];
 
-const CHART_COLORS = ["#4F6BED", "#0FA88B", "#D3A94E", "#8B6FE8", "#E5484D", "#35A7FF", "#FF9F1C", "#7C9885", "#B56576", "#6D597A"];
+const CHART_COLORS = ["#F78B28", "#D97706", "#E9A23B", "#E85D3F", "#E5484D", "#F4A261", "#FF9F1C", "#C77832", "#A9472E", "#7C3F23"];
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -153,7 +153,7 @@ export default function Rankings() {
               onClick={() => setPeriod(p.id)}
               className={`px-3.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all ${
                 period === p.id
-                  ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white shadow-[0_8px_20px_rgba(79,107,237,0.3)]"
+                  ? "bg-gradient-to-br from-[#F78B28] to-[#E85D3F] text-white shadow-[0_8px_20px_rgba(247,139,40,0.3)]"
                   : "text-[#5C6472] hover:text-[#161A23]"
               }`}
             >
@@ -174,7 +174,7 @@ export default function Rankings() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="glass rounded-[22px] p-5 lg:col-span-2">
               <h3 className="font-display font-semibold mb-4 flex items-center gap-2">
-                <Trophy size={17} className="text-[#D3A94E]" />
+                <Trophy size={17} className="text-[#E9A23B]" />
                 {t("rankings.modelTop", { count: data.models.length })}
               </h3>
               <div className="overflow-x-auto">
@@ -202,7 +202,7 @@ export default function Rankings() {
                           <td className="py-2.5 pr-2">
                             <div className="h-1.5 rounded-full bg-black/5 overflow-hidden">
                               <div
-                                className="h-full rounded-full bg-gradient-to-r from-[#4F6BED] to-[#8B6FE8]"
+                                className="h-full rounded-full bg-gradient-to-r from-[#F78B28] to-[#E85D3F]"
                                 style={{ width: `${Math.max(2, Math.min(100, m.share * 100))}%` }}
                               />
                             </div>
@@ -234,7 +234,7 @@ export default function Rankings() {
                     </div>
                     <div className="h-2 rounded-full bg-black/5 overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-[#0FA88B] to-[#35A7FF]"
+                        className="h-full rounded-full bg-gradient-to-r from-[#D97706] to-[#F4A261]"
                         style={{ width: `${Math.max(2, Math.min(100, v.share * 100))}%` }}
                       />
                     </div>

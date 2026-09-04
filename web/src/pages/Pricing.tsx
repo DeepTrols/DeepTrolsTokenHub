@@ -110,7 +110,7 @@ export default function Pricing() {
                   onClick={() => setCategory(c)}
                   className={`px-3 py-1.5 rounded-full text-[12.5px] font-semibold border transition-all ${
                     category === c
-                      ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-transparent shadow-[0_6px_14px_rgba(79,107,237,0.28)]"
+                      ? "bg-gradient-to-br from-[#F78B28] to-[#E85D3F] text-white border-transparent shadow-[0_6px_14px_rgba(247,139,40,0.28)]"
                       : "glass-soft text-[#5C6472] hover:text-[#161A23]"
                   }`}
                 >
@@ -124,7 +124,7 @@ export default function Pricing() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t("pricing.searchPlaceholder")}
-                className="w-full glass-soft rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
+                className="w-full glass-soft rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20"
               />
             </div>
           </div>
@@ -171,7 +171,7 @@ export default function Pricing() {
 
                     <button
                       onClick={() => setExpanded(isOpen ? null : m.code)}
-                      className="mt-3 flex items-center justify-center gap-1 text-[12px] font-semibold text-[#4F6BED] hover:underline"
+                      className="mt-3 flex items-center justify-center gap-1 text-[12px] font-semibold text-primary-700 hover:underline"
                     >
                       {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                       {isOpen ? t("pricing.collapseDetail") : t("pricing.expandDetail")}
@@ -196,7 +196,7 @@ export default function Pricing() {
                                 <td className="py-1.5 pr-2 text-[#5C6472]">{p.unit_name}</td>
                                 <td className="py-1.5 pr-2 font-medium">¥{p.unit_price}</td>
                                 <td className="py-1.5 text-[#8C93A1]">{p.price_type === "sell" ? t("pricing.sell") : t("pricing.cost")}</td>
-                                <td className="py-1.5 text-[#8B6FE8]">{tierLabel(p.conditions) || "—"}</td>
+                                <td className="py-1.5 text-[#B94723]">{tierLabel(p.conditions) || "—"}</td>
                               </tr>
                             ))}
                             {(m.pricings ?? []).length === 0 && (

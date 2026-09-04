@@ -82,7 +82,7 @@ export function ProviderSyncDialog({ open, providerId, onClose, onSynced }: Prop
                 type="checkbox"
                 checked={!!selected[m.upstream]}
                 onChange={(e) => setSelected((p) => ({ ...p, [m.upstream]: e.target.checked }))}
-                className="accent-[#4F6BED]"
+                className="accent-[#F78B28]"
               />
               <code className="font-mono text-sm">{m.code || m.upstream}</code>
             </span>
@@ -122,7 +122,7 @@ export function ProviderSyncDialog({ open, providerId, onClose, onSynced }: Prop
             type="checkbox"
             checked={autoCreate}
             onChange={(e) => setAutoCreate(e.target.checked)}
-            className="mt-0.5 rounded accent-[#4F6BED]"
+            className="mt-0.5 rounded accent-[#F78B28]"
           />
           <span>
             <span className="block text-sm font-medium">{t("components.syncAutoCreate")}</span>

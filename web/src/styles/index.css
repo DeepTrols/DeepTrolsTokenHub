@@ -4,37 +4,37 @@
 
 @layer base {
   :root {
-    /* 液态玻璃 · 浅色调整版 */
-    --background: 232 50% 96%;
-    --foreground: 222 20% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 20% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 20% 11%;
-    --primary: 230 81% 62%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 232 45% 95%;
-    --secondary-foreground: 222 20% 20%;
-    --muted: 232 40% 95%;
-    --muted-foreground: 222 10% 39%;
-    --accent: 230 70% 96%;
-    --accent-foreground: 230 60% 32%;
+    /* Logo 橙主题 · 浅色液态玻璃 */
+    --background: 30 60% 97%;
+    --foreground: 24 24% 12%;
+    --card: 30 100% 99%;
+    --card-foreground: 24 24% 12%;
+    --popover: 30 100% 99%;
+    --popover-foreground: 24 24% 12%;
+    --primary: 28.7 92.8% 56.3%;
+    --primary-foreground: 24 50% 12%;
+    --secondary: 30 70% 94%;
+    --secondary-foreground: 24 28% 20%;
+    --muted: 30 35% 94%;
+    --muted-foreground: 24 12% 39%;
+    --accent: 29 100% 93%;
+    --accent-foreground: 24 78% 31%;
     --destructive: 358 76% 59%;
     --destructive-foreground: 0 0% 100%;
-    --border: 230 25% 89%;
-    --input: 230 30% 91%;
-    --ring: 230 81% 62%;
+    --border: 29 35% 87%;
+    --input: 29 42% 90%;
+    --ring: 28.7 92.8% 56.3%;
     --radius: 1rem;
 
-    /* 品牌色板（液态玻璃） */
-    --brand-indigo: #4f6bed;
-    --brand-violet: #8b6fe8;
-    --brand-teal: #0fa88b;
-    --brand-green: #1ba878;
-    --brand-amber: #d3a94e;
-    --brand-red: #e5484d;
-    --brand-gold: #c9a96a;
-    --brand-ink: #161a23;
+    /* 品牌与语义色板 */
+    --brand-primary: #f78b28;
+    --brand-secondary: #e85d3f;
+    --brand-accent: #d97706;
+    --brand-success: #1ba878;
+    --brand-warning: #e9a23b;
+    --brand-danger: #e5484d;
+    --brand-gold: #d9a15d;
+    --brand-ink: #2b1a12;
   }
 
   * {
@@ -43,7 +43,7 @@
 
   body {
     @apply bg-background text-foreground;
-    background-image: linear-gradient(135deg, #e8ecf8 0%, #f1eff7 46%, #e2f2ef 100%);
+    background-image: linear-gradient(135deg, #fff7ef 0%, #fff1e5 48%, #fbe8d7 100%);
     background-attachment: fixed;
     font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1, "tnum" 1;
@@ -55,7 +55,7 @@
   }
 
   ::selection {
-    background: rgba(79, 107, 237, 0.2);
+    background: rgba(247, 139, 40, 0.2);
   }
 }
 
@@ -70,7 +70,7 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.95),
       inset 0 -1px 0 rgba(255, 255, 255, 0.25),
       0 0 0 1px rgba(255, 255, 255, 0.3),
-      0 22px 60px rgba(63, 76, 128, 0.12);
+      0 22px 60px rgba(137, 76, 32, 0.12);
   }
 
   /* 更轻的玻璃（输入框 / 胶囊） */
@@ -125,23 +125,23 @@
     font-style: normal;
   }
   .status-pill.ok { color: #0c7a55; }
-  .status-pill.ok i { background: var(--brand-green); box-shadow: 0 0 8px var(--brand-green); }
+  .status-pill.ok i { background: var(--brand-success); box-shadow: 0 0 8px var(--brand-success); }
   .status-pill.run { color: #a06b12; }
-  .status-pill.run i { background: var(--brand-amber); box-shadow: 0 0 8px var(--brand-amber); }
+  .status-pill.run i { background: var(--brand-warning); box-shadow: 0 0 8px var(--brand-warning); }
   .status-pill.fail { color: #c4372c; }
-  .status-pill.fail i { background: var(--brand-red); box-shadow: 0 0 8px var(--brand-red); }
+  .status-pill.fail i { background: var(--brand-danger); box-shadow: 0 0 8px var(--brand-danger); }
 
   /* 品牌 logo 标记 */
   .brand-mark {
     width: 46px;
     height: 46px;
     border-radius: 15px;
-    background: linear-gradient(135deg, var(--brand-indigo), var(--brand-violet));
+    background: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 4px;
-    box-shadow: 0 10px 26px rgba(79, 107, 237, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    box-shadow: 0 10px 26px rgba(247, 139, 40, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4);
     flex-shrink: 0;
   }
   .brand-coin {
@@ -150,6 +150,6 @@
     border-radius: 50%;
   }
   .brand-coin.gold { background: var(--brand-gold); }
-  .brand-coin.teal { background: var(--brand-teal); }
+  .brand-coin.teal { background: var(--brand-accent); }
   .brand-coin.white { background: #fff; }
 }

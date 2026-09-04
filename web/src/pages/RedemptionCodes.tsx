@@ -146,7 +146,7 @@ export default function RedemptionCodes() {
                         c.status === "active"
                           ? "bg-[#1BA878]/10 text-[#0C7A55]"
                           : c.status === "used"
-                            ? "bg-[#4F6BED]/10 text-[#4F6BED]"
+                            ? "bg-[#F78B28]/10 text-primary-700"
                             : "bg-[#8C93A1]/10 text-[#5C6472]"
                       }`}
                     >

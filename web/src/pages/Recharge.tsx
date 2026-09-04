@@ -135,7 +135,7 @@ export default function Recharge() {
         <h3 className="font-display font-semibold mb-4">{t("recharge.onlineTitle")}</h3>
 
         {!methods?.enabled && (
-          <div className="mb-4 p-3 glass-soft rounded-xl border-[#D3A94E]/40 text-sm text-[#8a6d1f]">
+          <div className="mb-4 p-3 glass-soft rounded-xl border-[#E9A23B]/40 text-sm text-[#8a6d1f]">
             {t("recharge.onlineDisabled")}
           </div>
         )}
@@ -165,7 +165,7 @@ export default function Recharge() {
                 }}
                 className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
                   selectedAmount === amt && !customAmount
-                    ? "bg-white/85 border-[#4F6BED]/60 text-[#4F6BED] shadow-[0_6px_16px_rgba(79,107,237,0.18)]"
+                    ? "bg-white/85 border-[#F78B28]/60 text-primary-700 shadow-[0_6px_16px_rgba(247,139,40,0.18)]"
                     : "glass-soft text-[#5C6472] hover:text-[#161A23]"
                 }`}
               >
@@ -198,8 +198,8 @@ export default function Recharge() {
                   key={pm.type}
                   className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors border ${
                     paymentMethod === pm.type
-                      ? "border-[#4F6BED]/50 bg-white/80"
-                      : "glass-soft border-transparent hover:border-[#4F6BED]/30"
+                      ? "border-[#F78B28]/50 bg-white/80"
+                      : "glass-soft border-transparent hover:border-[#F78B28]/30"
                   }`}
                 >
                   <input
@@ -208,7 +208,7 @@ export default function Recharge() {
                     value={pm.type}
                     checked={paymentMethod === pm.type}
                     onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="accent-[#4F6BED]"
+                    className="accent-[#F78B28]"
                   />
                   <PayIcon kind={pm.type === "wxpay" ? "wechat" : "alipay"} />
                   <div>
@@ -237,7 +237,7 @@ export default function Recharge() {
         paid={order?.paid ?? false}
       />
 
-      <div className="glass rounded-[22px] p-5">
+      <div className="glass rounded-[22px] p-5 mb-6">
         <h3 className="font-display font-semibold mb-4">{t("recharge.redeemTitle")}</h3>
         <div className="flex gap-3">
           <Input

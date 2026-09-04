@@ -44,7 +44,7 @@ export function ChannelModelList({ channelId }: { channelId: string }) {
                   checked={m.enabled}
                   disabled={toggle.isPending}
                   onChange={(e) => toggle.mutate({ modelId: m.model_id, enabled: e.target.checked })}
-                  className="accent-[#4F6BED]"
+                  className="accent-[#F78B28]"
                   aria-label={t("components.boundEnableAria", { code: m.code })}
                 />
               </td>

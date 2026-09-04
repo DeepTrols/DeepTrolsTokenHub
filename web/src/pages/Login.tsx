@@ -15,19 +15,19 @@ const REGISTER_TARGET = "/register";
 
 /** 一把密钥即可调用的模型（登录页展示，非模型目录数据源）。以国产模型为主。 */
 const MODELS = [
-  { name: "DeepSeek", vendor: "深度求索", color: "#0FA88B" },
-  { name: "通义千问", vendor: "阿里云 Qwen", color: "#8B6FE8" },
-  { name: "智谱 GLM", vendor: "智谱AI", color: "#4F6BED" },
+  { name: "DeepSeek", vendor: "深度求索", color: "#D97706" },
+  { name: "通义千问", vendor: "阿里云 Qwen", color: "#E85D3F" },
+  { name: "智谱 GLM", vendor: "智谱AI", color: "#F78B28" },
   { name: "Kimi", vendor: "月之暗面", color: "#E5484D" },
-  { name: "豆包", vendor: "字节跳动", color: "#C9A96A" },
-  { name: "混元", vendor: "腾讯云", color: "#D3A94E" },
+  { name: "豆包", vendor: "字节跳动", color: "#D9A15D" },
+  { name: "混元", vendor: "腾讯云", color: "#E9A23B" },
 ];
 
 const FEATURES = [
-  { icon: Coins, labelKey: "login.featureBilling", color: "#4F6BED" },
-  { icon: ShieldCheck, labelKey: "login.featureBudget", color: "#0FA88B" },
-  { icon: Scale, labelKey: "login.featureReconcile", color: "#8B6FE8" },
-  { icon: FileCheck2, labelKey: "login.featureEvidence", color: "#D3A94E" },
+  { icon: Coins, labelKey: "login.featureBilling", color: "#F78B28" },
+  { icon: ShieldCheck, labelKey: "login.featureBudget", color: "#D97706" },
+  { icon: Scale, labelKey: "login.featureReconcile", color: "#E85D3F" },
+  { icon: FileCheck2, labelKey: "login.featureEvidence", color: "#E9A23B" },
 ];
 
 export default function Login() {
@@ -85,9 +85,9 @@ export default function Login() {
 
   return (
     <div className="relative min-h-screen overflow-hidden flex items-center justify-center p-6">
-      <div className="lg-orb w-[520px] h-[460px] bg-[#4F6BED]/22 -top-[170px] -right-[110px]" />
-      <div className="lg-orb w-[460px] h-[420px] bg-[#0FA88B]/20 -bottom-[160px] -left-[130px]" />
-      <div className="lg-orb w-[320px] h-[300px] bg-[#C9A96A]/14 top-[16%] left-[46%]" />
+      <div className="lg-orb w-[520px] h-[460px] bg-[#F78B28]/22 -top-[170px] -right-[110px]" />
+      <div className="lg-orb w-[460px] h-[420px] bg-[#D97706]/20 -bottom-[160px] -left-[130px]" />
+      <div className="lg-orb w-[320px] h-[300px] bg-[#D9A15D]/14 top-[16%] left-[46%]" />
 
       <div className="relative z-10 grid w-full max-w-[1280px] grid-cols-1 lg:grid-cols-[1.08fr_0.92fr] gap-6 items-stretch">
         {/* 左：品牌与产品价值 */}
@@ -102,7 +102,7 @@ export default function Login() {
             {t("login.heroTitleLine1")}
             <br />
             {t("login.heroTitleLine2")}
-            <span className="relative text-[#4F6BED]">{t("login.heroTitleHighlight")}</span>
+            <span className="relative text-primary-700">{t("login.heroTitleHighlight")}</span>
             <svg className="absolute left-0 right-0 -bottom-[7px] h-2" viewBox="0 0 160 8" preserveAspectRatio="none" aria-hidden="true">
               <path d="M2 6 C30 1 55 7 80 4 C105 1 130 6 158 3" fill="none" stroke="#F2644B" strokeWidth="3" strokeLinecap="round" />
             </svg>
@@ -112,7 +112,7 @@ export default function Login() {
           {/* 一把密钥 → 所有模型：可视化 */}
           <div className="glass-soft rounded-2xl p-5 mt-7">
             <div className="flex items-center gap-2 mb-4">
-              <span className="grid w-6 h-6 place-items-center rounded-lg bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white shadow-[0_4px_12px_rgba(79,107,237,0.4)]">
+              <span className="grid w-6 h-6 place-items-center rounded-lg bg-gradient-to-br from-[#F78B28] to-[#E85D3F] text-white shadow-[0_4px_12px_rgba(247,139,40,0.4)]">
                 <KeyRound size={13} strokeWidth={2.5} />
               </span>
               <span className="font-mono text-[13px] font-bold text-[#161A23]">sk-••••••</span>
@@ -136,30 +136,30 @@ export default function Login() {
           <div className="glass-soft rounded-2xl p-4 font-mono text-[12.5px] leading-relaxed mt-7">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-2.5 h-2.5 rounded-full bg-[#E5484D]/80" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[#D3A94E]/80" />
+              <span className="w-2.5 h-2.5 rounded-full bg-[#E9A23B]/80" />
               <span className="w-2.5 h-2.5 rounded-full bg-[#1BA878]/80" />
               <span className="ml-2 font-sans text-[11px] font-semibold text-[#5C6472] tracking-wide">{t("login.codeDemoTitle")}</span>
             </div>
             <div className="space-y-1.5 text-[#2A3040]">
               <div>
-                <span className="text-[#8B6FE8]">curl</span>{" "}
-                <span className="text-[#4F6BED]">https://api.opcstore.com/v1/chat/completions</span>
+                <span className="text-[#B94723]">curl</span>{" "}
+                <span className="text-primary-700">https://api.opcstore.com/v1/chat/completions</span>
               </div>
               <div className="pl-4">
-                <span className="text-[#5C6472]">-H</span> <span className="text-[#0FA88B]">"Authorization: Bearer sk-••••••"</span>
+                <span className="text-[#5C6472]">-H</span> <span className="text-[#9A4D06]">"Authorization: Bearer sk-••••••"</span>
               </div>
               <div className="pl-4">
-                <span className="text-[#5C6472]">-d</span> <span className="text-[#C9A96A]">{'{"model": "deepseek-v4-flash"}'}</span>
+                <span className="text-[#5C6472]">-d</span> <span className="text-[#D9A15D]">{'{"model": "deepseek-v4-flash"}'}</span>
               </div>
               <div className="pt-2 border-t border-black/5 text-[#5C6472]">{t("login.codeDemoComment")}</div>
               <div>
-                <span className="text-[#0FA88B]">deepseek-v4-pro</span>
+                <span className="text-[#9A4D06]">deepseek-v4-pro</span>
                 <span className="text-[#5C6472]"> · </span>
                 <span className="text-[#E5484D]">qwen-max</span>
                 <span className="text-[#5C6472]"> · </span>
-                <span className="text-[#4F6BED]">glm-4</span>
+                <span className="text-primary-700">glm-4</span>
                 <span className="text-[#5C6472]"> · </span>
-                <span className="text-[#D3A94E]">moonshot-v1-8k</span>
+                <span className="text-[#E9A23B]">moonshot-v1-8k</span>
               </div>
             </div>
           </div>
@@ -188,10 +188,10 @@ export default function Login() {
 
           <div className="flex gap-3 flex-wrap mt-7">
             {[
-              { k: modelCount ?? "—", v: t("login.statModels"), c: "#4F6BED" },
-              { k: "4.2M", v: t("login.statCalls"), c: "#0FA88B" },
+              { k: modelCount ?? "—", v: t("login.statModels"), c: "#F78B28" },
+              { k: "4.2M", v: t("login.statCalls"), c: "#D97706" },
               { k: "99.99%", v: t("login.statUptime"), c: "#1BA878" },
-              { k: t("login.keyValue"), v: t("login.statKey"), c: "#8B6FE8" },
+              { k: t("login.keyValue"), v: t("login.statKey"), c: "#E85D3F" },
             ].map((s) => (
               <div key={s.v} className="glass-soft flex items-baseline gap-1.5 rounded-xl px-4 py-2.5">
                 <span className="font-mono text-[17px] font-bold" style={{ color: s.c }}>{s.k}</span>
@@ -204,7 +204,7 @@ export default function Login() {
         {/* 右：登录表单 */}
         <div className="glass rounded-[22px] p-[44px] flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 text-[12px] font-bold tracking-[0.18em] text-[#5C6472]">
-            <span className="w-2 h-2 rounded-full bg-[#0FA88B] shadow-[0_0_8px_#0FA88B]" />
+            <span className="w-2 h-2 rounded-full bg-[#D97706] shadow-[0_0_8px_#D97706]" />
             ONE KEY · ALL MODELS
           </div>
           <h3 className="font-display text-[25px] font-bold mt-3">{t("login.title")}</h3>
@@ -287,13 +287,13 @@ export default function Login() {
             </a>
           )}
           <div className="flex items-center justify-between mt-5 text-[13px] text-[#5C6472]">
-            <span>{t("login.register")} <Link to={REGISTER_TARGET} className="text-[#4F6BED] font-semibold hover:underline">{t("login.registerNow")}</Link></span>
+            <span>{t("login.register")} <Link to={REGISTER_TARGET} className="text-primary-700 font-semibold hover:underline">{t("login.registerNow")}</Link></span>
           </div>
 
           <div className="mt-auto pt-8">
-            <div className="rounded-2xl bg-gradient-to-br from-[#4F6BED]/10 via-transparent to-[#0FA88B]/10 border border-white/90 p-4">
+            <div className="rounded-2xl bg-gradient-to-br from-[#F78B28]/10 via-transparent to-[#D97706]/10 border border-white/90 p-4">
               <div className="flex items-start gap-3">
-                <span className="grid w-8 h-8 shrink-0 place-items-center rounded-[10px] bg-white/90 border border-white shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] text-[#4F6BED]">
+                <span className="grid w-8 h-8 shrink-0 place-items-center rounded-[10px] bg-white/90 border border-white shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] text-primary-700">
                   <ArrowRight size={15} strokeWidth={2.4} />
                 </span>
                 <div>
@@ -304,11 +304,11 @@ export default function Login() {
             </div>
             <div className="text-center text-[11px] text-[#8B93A3] mt-4">
               {t("login.agreement")} ·{" "}
-              <Link to="/rankings" className="text-[#4F6BED] font-semibold hover:underline">
+              <Link to="/rankings" className="text-primary-700 font-semibold hover:underline">
                 {t("login.rankings")}
               </Link>
               {" "}·{" "}
-              <Link to="/pricing" className="text-[#4F6BED] font-semibold hover:underline">
+              <Link to="/pricing" className="text-primary-700 font-semibold hover:underline">
                 {t("login.pricing")}
               </Link>
             </div>

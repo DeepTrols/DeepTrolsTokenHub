@@ -50,7 +50,7 @@ export default function CheckinCard() {
     <div className="glass rounded-[22px] p-5">
       <div className="flex items-center justify-between gap-4 mb-4">
         <div className="flex items-center gap-3">
-          <span className="nav-ic !w-10 !h-10 !rounded-xl bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]">
+          <span className="nav-ic !w-10 !h-10 !rounded-xl bg-gradient-to-br from-[#F78B28] to-[#E85D3F] text-white border-0 shadow-[0_6px_16px_rgba(247,139,40,0.35)]">
             <CalendarCheck2 size={18} />
           </span>
           <div>

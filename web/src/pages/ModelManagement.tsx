@@ -220,7 +220,7 @@ export default function ModelManagement() {
     switch (s) {
       case "active": return <span className="status-pill ok"><i />{t("modelmgmt.statusActive")}</span>;
       case "inactive": return <span className="status-pill run"><i />{t("modelmgmt.statusInactive")}</span>;
-      case "beta": return <span className="status-pill text-[#4F6BED]"><i className="bg-[#4F6BED] shadow-[0_0_8px_#4F6BED]" />{t("modelmgmt.statusBeta")}</span>;
+      case "beta": return <span className="status-pill text-primary-700"><i className="bg-[#F78B28] shadow-[0_0_8px_#F78B28]" />{t("modelmgmt.statusBeta")}</span>;
       default: return <span className="status-pill run"><i />{s || "active"}</span>;
     }
   };
@@ -296,12 +296,12 @@ export default function ModelManagement() {
               <label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">{t("modelmgmt.code")}</label>
               <input type="text" value={code} onChange={(e) => setCode(e.target.value)} placeholder={t("modelmgmt.codePlaceholder")}
                 disabled={!!editing}
-                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm disabled:opacity-50 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm disabled:opacity-50 focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
             </div>
             <div>
               <label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">{t("modelmgmt.provider")}</label>
               <select value={provider} onChange={(e) => setProvider(e.target.value)}
-                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20">
                 <option value="">{t("modelmgmt.selectProvider")}</option>
                 {PROVIDER_OPTIONS.map((o) => (
                   <option key={o.v} value={o.v}>{o.l}</option>
@@ -311,7 +311,7 @@ export default function ModelManagement() {
             <div>
               <label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">{t("modelmgmt.category")}</label>
               <select value={category} onChange={(e) => setCategory(e.target.value)}
-                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20">
                 <option value="chat">{t("modelmgmt.catChat")}</option>
                 <option value="embedding">{t("modelmgmt.catEmbedding")}</option>
                 <option value="image">{t("modelmgmt.catImage")}</option>
@@ -323,45 +323,45 @@ export default function ModelManagement() {
             <div>
               <label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">{t("modelmgmt.displayName")}</label>
               <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={t("modelmgmt.displayNamePlaceholder")}
-                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
             </div>
             <div>
               <label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">{t("modelmgmt.contextWindow")}</label>
               <input type="number" value={contextWindow} onChange={(e) => setContextWindow(Number(e.target.value))}
-                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
             </div>
             <div>
               <label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">{t("modelmgmt.maxOutput")}</label>
               <input type="number" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(Number(e.target.value))}
-                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
             </div>
             <div className="col-span-2">
               <label className="block text-[12px] font-semibold text-[#5C6472] mb-1.5">{t("modelmgmt.description")}</label>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
                 placeholder={t("modelmgmt.descPlaceholder")}
-                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
             </div>
           </div>
 
           <div className="mt-6">
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-[#161A23]">{t("modelmgmt.pricingDims")}</label>
-              <button onClick={addPricing} className="text-sm text-[#4F6BED] font-semibold hover:underline">{t("modelmgmt.addDimension")}</button>
+              <button onClick={addPricing} className="text-sm text-primary-700 font-semibold hover:underline">{t("modelmgmt.addDimension")}</button>
             </div>
             <p className="text-xs text-[#5C6472] mb-2">{t("modelmgmt.pricingHint")}</p>
             {pricings.map((p, idx) => (
               <div key={idx} className="flex gap-3 mb-2 items-start">
                 <select value={p.dimension} onChange={(e) => updatePricing(idx, "dimension", e.target.value)}
-                  className="glass-soft rounded-xl px-3 py-2 text-sm w-32 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+                  className="glass-soft rounded-xl px-3 py-2 text-sm w-32 focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20">
                   <option value="">{t("modelmgmt.selectDimension")}</option>
                   {DIMENSIONS.map((d) => <option key={d} value={d}>{d}</option>)}
                 </select>
                 <input type="text" value={p.unit_name} onChange={(e) => updatePricing(idx, "unit_name", e.target.value)}
-                  placeholder={t("modelmgmt.unitPlaceholder")} className="glass-soft rounded-xl px-3 py-2 text-sm w-20 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                  placeholder={t("modelmgmt.unitPlaceholder")} className="glass-soft rounded-xl px-3 py-2 text-sm w-20 focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
                 <input type="text" value={p.unit_price} onChange={(e) => updatePricing(idx, "unit_price", e.target.value)}
-                  placeholder={t("modelmgmt.pricePlaceholder")} className="glass-soft rounded-xl px-3 py-2 text-sm w-32 font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                  placeholder={t("modelmgmt.pricePlaceholder")} className="glass-soft rounded-xl px-3 py-2 text-sm w-32 font-mono focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
                 <select value={p.period || "off_peak"} onChange={(e) => updatePricing(idx, "period", e.target.value)}
-                  className="glass-soft rounded-xl px-3 py-2 text-sm w-24 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+                  className="glass-soft rounded-xl px-3 py-2 text-sm w-24 focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20">
                   <option value="off_peak">{t("modelmgmt.offPeak")}</option>
                   <option value="peak">{t("modelmgmt.peak")}</option>
                 </select>
@@ -371,7 +371,7 @@ export default function ModelManagement() {
                   onChange={(e) => updateCondition(idx, "min_total_tokens", e.target.value)}
                   placeholder={t("modelmgmt.minTokens")}
                   title={t("modelmgmt.minTokens")}
-                  className="glass-soft rounded-xl px-3 py-2 text-sm w-28 font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
+                  className="glass-soft rounded-xl px-3 py-2 text-sm w-28 font-mono focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20"
                 />
                 <input
                   type="number"
@@ -379,7 +379,7 @@ export default function ModelManagement() {
                   onChange={(e) => updateCondition(idx, "max_total_tokens", e.target.value)}
                   placeholder={t("modelmgmt.maxTokens")}
                   title={t("modelmgmt.maxTokens")}
-                  className="glass-soft rounded-xl px-3 py-2 text-sm w-28 font-mono focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
+                  className="glass-soft rounded-xl px-3 py-2 text-sm w-28 font-mono focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20"
                 />
                 <button onClick={() => removePricing(idx)} className="p-2 text-[#5C6472]/70 hover:text-[#C4372C]" title={t("modelmgmt.remove")}>
                   <Trash2 size={16} />
@@ -407,12 +407,12 @@ export default function ModelManagement() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t("modelmgmt.searchPlaceholder")}
-          className="min-w-[240px] flex-1 glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
+          className="min-w-[240px] flex-1 glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20"
         />
         <select
           value={filterProvider}
           onChange={(e) => setFilterProvider(e.target.value)}
-          className="glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
+          className="glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20"
         >
           <option value="">{t("modelmgmt.allProviders")}</option>
           {PROVIDER_OPTIONS.map((o) => (
@@ -422,7 +422,7 @@ export default function ModelManagement() {
         <select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}
-          className="glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
+          className="glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20"
         >
           <option value="">{t("modelmgmt.allCategories")}</option>
           <option value="chat">{t("modelmgmt.catChat")}</option>
@@ -463,7 +463,7 @@ export default function ModelManagement() {
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-medium text-sm">{m.display_name || m.code}</p>
-                    <span className="px-1.5 py-0.5 rounded-lg text-xs bg-[#4F6BED]/10 text-[#4F6BED] font-medium">
+                    <span className="px-1.5 py-0.5 rounded-lg text-xs bg-[#F78B28]/10 text-primary-700 font-medium">
                       {providerLabel(m.provider)}
                     </span>
                     {statusBadge(m.status)}
@@ -478,10 +478,10 @@ export default function ModelManagement() {
                         <span key={i} className="text-[11px] px-1.5 py-0.5 rounded-md bg-black/[0.04] text-[#5C6472]">
                           {p.dimension}: {p.unit_price}
                           <span className="ml-1 text-[#5C6472]/70">/ {p.unit_name || "unit"}</span>
-                          <span className="ml-1 text-[#4F6BED]">{t(priceTypeLabel(p.price_type))}</span>
+                          <span className="ml-1 text-primary-700">{t(priceTypeLabel(p.price_type))}</span>
                           <span className="ml-1 text-[#A06B12]">{t(periodLabel(p.period))}</span>
                           {conditionsLabel(p.conditions) && (
-                            <span className="ml-1 text-[#8B6FE8]">{conditionsLabel(p.conditions)}</span>
+                            <span className="ml-1 text-[#B94723]">{conditionsLabel(p.conditions)}</span>
                           )}
                         </span>
                       ))}
@@ -494,12 +494,12 @@ export default function ModelManagement() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => updateMutation.mutateAsync({ id: m.id, status: m.status === "active" ? "inactive" : "active" })}
-                    className="p-1.5 text-[#5C6472]/70 hover:text-[#0FA88B] rounded-lg hover:bg-white/70 transition-colors"
+                    className="p-1.5 text-[#5C6472]/70 hover:text-[#9A4D06] rounded-lg hover:bg-white/70 transition-colors"
                     title={m.status === "active" ? t("modelmgmt.offline") : t("modelmgmt.online")}
                   >
                     {m.status === "active" ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </button>
-                  <button onClick={() => openEdit(m)} className="p-1.5 text-[#5C6472]/70 hover:text-[#4F6BED] rounded-lg hover:bg-white/70 transition-colors" title={t("modelmgmt.edit")}>
+                  <button onClick={() => openEdit(m)} className="p-1.5 text-[#5C6472]/70 hover:text-primary-700 rounded-lg hover:bg-white/70 transition-colors" title={t("modelmgmt.edit")}>
                     <Edit size={14} />
                   </button>
                   <button onClick={() => handleDelete(m)} className="p-1.5 text-[#5C6472]/70 hover:text-[#C4372C] rounded-lg hover:bg-white/70 transition-colors" title={t("modelmgmt.delete")}>

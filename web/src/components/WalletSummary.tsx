@@ -17,7 +17,7 @@ export function WalletSummary({ wallet }: { wallet?: WalletData }) {
         </p>
       </div>
       <div className="glass rounded-[22px] p-5 relative overflow-hidden">
-        <div className="absolute w-[110px] h-[110px] rounded-full blur-[28px] opacity-50 -top-[38px] -right-[28px] bg-[#4F6BED]/35 pointer-events-none" />
+        <div className="absolute w-[110px] h-[110px] rounded-full blur-[28px] opacity-50 -top-[38px] -right-[28px] bg-[#F78B28]/35 pointer-events-none" />
         <p className="text-[12px] font-semibold text-[#5C6472] mb-1 relative">{t("components.walletTotalSpent")}</p>
         <p className="font-mono text-[26px] font-semibold tracking-tight text-[#161A23] relative">
           {/* 累计消费是累计扣费总额，API 可能返回负值，展示时取绝对值 */}

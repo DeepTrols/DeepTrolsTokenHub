@@ -19,7 +19,7 @@ const linkClass = (active: boolean) =>
   cn(
     "flex items-center gap-[10px] px-[9px] py-[7px] rounded-[10px] text-[14px] font-semibold border transition-all",
     active
-      ? "bg-white/80 border-white/95 text-[#4F6BED] shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_26px_rgba(63,76,128,0.10)]"
+      ? "bg-white/80 border-white/95 text-primary-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_10px_26px_rgba(137,76,32,0.10)]"
       : "border-transparent text-[#5C6472] hover:text-[#161A23] hover:bg-white/40",
   );
 
@@ -37,8 +37,8 @@ export default function AdminSettingsLayout() {
                     className={cn(
                       "nav-ic !w-[30px] !h-[30px] !rounded-[9px]",
                       isActive
-                        ? "bg-gradient-to-br from-[#4F6BED] to-[#8B6FE8] text-white border-0 shadow-[0_6px_16px_rgba(79,107,237,0.35)]"
-                        : "text-[#8B6FE8]",
+                        ? "bg-gradient-to-br from-[#F78B28] to-[#E85D3F] text-white border-0 shadow-[0_6px_16px_rgba(247,139,40,0.35)]"
+                        : "text-[#B94723]",
                     )}
                   >
                     <item.icon size={15} />

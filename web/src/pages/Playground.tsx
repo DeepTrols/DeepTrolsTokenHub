@@ -166,7 +166,7 @@ export default function Playground() {
             <div className="mb-4">
               <label htmlFor="api-key-select" className="block text-[12px] font-semibold text-[#5C6472] mb-2">{t("playground.selectKey")}</label>
               <select id="api-key-select" value={selectedKeyId} onChange={(e) => setSelectedKeyId(e.target.value)}
-                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm mb-2 focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm mb-2 focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20">
                 <option value="">{t("playground.selectKeyPlaceholder")}</option>
                 {apiKeys.filter(k => k.status === "active").map(k => (
                   <option key={k.id} value={k.id}>{k.name}</option>
@@ -178,7 +178,7 @@ export default function Playground() {
                 </div>
               ) : (
                 <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20"
+                  className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20"
                   disabled={availableModels.length === 0}>
                   {availableModels.length === 0 ? (
                     <option>{selectedKeyId ? t("playground.noModels") : t("playground.selectKeyFirst")}</option>
@@ -198,8 +198,8 @@ export default function Playground() {
             </div>
 
             {noKeysAvailable && (
-              <div className="mb-4 p-4 glass-soft border-[#4F6BED]/30 rounded-xl">
-                <p className="text-sm text-[#4F6BED] font-medium">{t("playground.noKeysTitle")}</p>
+              <div className="mb-4 p-4 glass-soft border-[#F78B28]/30 rounded-xl">
+                <p className="text-sm text-primary-700 font-medium">{t("playground.noKeysTitle")}</p>
                 <p className="text-xs text-[#5C6472] mt-1">{t("playground.noKeysDesc")}</p>
               </div>
             )}
@@ -209,7 +209,7 @@ export default function Playground() {
               <label className="block text-[12px] font-semibold text-[#5C6472] mb-2">{t("playground.prompt")}</label>
               <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)}
                 placeholder={t("playground.promptPlaceholder")} rows={6}
-                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20" />
+                className="w-full glass-soft rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20" />
             </div>
 
             <div className="flex gap-3">
@@ -243,8 +243,8 @@ export default function Playground() {
               ) : response ? (
                 <>
                   {reasoning && (
-                    <div className="mb-3 p-3 rounded-xl bg-[#8B6FE8]/8 border border-[#8B6FE8]/20 text-[13px] text-[#5C6472] whitespace-pre-wrap">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-[#8B6FE8] mb-1">{t("playground.thinking")}</div>
+                    <div className="mb-3 p-3 rounded-xl bg-[#E85D3F]/8 border border-[#E85D3F]/20 text-[13px] text-[#5C6472] whitespace-pre-wrap">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-[#B94723] mb-1">{t("playground.thinking")}</div>
                       {reasoning}
                     </div>
                   )}

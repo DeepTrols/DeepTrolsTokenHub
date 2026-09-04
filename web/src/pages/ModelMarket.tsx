@@ -67,7 +67,7 @@ export default function ModelMarket() {
         </div>
         <Card>
           <CardContent className="p-12 text-center">
-            <div className="animate-spin w-8 h-8 border-2 border-[#4F6BED] border-t-transparent rounded-full mx-auto mb-3" />
+            <div className="animate-spin w-8 h-8 border-2 border-[#F78B28] border-t-transparent rounded-full mx-auto mb-3" />
             <p className="text-muted-foreground">{t("modelmarket.loading")}</p>
           </CardContent>
         </Card>
@@ -102,12 +102,12 @@ export default function ModelMarket() {
       </div>
       <div className="mb-4 flex flex-wrap gap-3">
         <select value={prov} onChange={(e) => setProv(e.target.value)}
-          className="glass-soft rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+          className="glass-soft rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20">
           <option value="">{t("modelmarket.allProviders")}</option>
           {providers.map((p) => <option key={p} value={p}>{pLabel(p)}</option>)}
         </select>
         <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}
-          className="glass-soft rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#4F6BED] focus:ring-2 focus:ring-[#4F6BED]/20">
+          className="glass-soft rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#F78B28] focus:ring-2 focus:ring-[#F78B28]/20">
           <option value="default">{t("modelmarket.sortDefault")}</option>
           <option value="priceAsc">{t("modelmarket.sortAsc")}</option>
           <option value="priceDesc">{t("modelmarket.sortDesc")}</option>
@@ -122,8 +122,8 @@ export default function ModelMarket() {
         {filtered.map((m) => (
           <div key={m.code} className="glass-soft rounded-xl p-4 hover:bg-white/85 transition-all">
             <div className="flex items-start gap-3 mb-3">
-              <div className="p-2 bg-[#4F6BED]/10 rounded-xl shrink-0">
-                <Cpu size={20} className="text-[#4F6BED]" />
+              <div className="p-2 bg-[#F78B28]/10 rounded-xl shrink-0">
+                <Cpu size={20} className="text-primary-700" />
               </div>
               <div className="flex-1">
                 <h4 className="font-semibold text-sm truncate">{m.display_name}</h4>

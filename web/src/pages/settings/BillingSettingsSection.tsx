@@ -189,7 +189,7 @@ export default function BillingSettingsSection() {
                   type="checkbox"
                   checked={form.payment_enabled === "true"}
                   onChange={(e) => setForm((p) => ({ ...p, payment_enabled: e.target.checked ? "true" : "false" }))}
-                  className="accent-[#4F6BED]"
+                  className="accent-[#F78B28]"
                 />
                 <Label htmlFor="payment_enabled">{t("settings.enableTopup")}</Label>
               </div>
@@ -201,7 +201,7 @@ export default function BillingSettingsSection() {
                   onChange={(e) =>
                     setForm((p) => ({ ...p, payment_compliance_confirmed: e.target.checked ? "true" : "false" }))
                   }
-                  className="accent-[#4F6BED]"
+                  className="accent-[#F78B28]"
                 />
                 <Label htmlFor="payment_compliance">{t("settings.compliance")}</Label>
               </div>
